@@ -1,0 +1,158 @@
+//! Window chrome: breadcrumb title bar, `:command` status line, welcome screen.
+
+use gpui_kit::component::{
+    button::Button, h_flex, select::Select, v_flex, ActiveTheme as _, Sizable as _, TitleBar,
+};
+use gpui_kit::{prelude::FluentBuilder as _, *};
+
+use crate::{
+    ui, workspace::Yuki, ImportVoleeo, OpenCommands, OpenRequests, OpenWorkspaces, ToggleEditor,
+    ToggleSidebar, ToggleVars,
+};
+
+/// `demo / JSONPlaceholder / photos                         env [Local ▾]`
+pub fn title_bar(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
+    let theme = cx.theme();
+    let crumbs = yuki.breadcrumb(cx);
+    let last = crumbs.len().saturating_sub(1);
+    let mut trail = h_flex()
+        .gap_1p5()
+        .text_sm()
+        .text_color(theme.muted_foreground);
+    for (i, crumb) in crumbs.into_iter().enumerate() {
+        if i > 0 {
+            trail = trail.child(div().text_color(ui::faint(cx)).child("/"));
+        }
+        let item = div().id(("crumb", i)).child(crumb);
+        trail = trail.child(match i {
+            // The workspace segment opens the workspace switcher.
+            0 => item
+                .cursor_pointer()
+                .hover(|s| s.text_color(theme.foreground))
+                .on_click(|_, window, cx| window.dispatch_action(Box::new(OpenWorkspaces), cx)),
+            i if i == last => item.text_color(theme.foreground),
+            _ => item,
+        });
+    }
+    TitleBar::new().child(
+        h_flex()
+            .w_full()
+            .pr_3()
+            .justify_between()
+            .child(trail)
+            .children(yuki.env.as_ref().map(|env| {
+                h_flex()
+                    .gap_1()
+                    .text_xs()
+                    .text_color(theme.muted_foreground)
+                    .child("env")
+                    .child(
+                        div()
+                            .w(px(150.))
+                            .child(Select::new(env).small().appearance(false)),
+                    )
+            })),
+    )
+}
+
+/// Vim-flavoured hints, each one clickable: `:requests ⌘P  :comandos ⌘⇧P …`
+pub fn status_line(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
+    let theme = cx.theme();
+    let commands: [(&str, &str, Box<dyn Action>); 6] = [
+        (":requests", "⌘P", Box::new(OpenRequests)),
+        (":workspace", "⌘O", Box::new(OpenWorkspaces)),
+        (":comandos", "⌘⇧P", Box::new(OpenCommands)),
+        (":sidebar", "⌘B", Box::new(ToggleSidebar)),
+        (":request", "⌘E", Box::new(ToggleEditor)),
+        (":vars", "⌘⇧E", Box::new(ToggleVars)),
+    ];
+    h_flex()
+        .h(px(24.))
+        .px_3()
+        .gap_4()
+        .text_xs()
+        .font_family(theme.mono_font_family.clone())
+        .text_color(theme.muted_foreground)
+        .bg(theme.status_bar)
+        .border_t_1()
+        .border_color(theme.status_bar_border)
+        .children(
+            commands
+                .into_iter()
+                .enumerate()
+                .map(|(i, (name, key, action))| {
+                    h_flex()
+                        .id(("cmd", i))
+                        .gap_1()
+                        .cursor_pointer()
+                        .hover(|s| s.text_color(theme.foreground))
+                        .child(name)
+                        .child(div().text_color(ui::faint(cx)).child(key))
+                        .on_click(move |_, window, cx| {
+                            window.dispatch_action(action.boxed_clone(), cx)
+                        })
+                }),
+        )
+        .child(div().flex_1())
+        .child(yuki.status.clone())
+}
+
+/// Empty center: the app name and the handful of commands that matter.
+pub fn welcome(has_workspaces: bool, cx: &App) -> impl IntoElement {
+    let theme = cx.theme();
+    let rows: [(&str, &str, &str); 5] = [
+        (":requests", "⌘P", "abrir um request"),
+        (":workspace", "⌘O", "trocar de workspace"),
+        (":comandos", "⌘⇧P", "todas as ações"),
+        (":enviar", "⌘↵", "enviar o request ativo"),
+        (":sidebar", "⌘B", "mostrar/ocultar a árvore"),
+    ];
+    v_flex()
+        .size_full()
+        .items_center()
+        .justify_center()
+        .gap_6()
+        .child(
+            v_flex()
+                .items_center()
+                .gap_1()
+                .child(
+                    div()
+                        .text_size(px(28.))
+                        .font_weight(FontWeight::BOLD)
+                        .child("yuki"),
+                )
+                .child(
+                    div()
+                        .text_sm()
+                        .text_color(theme.muted_foreground)
+                        .child("console de APIs"),
+                ),
+        )
+        .child(
+            v_flex()
+                .gap_1p5()
+                .text_sm()
+                .children(rows.map(|(cmd, key, desc)| {
+                    h_flex()
+                        .gap_4()
+                        .child(div().w(px(110.)).child(cmd))
+                        .child(
+                            div()
+                                .w(px(48.))
+                                .text_color(theme.muted_foreground)
+                                .child(key),
+                        )
+                        .child(div().text_color(theme.muted_foreground).child(desc))
+                })),
+        )
+        .when(!has_workspaces, |s| {
+            s.child(
+                Button::new("welcome-import")
+                    .small()
+                    .outline()
+                    .label("Importar workspaces do Voleeo")
+                    .on_click(|_, window, cx| window.dispatch_action(Box::new(ImportVoleeo), cx)),
+            )
+        })
+}

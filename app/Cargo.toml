@@ -1,0 +1,16 @@
+[package]
+name = "yuki"
+version = "0.1.0"
+edition = "2021"
+license.workspace = true
+
+[dependencies]
+gpui-kit = { version = "0.7", features = ["tree-sitter"] }
+yuki-core = { path = "../crates/yuki-core" }
+yuki-mcp = { path = "../crates/yuki-mcp" }
+yuki-storage = { path = "../crates/yuki-storage" }
+yuki-crypto = { path = "../crates/yuki-crypto" }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+dirs = "6"

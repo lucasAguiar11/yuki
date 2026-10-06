@@ -1,0 +1,20 @@
+[package]
+name = "yuki-oauth"
+version = "0.1.0"
+license.workspace = true
+repository.workspace = true
+edition = "2021"
+
+[dependencies]
+yuki-core = { path = "../yuki-core" }
+yuki-auth = { path = "../yuki-auth" }
+yuki-crypto = { path = "../yuki-crypto" }
+chrono = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+tokio = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

@@ -1,0 +1,18 @@
+[package]
+name = "yuki-cookies"
+version = "0.1.0"
+license.workspace = true
+repository.workspace = true
+edition = "2024"
+
+[dependencies]
+serde = { workspace = true }
+specta = { workspace = true }
+chrono = { workspace = true }
+url = "2"
+cookie = "0.18"
+yuki-core = { path = "../yuki-core" }
+yuki-crypto = { path = "../yuki-crypto" }
+
+[dev-dependencies]
+serde_yaml = { workspace = true }

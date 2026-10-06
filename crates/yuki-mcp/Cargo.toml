@@ -1,0 +1,25 @@
+[package]
+name = "yuki-mcp"
+version = "0.1.0"
+license.workspace = true
+repository.workspace = true
+edition = "2021"
+
+[dependencies]
+yuki-core = { path = "../yuki-core" }
+yuki-storage = { path = "../yuki-storage" }
+yuki-http = { path = "../yuki-http" }
+yuki-ws = { path = "../yuki-ws" }
+yuki-grpc = { path = "../yuki-grpc" }
+yuki-crypto = { path = "../yuki-crypto" }
+yuki-oauth = { path = "../yuki-oauth" }
+yuki-cookies = { path = "../yuki-cookies" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+tokio = { workspace = true }
+chrono = { workspace = true }
+subtle = "2"
+
+[dev-dependencies]
+tempfile = "3"

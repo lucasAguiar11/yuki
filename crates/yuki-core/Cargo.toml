@@ -1,0 +1,15 @@
+[package]
+name = "yuki-core"
+version = "0.1.0"
+license.workspace = true
+repository.workspace = true
+edition = "2021"
+
+[dependencies]
+chrono = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+ulid = { workspace = true }
+specta = { workspace = true }
+rand = { workspace = true }

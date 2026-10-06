@@ -1,0 +1,17 @@
+[package]
+name = "yuki-export"
+version = "0.1.0"
+license.workspace = true
+repository.workspace = true
+edition = "2021"
+
+[dependencies]
+yuki-core = { path = "../yuki-core" }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+
+[dev-dependencies]
+yuki-core = { path = "../yuki-core" }
+yuki-import = { path = "../yuki-import" }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }

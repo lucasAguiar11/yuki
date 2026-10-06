@@ -1,0 +1,28 @@
+Yuki
+Copyright (c) 2026 Lucas Aguiar
+Licensed under the MIT License (see LICENSE).
+
+The source code is MIT for any use, including commercial. Only the official,
+prebuilt Yuki binaries and their updates are additionally offered under Terms of
+Service (free for personal use; commercial use requires a license). Those terms
+never restrict what the MIT License grants for the source.
+
+Portions derived from Voleeo
+----------------------------
+The crates under crates/yuki-* were copied from crates/voleeo-* of Voleeo
+(https://github.com/voleeo/voleeo-api, commit a102f1667c2c63897ecdd25e6d470e298bdafdf4,
+2026-09-01) and have since been renamed and modified.
+Voleeo is licensed under the MIT License, Copyright (c) 2026 Voleeo; that
+notice is retained in LICENSE.
+
+"Voleeo" is referenced only to describe this origin and the Voleeo workspace /
+bundle formats Yuki can import. Yuki is not affiliated with or endorsed by the
+Voleeo project.
+
+Third-party components
+----------------------
+Yuki links crates from crates.io (including GPUI and GPUI Kit, Apache-2.0) and
+embeds Lucide icons (ISC) through gpui-kit-assets. Each keeps its own license
+(MIT, Apache-2.0, ISC, BSD-2/3-Clause, Zlib, Unicode-3.0, MPL-2.0, CC0, ...).
+Binary distributions must ship those license texts, e.g. generated with
+`cargo about generate`.

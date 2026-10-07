@@ -23,7 +23,14 @@ fn resolve_url_and_query(
 ) -> (String, Vec<String>) {
     let path_param_names = extract_path_params(url);
 
-    let mut resolved_base = strip_query(url).to_string();
+    // A request without a params list (Yuki has no params editor) carries its
+    // query in the URL itself — keep it. With params, they own the query.
+    let base = if parameters.is_empty() {
+        url
+    } else {
+        strip_query(url)
+    };
+    let mut resolved_base = base.to_string();
     for param in parameters
         .iter()
         .filter(|p| p.enabled && path_param_names.contains(&p.name))
@@ -146,11 +153,14 @@ pub fn apply_to_request(req: &mut HttpRequest, vars: &HashMap<String, String>) {
         req.auth = AuthConfig::None;
     }
 
-    req.url = if query_parts.is_empty() {
-        resolved_base
-    } else {
-        format!("{}?{}", resolved_base, query_parts.join("&"))
-    };
+    req.url = join_query(resolved_base, &query_parts);
+}
+
+fn join_query(base: String, parts: &[String]) -> String {
+    match (parts.is_empty(), base.contains('?')) {
+        (true, _) => base,
+        (false, has) => format!("{base}{}{}", if has { '&' } else { '?' }, parts.join("&")),
+    }
 }
 
 /// WS equivalent of `apply_to_request`: resolved URL + handshake headers.
@@ -220,11 +230,7 @@ pub fn apply_to_connection(
         | AuthConfig::Ntlm { .. } => {}
     }
 
-    let url = if query_parts.is_empty() {
-        resolved_base
-    } else {
-        format!("{}?{}", resolved_base, query_parts.join("&"))
-    };
+    let url = join_query(resolved_base, &query_parts);
     (url, headers)
 }
 
@@ -407,6 +413,21 @@ mod tests {
         apply_to_request(&mut req, &v);
         assert!(req.url.contains("active=yes"));
         assert!(!req.url.contains("ignored"));
+    }
+
+    #[test]
+    fn url_query_kept_without_params_list() {
+        let v = vars(&[("Q", "yuki")]);
+        let mut req = bare_request("https://api.example.com/get?busca={{ Q }}&p=1");
+        req.auth = AuthConfig::ApiKey {
+            key: "k".into(),
+            value: "v".into(),
+            location: ApiKeyLocation::Query,
+            value_encrypted: false,
+            enabled: true,
+        };
+        apply_to_request(&mut req, &v);
+        assert_eq!(req.url, "https://api.example.com/get?busca=yuki&p=1&k=v");
     }
 
     #[test]

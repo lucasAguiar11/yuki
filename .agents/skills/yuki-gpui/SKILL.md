@@ -35,6 +35,10 @@ use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, IconName, Sizable as
 | Split panes | `h_resizable(id)` / `v_resizable` + `resizable_panel().size(px).size_range(a..b).flex_none()` |
 | Palette | `palette::Palette` (wraps `Command`/`CommandState`; `Target` decides confirm) |
 | Select | `SelectState::new(SearchableVec::new(Vec<SharedString>), Some(IndexPath::new(i)), window, cx)` + `SelectEvent` |
+| Context menu | `.id(..).context_menu(\|m, _, _\| m.item(PopupMenuItem::new("x").on_click(...)))` — never nest two triggers (both open) |
+| Confirm dialog | `window.open_alert_dialog(cx, \|a, _, _\| a.title(..).show_cancel(true).ok_variant(ButtonVariant::Danger).on_ok(..))` (see `items::confirm_delete`) |
+| Drag & drop | `.on_drag(payload, \|d, grab, _, cx\| cx.new(..preview view..))` + `.drag_over::<T>(style)` + `.on_drop(cx.listener(..))` (`moving::Dragged`) |
+| Tree mutation | `Yuki::mutate(rename, op)` — store op off-thread, then reload + resync open tabs |
 | Text inputs | `InputState` (1 line) · `TextareaState` (multi) · `EditorState::new(..).language("json")` (code; **no tokens**) |
 | Chips | `state.set_value(vars::content(text), window, cx)`; renderer `Input::new(&s).token(\|ctx, w, cx\| ...)` |
 | Icons | `IconName::X` — only the default set (`gpui-kit-assets-0.7.1/default-icons.txt`: chevron-*, close, copy, eye, eye-off, search, panel-left, chevrons-up-down, …) |
@@ -57,6 +61,7 @@ use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, IconName, Sizable as
 - **`cx.theme()` borrow**: it borrows `cx` immutably. Copy needed `Hsla`/`SharedString` into locals, or build `cx.listener`/`&mut cx` children *before* taking `theme`. Same for `entity.read(cx)` held across a `&mut cx` call — clone what you need (e.g. `editor.vars.clone()` is an `Rc`).
 - **`focus` + `read`**: `e.read(cx).focus(window, cx)` is a double borrow; get the `FocusHandle` first, then `.focus(window, cx)`.
 - **No focus = dead keyboard**: after closing tabs/switching workspace call `Yuki::focus_active`.
+- **Dialogs and focus**: a dialog opened from a palette/menu click loses focus to their restore (Enter does nothing, keys leak behind the modal) — open it in `window.defer`. On close it re-focuses whatever held focus when it opened; if that view is gone (deleted tab), the keyboard dies — park focus on `Yuki.focus` first.
 - **Resizable**: no `.visible(false)` panels (stale size → jumping divider). Leave hidden panels out and key the group by visibility combo.
 - **Render loops**: never notify unconditionally from an observer of a child that notifies on every host render (e.g. `CommandState`). Guard on a changed value.
 - **Token hover**: `on_token_hover` + storing hover in view state breaks (re-render resets tracking). Use a tooltip on the chip element.

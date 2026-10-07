@@ -31,6 +31,7 @@ app/              binário `yuki` (GPUI) — única camada que conhece gpui
   src/response.rs faixa de status, body/headers, histórico (●●●)
   src/var_view.rs chips `{{ VAR }}` + tooltip; src/vars.rs modelo/tokenização (puro)
   src/vars_panel.rs painel ⌘⇧E;  src/sidebar.rs, tabs.rs, chrome.rs, palette.rs
+  src/items.rs    CRUD da árvore (criar/duplicar/excluir); moving.rs drag & drop + "mover para…"; rename.rs renomear inline
   src/backend.rs  ponte para o motor: tokio runtime, load/save/send, import Voleeo
   src/draft.rs, tree.rs, ui.rs  helpers puros
 crates/yuki-*     motor herdado do Voleeo (MIT), sem gpui/tauri

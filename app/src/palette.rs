@@ -4,9 +4,9 @@ use gpui_kit::component::command::{Command, CommandItem, CommandState};
 use gpui_kit::component::{ActiveTheme as _, IndexPath};
 use gpui_kit::*;
 
-use crate::workspace::Yuki;
+use crate::{moving::Dest, workspace::Yuki, *};
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum Kind {
     /// ⌘P — jump to a request.
     Requests,
@@ -14,6 +14,8 @@ pub enum Kind {
     Commands,
     /// ⌘O — switch workspace.
     Workspaces,
+    /// Pick the destination folder of this item.
+    Move(SharedString),
 }
 
 /// What confirming row `i` does. Rows with an `Action` dispatch it themselves;
@@ -23,6 +25,10 @@ pub enum Target {
     Action,
     Request(SharedString),
     Workspace(String),
+    MoveTo {
+        item: SharedString,
+        folder: Option<String>,
+    },
 }
 
 /// Row pitch of the command list (text line + row padding).
@@ -73,6 +79,7 @@ impl Palette {
             Kind::Requests => "Ir para request…",
             Kind::Commands => "Executar comando…",
             Kind::Workspaces => "Trocar de workspace…",
+            Kind::Move(_) => "Mover para…",
         };
         let theme = cx.theme();
         // Backdrop: a click outside dismisses, like Zed's modals.
@@ -118,6 +125,89 @@ impl Palette {
                             }),
                     ),
             )
+    }
+}
+
+impl Yuki {
+    pub(crate) fn open_palette(&mut self, kind: Kind, window: &mut Window, cx: &mut Context<Self>) {
+        let items: Vec<(CommandItem, Target)> = match &kind {
+            Kind::Requests => self
+                .rows
+                .iter()
+                .filter(|r| r.method.is_some())
+                .map(|r| {
+                    let label = format!("{}  {}", r.method.as_deref().unwrap_or(""), r.name);
+                    (
+                        CommandItem::new().label(label),
+                        Target::Request(r.id.clone()),
+                    )
+                })
+                .collect(),
+            Kind::Commands => {
+                let action = |label: &str, a: Box<dyn Action>| {
+                    (
+                        CommandItem::new().label(label.to_string()).action(a),
+                        Target::Action,
+                    )
+                };
+                vec![
+                    action("Enviar request", Box::new(Send)),
+                    action("Salvar", Box::new(Save)),
+                    action("Nova request", Box::new(NewRequest)),
+                    action("Nova pasta", Box::new(NewFolder)),
+                    action("Renomear request", Box::new(RenameItem)),
+                    action("Duplicar request", Box::new(DuplicateItem)),
+                    action("Mover request para…", Box::new(MoveItem)),
+                    action("Excluir request", Box::new(DeleteItem)),
+                    action("Fechar aba", Box::new(CloseTab)),
+                    action("Alternar sidebar", Box::new(ToggleSidebar)),
+                    action("Ir para request…", Box::new(OpenRequests)),
+                    action("Trocar de workspace…", Box::new(OpenWorkspaces)),
+                    action("Importar workspaces do Voleeo", Box::new(ImportVoleeo)),
+                ]
+            }
+            Kind::Workspaces => {
+                let current = self.ws.as_ref().map(|w| w.id.as_str());
+                self.workspaces
+                    .iter()
+                    .map(|w| {
+                        let item = CommandItem::new()
+                            .label(w.name.clone())
+                            .checked(current == Some(w.id.as_str()));
+                        (item, Target::Workspace(w.id.clone()))
+                    })
+                    .collect()
+            }
+            Kind::Move(item) => self.move_targets(item),
+        };
+        self.palette = Some(Palette::new(kind, items, window, cx));
+        cx.notify();
+    }
+
+    pub fn close_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.palette = None;
+        self.focus_active(window, cx);
+        cx.notify();
+    }
+
+    pub fn palette_confirm(&mut self, row: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let target = self
+            .palette
+            .as_ref()
+            .and_then(|p| p.targets.get(row).cloned());
+        self.close_palette(window, cx);
+        match target {
+            Some(Target::Request(id)) => self.open_request(&id, window, cx),
+            Some(Target::Workspace(id)) => {
+                if let Some(ws) = self.workspaces.iter().find(|w| w.id == id).cloned() {
+                    self.open_workspace(ws, window, cx);
+                }
+            }
+            Some(Target::MoveTo { item, folder }) => {
+                self.move_item(item, Dest::Into(folder), window, cx)
+            }
+            Some(Target::Action) | None => {}
+        }
     }
 }
 

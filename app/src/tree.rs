@@ -40,6 +40,28 @@ pub fn folder_path<'a>(folders: &'a [ApiFolder], mut folder_id: Option<&'a str>)
     path
 }
 
+/// Whether `folder_id` is `ancestor` or nested under it. Guards moves that
+/// would make a folder its own parent; bounded like `folder_path`.
+pub fn within<'a>(
+    folders: &'a [ApiFolder],
+    mut folder_id: Option<&'a str>,
+    ancestor: &str,
+) -> bool {
+    for _ in 0..=folders.len() {
+        match folder_id {
+            Some(id) if id == ancestor => return true,
+            Some(id) => {
+                folder_id = folders
+                    .iter()
+                    .find(|f| f.id == id)
+                    .and_then(|f| f.folder_id.as_deref())
+            }
+            None => return false,
+        }
+    }
+    false
+}
+
 fn walk(
     parent: Option<&str>,
     depth: usize,
@@ -86,4 +108,39 @@ fn walk(
         method: Some(r.method.clone().into()),
         open: false,
     }));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn folder(id: &str, parent: Option<&str>) -> ApiFolder {
+        ApiFolder {
+            id: id.into(),
+            folder_type: "api".into(),
+            model: "folder".into(),
+            workspace_id: "ws".into(),
+            folder_id: parent.map(Into::into),
+            name: id.into(),
+            headers: vec![],
+            auth: yuki_core::AuthConfig::None,
+            variables: vec![],
+            color: None,
+            order: 0.,
+            created_at: String::new(),
+            updated_at: String::new(),
+        }
+    }
+
+    #[test]
+    fn within_follows_parents_and_stops_on_cycles() {
+        let tree = [folder("a", None), folder("b", Some("a")), folder("c", None)];
+        assert!(within(&tree, Some("a"), "a"));
+        assert!(within(&tree, Some("b"), "a"));
+        assert!(!within(&tree, Some("a"), "b"));
+        assert!(!within(&tree, Some("c"), "a"));
+        assert!(!within(&tree, None, "a"));
+        let cycle = [folder("x", Some("y")), folder("y", Some("x"))];
+        assert!(!within(&cycle, Some("x"), "z"));
+    }
 }

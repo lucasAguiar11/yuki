@@ -1,7 +1,6 @@
 use std::{collections::HashSet, sync::Arc};
 
 use gpui_kit::component::{
-    command::CommandItem,
     h_resizable, resizable_panel,
     searchable_list::SearchableVec,
     select::{SelectEvent, SelectState},
@@ -14,7 +13,8 @@ use crate::{
     backend::{self, Backend, WorkspaceData},
     chrome,
     editor::{EditorChanged, RequestEditor},
-    palette::{Kind, Palette, Target},
+    palette::{Kind, Palette},
+    rename::Rename,
     sidebar, tabs, tree, vars_panel, *,
 };
 
@@ -22,7 +22,7 @@ type EnvSelect = SelectState<SearchableVec<SharedString>>;
 
 pub struct Yuki {
     pub backend: Arc<Backend>,
-    focus: FocusHandle,
+    pub(crate) focus: FocusHandle,
     pub workspaces: Vec<Workspace>,
     pub ws: Option<Workspace>,
     pub data: Option<WorkspaceData>,
@@ -36,7 +36,9 @@ pub struct Yuki {
     pub reveal: bool,
     pub env: Option<Entity<EnvSelect>>,
     env_ids: Vec<Option<String>>,
-    palette: Option<Palette>,
+    pub(crate) palette: Option<Palette>,
+    /// Sidebar row being renamed inline.
+    pub renaming: Option<Rename>,
     pub status: SharedString,
     _subs: Vec<Subscription>,
 }
@@ -59,6 +61,7 @@ impl Yuki {
             env: None,
             env_ids: vec![],
             palette: None,
+            renaming: None,
             status: "".into(),
             _subs: vec![],
         };
@@ -158,7 +161,7 @@ impl Yuki {
         self.env = Some(env);
     }
 
-    fn env_id(&self, cx: &App) -> Option<String> {
+    pub(crate) fn env_id(&self, cx: &App) -> Option<String> {
         let ix = self.env.as_ref()?.read(cx).selected_index(cx)?.row;
         self.env_ids.get(ix).cloned().flatten()
     }
@@ -244,83 +247,12 @@ impl Yuki {
     }
 
     /// Keyboard-first: the active tab's URL bar owns focus, else the root.
-    fn focus_active(&self, window: &mut Window, cx: &mut App) {
+    pub(crate) fn focus_active(&self, window: &mut Window, cx: &mut App) {
         let handle = match self.active_editor() {
             Some(e) => e.read(cx).url_focus(cx),
             None => self.focus.clone(),
         };
         handle.focus(window, cx);
-    }
-
-    fn open_palette(&mut self, kind: Kind, window: &mut Window, cx: &mut Context<Self>) {
-        let items: Vec<(CommandItem, Target)> = match kind {
-            Kind::Requests => self
-                .rows
-                .iter()
-                .filter(|r| r.method.is_some())
-                .map(|r| {
-                    let label = format!("{}  {}", r.method.as_deref().unwrap_or(""), r.name);
-                    (
-                        CommandItem::new().label(label),
-                        Target::Request(r.id.clone()),
-                    )
-                })
-                .collect(),
-            Kind::Commands => {
-                let action = |label: &str, a: Box<dyn Action>| {
-                    (
-                        CommandItem::new().label(label.to_string()).action(a),
-                        Target::Action,
-                    )
-                };
-                vec![
-                    action("Enviar request", Box::new(Send)),
-                    action("Salvar", Box::new(Save)),
-                    action("Fechar aba", Box::new(CloseTab)),
-                    action("Alternar sidebar", Box::new(ToggleSidebar)),
-                    action("Ir para request…", Box::new(OpenRequests)),
-                    action("Trocar de workspace…", Box::new(OpenWorkspaces)),
-                    action("Importar workspaces do Voleeo", Box::new(ImportVoleeo)),
-                ]
-            }
-            Kind::Workspaces => {
-                let current = self.ws.as_ref().map(|w| w.id.as_str());
-                self.workspaces
-                    .iter()
-                    .map(|w| {
-                        let item = CommandItem::new()
-                            .label(w.name.clone())
-                            .checked(current == Some(w.id.as_str()));
-                        (item, Target::Workspace(w.id.clone()))
-                    })
-                    .collect()
-            }
-        };
-        self.palette = Some(Palette::new(kind, items, window, cx));
-        cx.notify();
-    }
-
-    pub fn close_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.palette = None;
-        self.focus_active(window, cx);
-        cx.notify();
-    }
-
-    pub fn palette_confirm(&mut self, row: usize, window: &mut Window, cx: &mut Context<Self>) {
-        let target = self
-            .palette
-            .as_ref()
-            .and_then(|p| p.targets.get(row).cloned());
-        self.close_palette(window, cx);
-        match target {
-            Some(Target::Request(id)) => self.open_request(&id, window, cx),
-            Some(Target::Workspace(id)) => {
-                if let Some(ws) = self.workspaces.iter().find(|w| w.id == id).cloned() {
-                    self.open_workspace(ws, window, cx);
-                }
-            }
-            Some(Target::Action) | None => {}
-        }
     }
 
     fn import_voleeo(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -459,6 +391,38 @@ impl Render for Yuki {
                     e.update(cx, |e, cx| e.send(env, window, cx));
                 }
             }))
+            .on_action(cx.listener(|this, _: &NewRequest, window, cx| {
+                let parent = this.active_folder(cx);
+                this.new_item(false, parent, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &NewFolder, window, cx| {
+                let parent = this.active_folder(cx);
+                this.new_item(true, parent, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &RenameItem, window, cx| {
+                if let Some(id) = this.active_request_id(cx) {
+                    this.sidebar = true;
+                    this.start_rename(id, window, cx);
+                }
+            }))
+            .on_action(cx.listener(|this, _: &DuplicateItem, window, cx| {
+                if let Some(id) = this.active_request_id(cx) {
+                    this.duplicate(id, window, cx);
+                }
+            }))
+            .on_action(cx.listener(|this, _: &MoveItem, window, cx| {
+                if let Some(id) = this.active_request_id(cx) {
+                    this.open_palette(Kind::Move(id), window, cx);
+                }
+            }))
+            .on_action(cx.listener(|this, _: &DeleteItem, window, cx| {
+                if let Some(id) = this.active_request_id(cx) {
+                    this.confirm_delete(id, window, cx);
+                }
+            }))
+            .on_action(
+                cx.listener(|this, _: &CancelRename, window, cx| this.cancel_rename(window, cx)),
+            )
             .child(chrome::title_bar(self, cx))
             .child(div().flex_1().min_h_0().child(self.render_panels(cx)))
             .child(chrome::status_line(self, cx))

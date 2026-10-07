@@ -6,7 +6,10 @@ mod complete;
 mod document;
 mod draft;
 mod editor;
+mod items;
+mod moving;
 mod palette;
+mod rename;
 mod response;
 mod sidebar;
 mod table;
@@ -45,7 +48,14 @@ actions!(
         CompletePrev,
         CompleteAccept,
         CompleteDismiss,
-        CompleteOpen
+        CompleteOpen,
+        NewRequest,
+        NewFolder,
+        RenameItem,
+        DuplicateItem,
+        MoveItem,
+        DeleteItem,
+        CancelRename
     ]
 );
 
@@ -92,6 +102,10 @@ fn bind_keys(cx: &mut App) {
         KeyBinding::new("escape", CompleteDismiss, Some("VarComplete > Input")),
         // ⌘space never reaches the app: macOS hands it to Spotlight.
         KeyBinding::new("ctrl-space", CompleteOpen, Some("Input")),
+        KeyBinding::new("cmd-n", NewRequest, None),
+        KeyBinding::new("cmd-shift-n", NewFolder, None),
+        // Same trick as the popup keys: beats the Input's own escape.
+        KeyBinding::new("escape", CancelRename, Some("Rename > Input")),
     ]);
     // Fallback when nothing is focused; the root view handles Quit with a flush.
     cx.on_action(|_: &Quit, cx| cx.quit());

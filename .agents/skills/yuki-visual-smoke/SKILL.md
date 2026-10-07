@@ -34,6 +34,8 @@ osascript -e 'tell application "System Events" to keystroke "p" using {command d
 /tmp/yk-mouse click $((X+105)) $((Y+123))      # window-relative point + origin
 /tmp/yk-mouse move  $((X+390)) $((Y+89))       # hover (tooltips need ~1 s)
 /tmp/yk-mouse drag  $((X+240)) $((Y+400)) $((X+520)) 8 $W /tmp/dr/f   # frames f1..f8.png
+/tmp/yk-mouse rclick $((X+80)) $((Y+80))       # context menu
+/tmp/yk-mouse dragto $((X+90)) $((Y+200)) $((X+60)) $((Y+176))   # drag & drop (sidebar rows)
 ```
 
 - A click on an inactive window only activates it — set frontmost first.

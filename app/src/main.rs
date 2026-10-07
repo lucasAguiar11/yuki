@@ -1,11 +1,15 @@
 mod backend;
+mod body;
 mod chrome;
+mod code_vars;
+mod complete;
 mod document;
 mod draft;
 mod editor;
 mod palette;
 mod response;
 mod sidebar;
+mod table;
 mod tabs;
 mod tree;
 mod ui;
@@ -34,7 +38,14 @@ actions!(
         ImportVoleeo,
         ToggleEditor,
         ToggleVars,
-        Quit
+        Quit,
+        FocusNext,
+        FocusPrev,
+        CompleteNext,
+        CompletePrev,
+        CompleteAccept,
+        CompleteDismiss,
+        CompleteOpen
     ]
 );
 
@@ -69,6 +80,18 @@ fn bind_keys(cx: &mut App) {
         KeyBinding::new("cmd-shift-p", OpenCommands, None),
         KeyBinding::new("cmd-o", OpenWorkspaces, None),
         KeyBinding::new("cmd-q", Quit, None),
+        // Single-line inputs propagate tab, so it walks the table cells.
+        KeyBinding::new("tab", FocusNext, None),
+        KeyBinding::new("shift-tab", FocusPrev, None),
+        // Same depth as the Input's own keys, registered later: these win
+        // while the variable popup is open (see `complete.rs`).
+        KeyBinding::new("down", CompleteNext, Some("VarComplete > Input")),
+        KeyBinding::new("up", CompletePrev, Some("VarComplete > Input")),
+        KeyBinding::new("enter", CompleteAccept, Some("VarComplete > Input")),
+        KeyBinding::new("tab", CompleteAccept, Some("VarComplete > Input")),
+        KeyBinding::new("escape", CompleteDismiss, Some("VarComplete > Input")),
+        // ⌘space never reaches the app: macOS hands it to Spotlight.
+        KeyBinding::new("ctrl-space", CompleteOpen, Some("Input")),
     ]);
     // Fallback when nothing is focused; the root view handles Quit with a flush.
     cx.on_action(|_: &Quit, cx| cx.quit());

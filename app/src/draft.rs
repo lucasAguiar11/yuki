@@ -1,75 +1,67 @@
-//! Text <-> model mapping for the request editor. Headers edit as plain text,
-//! one `Name: value` per line; a leading `# ` disables the row.
+//! Editor state -> model mapping: what the request would look like if saved.
 
-use yuki_core::{new_id, BodyKind, HttpRequest, RequestBody, RequestParameter};
+use yuki_core::{BodyField, BodyKind, HttpRequest, RequestBody, RequestParameter};
 
-pub fn headers_to_text(headers: &[RequestParameter]) -> String {
-    headers
-        .iter()
-        .map(|h| {
-            let prefix = if h.enabled { "" } else { "# " };
-            format!("{prefix}{}: {}", h.name, h.value)
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+/// Table cells are single-line inputs: line breaks show as spaces.
+pub fn one_line(s: &str) -> String {
+    s.replace("\r\n", " ").replace(['\r', '\n'], " ")
 }
 
-/// Parse header text, reusing the id of the row at the same position when the
-/// name matches — fresh ids on every save would be a phantom git diff.
-pub fn text_to_headers(text: &str, prev: &[RequestParameter]) -> Vec<RequestParameter> {
-    text.lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty())
-        .enumerate()
-        .map(|(i, line)| {
-            let (enabled, line) = match line.strip_prefix('#') {
-                Some(rest) => (false, rest.trim_start()),
-                None => (true, line),
-            };
-            let (name, value) = line.split_once(':').unwrap_or((line, ""));
-            let (name, value) = (name.trim().to_string(), value.trim().to_string());
-            let id = prev
-                .get(i)
-                .filter(|p| p.name == name)
-                .map_or_else(new_id, |p| p.id.clone());
-            RequestParameter {
-                id,
-                name,
-                value,
-                enabled,
-            }
-        })
-        .collect()
-}
-
-/// Bodies the text editor owns. Form/multipart/binary keep their stored shape.
-pub fn body_is_text(body: Option<&RequestBody>) -> bool {
-    !matches!(
-        body.map(|b| &b.kind),
-        Some(BodyKind::FormUrlEncoded | BodyKind::Multipart | BodyKind::Binary)
-    )
-}
-
-pub fn apply_body(prev: Option<&RequestBody>, text: &str) -> Option<RequestBody> {
-    match prev {
-        Some(b) if !body_is_text(Some(b)) => Some(b.clone()),
-        Some(b) if b.kind != BodyKind::None || !text.is_empty() => Some(RequestBody {
-            kind: if b.kind == BodyKind::None {
-                BodyKind::Json
-            } else {
-                b.kind.clone()
-            },
-            text: text.to_string(),
-            ..b.clone()
-        }),
-        Some(b) => Some(b.clone()),
-        None if text.is_empty() => None,
-        None => Some(RequestBody {
-            kind: BodyKind::Json,
-            text: text.to_string(),
-            ..Default::default()
-        }),
+/// An untouched cell keeps the stored value even if it had line breaks —
+/// rewriting it on the next save would corrupt the user's data.
+pub fn cell_value(shown: &str, stored: &str) -> String {
+    if shown == one_line(stored) {
+        stored.to_string()
+    } else {
+        shown.to_string()
     }
+}
+
+/// What the body pane holds. Each kind keeps its own input, so switching
+/// kinds never drops what was typed in another.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BodyDraft {
+    pub kind: BodyKind,
+    pub text: String,
+    pub graphql_vars: String,
+    pub fields: Vec<BodyField>,
+    pub file: String,
+}
+
+impl BodyDraft {
+    /// No stored body opens as JSON: typing is enough to create one.
+    pub fn from(body: Option<&RequestBody>) -> Self {
+        let b = body.cloned().unwrap_or(RequestBody {
+            kind: BodyKind::Json,
+            ..Default::default()
+        });
+        Self {
+            kind: b.kind,
+            text: b.text,
+            graphql_vars: b.graphql_variables.unwrap_or_default(),
+            fields: b.fields.unwrap_or_default(),
+            file: b.file_path.unwrap_or_default(),
+        }
+    }
+}
+
+pub fn apply_body(prev: Option<&RequestBody>, d: &BodyDraft) -> Option<RequestBody> {
+    let base = prev.cloned().unwrap_or_default();
+    // Unset optionals stay unset while empty — no phantom diff on save.
+    let keep = |s: &str, was: bool| (was || !s.is_empty()).then(|| s.to_string());
+    let body = RequestBody {
+        kind: d.kind.clone(),
+        text: d.text.clone(),
+        fields: (base.fields.is_some() || !d.fields.is_empty()).then(|| d.fields.clone()),
+        file_path: keep(&d.file, base.file_path.is_some()),
+        graphql_variables: keep(&d.graphql_vars, base.graphql_variables.is_some()),
+        ..base
+    };
+    let empty = RequestBody {
+        kind: body.kind.clone(),
+        ..Default::default()
+    };
+    (prev.is_some() || body != empty).then_some(body)
 }
 
 /// The request as the editor would save it.
@@ -77,13 +69,13 @@ pub fn build(
     saved: &HttpRequest,
     method: &str,
     url: &str,
-    headers: &str,
-    body: &str,
+    headers: Vec<RequestParameter>,
+    body: &BodyDraft,
 ) -> HttpRequest {
     HttpRequest {
         method: method.to_string(),
         url: url.to_string(),
-        headers: text_to_headers(headers, &saved.headers),
+        headers,
         body: apply_body(saved.body.as_ref(), body),
         ..saved.clone()
     }
@@ -93,42 +85,60 @@ pub fn build(
 mod tests {
     use super::*;
 
-    fn param(id: &str, name: &str, value: &str, enabled: bool) -> RequestParameter {
-        RequestParameter {
-            id: id.into(),
-            name: name.into(),
-            value: value.into(),
-            enabled,
-        }
+    #[test]
+    fn untouched_multiline_cell_keeps_stored_value() {
+        let stored = "l1\r\nl2\nl3";
+        assert_eq!(one_line(stored), "l1 l2 l3");
+        assert_eq!(cell_value("l1 l2 l3", stored), stored);
+        assert_eq!(cell_value("l1 l2", stored), "l1 l2");
     }
 
     #[test]
-    fn headers_round_trip_keeps_ids_and_disabled_rows() {
-        let prev = vec![
-            param("a", "Accept", "*/*", true),
-            param("b", "X-Debug", "1", false),
+    fn stored_bodies_reload_without_diff() {
+        let bodies = [
+            RequestBody {
+                kind: BodyKind::FormUrlEncoded,
+                fields: Some(vec![]),
+                ..Default::default()
+            },
+            RequestBody {
+                kind: BodyKind::Binary,
+                file_path: Some("/tmp/x.bin".into()),
+                content_type: Some("application/pdf".into()),
+                ..Default::default()
+            },
+            RequestBody {
+                kind: BodyKind::Graphql,
+                text: "{ me }".into(),
+                graphql_variables: Some("{}".into()),
+                ..Default::default()
+            },
+            RequestBody {
+                kind: BodyKind::None,
+                ..Default::default()
+            },
         ];
-        let text = headers_to_text(&prev);
-        assert_eq!(text, "Accept: */*\n# X-Debug: 1");
-        assert_eq!(text_to_headers(&text, &prev), prev);
+        for b in bodies {
+            assert_eq!(apply_body(Some(&b), &BodyDraft::from(Some(&b))), Some(b));
+        }
+        assert_eq!(apply_body(None, &BodyDraft::from(None)), None);
     }
 
     #[test]
-    fn renamed_header_gets_new_id_and_value_keeps_colons() {
-        let prev = vec![param("a", "Accept", "*/*", true)];
-        let out = text_to_headers("Host: localhost:8080", &prev);
-        assert_ne!(out[0].id, "a");
-        assert_eq!(out[0].value, "localhost:8080");
-    }
-
-    #[test]
-    fn form_bodies_are_preserved_and_empty_text_stays_none() {
+    fn switching_kind_keeps_other_inputs() {
         let form = RequestBody {
             kind: BodyKind::FormUrlEncoded,
+            text: "{}".into(),
+            fields: Some(vec![]),
             ..Default::default()
         };
-        assert_eq!(apply_body(Some(&form), "ignored"), Some(form));
-        assert_eq!(apply_body(None, ""), None);
-        assert_eq!(apply_body(None, "{}").unwrap().kind, BodyKind::Json);
+        let mut d = BodyDraft::from(Some(&form));
+        d.kind = BodyKind::Json;
+        let json = apply_body(Some(&form), &d).unwrap();
+        assert_eq!((json.kind, json.text), (BodyKind::Json, "{}".into()));
+        assert_eq!(json.fields, form.fields);
+        let mut typed = BodyDraft::from(None);
+        typed.text = "{}".into();
+        assert_eq!(apply_body(None, &typed).unwrap().kind, BodyKind::Json);
     }
 }

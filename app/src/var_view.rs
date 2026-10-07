@@ -55,6 +55,7 @@ impl RequestEditor {
             let vars = task.await;
             this.update(cx, |this, cx| {
                 this.vars = Rc::new(vars);
+                this.body.paint(&this.vars, cx);
                 cx.notify();
             })
         })
@@ -63,12 +64,10 @@ impl RequestEditor {
 
     /// Templates referenced by the request as currently edited.
     pub fn used_vars(&self, cx: &App) -> Vec<String> {
-        let (url, headers, body) = (
-            self.url.read(cx).value(),
-            self.headers.read(cx).value(),
-            self.body.read(cx).value(),
-        );
-        vars::used([url.as_ref(), headers.as_ref(), body.as_ref()])
+        let mut texts = vec![self.url.read(cx).value()];
+        texts.extend(self.headers.texts(cx));
+        texts.extend(self.body.template_texts(cx));
+        vars::used(texts.iter().map(|s| s.as_ref()))
     }
 
     pub fn missing_vars(&self, cx: &App) -> Vec<String> {
@@ -78,7 +77,7 @@ impl RequestEditor {
     }
 }
 
-fn kind_color(kind: Kind, cx: &App) -> Hsla {
+pub(crate) fn kind_color(kind: Kind, cx: &App) -> Hsla {
     let t = cx.theme();
     match kind {
         Kind::Defined => t.blue,

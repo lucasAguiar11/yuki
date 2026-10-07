@@ -3,7 +3,7 @@
 
 use gpui_kit::component::{
     h_flex,
-    input::{Editor, InlineTokenContext, Input, Textarea},
+    input::{InlineTokenContext, Input},
     resizable_panel,
     select::Select,
     spinner::Spinner,
@@ -12,9 +12,11 @@ use gpui_kit::component::{
 use gpui_kit::{prelude::FluentBuilder as _, *};
 
 use crate::{
-    draft,
     editor::{ReqTab, RequestEditor},
-    response, ui, var_view, Send, ToggleEditor, ToggleVars,
+    response,
+    table::Which,
+    ui, var_view, CompleteAccept, CompleteDismiss, CompleteNext, CompleteOpen, CompletePrev, Send,
+    ToggleEditor, ToggleVars,
 };
 
 impl Render for RequestEditor {
@@ -34,12 +36,31 @@ impl Render for RequestEditor {
         } else {
             response
         };
+        let popup = self.render_completion(window, cx);
         v_flex()
             .size_full()
             .bg(cx.theme().background)
+            // Wins over the input's own ↑↓↵⇥esc while the popup shows.
+            .when(popup.is_some(), |d| d.key_context("VarComplete"))
+            .on_action(
+                cx.listener(|this, _: &CompleteNext, window, cx| {
+                    this.move_completion(1, window, cx)
+                }),
+            )
+            .on_action(cx.listener(|this, _: &CompletePrev, window, cx| {
+                this.move_completion(-1, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &CompleteAccept, window, cx| {
+                this.accept_completion(None, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &CompleteDismiss, _, cx| this.dismiss_completion(cx)))
+            .on_action(
+                cx.listener(|this, _: &CompleteOpen, window, cx| this.open_completion(window, cx)),
+            )
             .child(self.render_prompt(window, cx))
             .child(self.render_meta(cx))
             .child(div().flex_1().min_h_0().child(body))
+            .children(popup)
     }
 }
 
@@ -110,9 +131,8 @@ impl RequestEditor {
     /// `headers 2 · body json · auth bearer          ▸ request ⌘E`
     fn render_meta(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let body_kind = self
-            .saved
+            .draft(cx)
             .body
-            .as_ref()
             .map_or("—".into(), |b| ui::kind_name(&b.kind));
         let segment = |id: &'static str, label: String, tab: ReqTab, cx: &mut Context<Self>| {
             let active = self.editor_open && self.req_tab == tab;
@@ -178,22 +198,8 @@ impl RequestEditor {
 
     fn render_editor(&self, cx: &mut Context<Self>) -> AnyElement {
         let pane = match self.req_tab {
-            ReqTab::Headers => Textarea::new(&self.headers)
-                .appearance(false)
-                .token(self.chip_renderer())
-                .h_full()
-                .into_any_element(),
-            ReqTab::Body if draft::body_is_text(self.saved.body.as_ref()) => {
-                Editor::new(&self.body)
-                    .appearance(false)
-                    .h_full()
-                    .into_any_element()
-            }
-            ReqTab::Body => div()
-                .text_sm()
-                .text_color(cx.theme().muted_foreground)
-                .child("body de formulário/arquivo — edição ainda não suportada")
-                .into_any_element(),
+            ReqTab::Headers => self.render_table(Which::Headers, false, cx),
+            ReqTab::Body => self.render_body(cx),
         };
         div()
             .size_full()
@@ -204,7 +210,7 @@ impl RequestEditor {
             .into_any_element()
     }
 
-    fn chip_renderer(
+    pub(crate) fn chip_renderer(
         &self,
     ) -> impl Fn(&InlineTokenContext, &mut Window, &mut App) -> AnyElement + 'static {
         let vars = self.vars.clone();

@@ -105,6 +105,30 @@ pub fn used<'a>(texts: impl IntoIterator<Item = &'a str>) -> Vec<String> {
     out
 }
 
+pub fn is_name_char(c: char) -> bool {
+    c.is_alphanumeric() || matches!(c, '_' | '-' | '.')
+}
+
+/// The unfinished `{{ prefix` the cursor sits in: byte offset of the `{{`
+/// and the name typed so far.
+pub fn open_template(text: &str, cursor: usize) -> Option<(usize, &str)> {
+    let before = text.get(..cursor)?;
+    let start = before.rfind("{{")?;
+    let prefix = before[start + 2..].trim_start();
+    prefix.chars().all(is_name_char).then_some((start, prefix))
+}
+
+/// Names containing `prefix` (any case), those starting with it first.
+pub fn suggest<'a>(vars: &'a Vars, prefix: &str) -> Vec<(&'a String, &'a Var)> {
+    let p = prefix.to_lowercase();
+    let mut out: Vec<_> = vars
+        .iter()
+        .filter(|(k, _)| k.to_lowercase().contains(&p))
+        .collect();
+    out.sort_by_key(|(k, _)| !k.to_lowercase().starts_with(&p));
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -148,5 +172,29 @@ mod tests {
         assert_eq!(kind("B", &vars), Kind::Missing);
         assert_eq!(kind("uuid.v4()", &vars), Kind::Function);
         assert_eq!(used(["{{ A }}{{B}}", "{{ A }}"]), ["A", "B"]);
+    }
+
+    #[test]
+    fn open_template_and_suggest() {
+        assert_eq!(open_template("x {{ BA", 7), Some((2, "BA")));
+        assert_eq!(open_template("x {{", 4), Some((2, "")));
+        assert_eq!(open_template("{{ A }} b", 9), None);
+        assert_eq!(open_template("{{ A b", 6), None);
+        assert_eq!(open_template("{{ BA }}", 5), Some((0, "BA")));
+        let var = Var {
+            raw: String::new(),
+            value: String::new(),
+            source: Source::Global,
+            secret: false,
+        };
+        let vars: Vars = ["API_BASE", "BASE", "TOKEN"]
+            .into_iter()
+            .map(|k| (k.to_string(), var.clone()))
+            .collect();
+        let names: Vec<_> = suggest(&vars, "ba")
+            .into_iter()
+            .map(|(k, _)| k.as_str())
+            .collect();
+        assert_eq!(names, ["BASE", "API_BASE"]);
     }
 }

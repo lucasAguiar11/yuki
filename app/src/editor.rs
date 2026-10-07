@@ -1,16 +1,25 @@
 use std::{rc::Rc, sync::Arc};
 
 use gpui_kit::component::{
-    input::{EditorState, InputEvent, InputState, TextareaState},
+    input::{EditorState, InputEvent, InputState},
     searchable_list::SearchableVec,
     select::{SelectEvent, SelectState},
     IndexPath,
 };
 use gpui_kit::*;
-use yuki_core::{HttpRequest, HttpResponse};
+use yuki_core::{BodyKind, HttpRequest, HttpResponse};
 use yuki_storage::StoredHttpResponseSummary;
 
-use crate::{backend::Backend, chip_templates, draft, response, vars, vars::Vars};
+use crate::{
+    backend::Backend,
+    body::BodyInputs,
+    chip_templates,
+    complete::Completion,
+    draft, response,
+    table::{param_field, Table, Which},
+    vars,
+    vars::Vars,
+};
 
 const METHODS: [&str; 7] = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
 
@@ -39,8 +48,8 @@ pub struct RequestEditor {
     pub dirty: bool,
     pub method: Entity<MethodSelect>,
     pub url: Entity<InputState>,
-    pub headers: Entity<TextareaState>,
-    pub body: Entity<EditorState>,
+    pub headers: Table,
+    pub body: BodyInputs,
     pub req_tab: ReqTab,
     pub editor_open: bool,
     pub sending: bool,
@@ -51,6 +60,7 @@ pub struct RequestEditor {
     /// Personal env the vars resolve against (globals always apply).
     pub env_id: Option<String>,
     pub vars: Rc<Vars>,
+    pub(crate) complete: Option<Completion>,
     _subs: Vec<Subscription>,
 }
 
@@ -83,29 +93,16 @@ impl RequestEditor {
             s.set_value(vars::content(&req.url), window, cx);
             s
         });
-        let headers = cx.new(|cx| {
-            let mut s = TextareaState::new(window, cx)
-                .placeholder("Nome: valor\n# linha comentada = header desativado");
-            s.set_value(
-                vars::content(&draft::headers_to_text(&req.headers)),
-                window,
-                cx,
-            );
-            s
-        });
-        let body_text = req
-            .body
-            .as_ref()
-            .map(|b| b.text.clone())
-            .unwrap_or_default();
-        let body = cx.new(|cx| {
-            EditorState::new(window, cx)
-                .language("json")
-                .default_value(body_text)
-        });
+        let headers = Table::new(
+            Which::Headers,
+            req.headers.iter().map(param_field).collect(),
+            window,
+            cx,
+        );
+        let (body, body_subs) = BodyInputs::new(req.body.as_ref(), window, cx);
         let response_body = cx.new(|cx| EditorState::new(window, cx).language("json"));
 
-        let _subs = vec![
+        let mut _subs = vec![
             cx.subscribe_in(
                 &method,
                 window,
@@ -116,22 +113,13 @@ impl RequestEditor {
             cx.subscribe_in(&url, window, |this, url, ev: &InputEvent, window, cx| {
                 if matches!(ev, InputEvent::Change) {
                     chip_templates!(url, window, cx);
+                    this.update_completion(url, cx);
                     this.refresh_dirty(cx);
                 }
             }),
-            cx.subscribe_in(
-                &headers,
-                window,
-                |this, headers, ev: &InputEvent, window, cx| {
-                    if matches!(ev, InputEvent::Change) {
-                        chip_templates!(headers, window, cx);
-                        this.refresh_dirty(cx);
-                    }
-                },
-            ),
-            cx.subscribe_in(&body, window, Self::on_input),
         ];
-        let has_body = req.body.as_ref().is_some_and(|b| !b.text.is_empty());
+        _subs.extend(body_subs);
+        let has_body = req.body.as_ref().is_some_and(|b| b.kind != BodyKind::None);
         let mut this = Self {
             backend,
             saved: req,
@@ -153,6 +141,7 @@ impl RequestEditor {
             history: vec![],
             env_id,
             vars: Rc::default(),
+            complete: None,
             _subs,
         };
         this.refresh_history(true, window, cx);
@@ -160,7 +149,7 @@ impl RequestEditor {
         this
     }
 
-    fn on_input<E>(
+    pub(crate) fn on_input<E>(
         &mut self,
         _: &Entity<E>,
         ev: &InputEvent,
@@ -187,12 +176,12 @@ impl RequestEditor {
             &self.saved,
             &method,
             &self.url.read(cx).value(),
-            &self.headers.read(cx).value(),
-            &self.body.read(cx).value(),
+            self.headers.params(cx),
+            &self.body.draft(cx),
         )
     }
 
-    fn refresh_dirty(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn refresh_dirty(&mut self, cx: &mut Context<Self>) {
         let dirty = self.draft(cx) != self.saved;
         if dirty != self.dirty {
             self.dirty = dirty;
@@ -318,12 +307,7 @@ impl RequestEditor {
         cx.notify();
     }
 
-    /// Enabled header rows in the editor text (the meta line's count).
     pub fn header_count(&self, cx: &App) -> usize {
-        let text = self.headers.read(cx).value();
-        text.lines()
-            .map(str::trim)
-            .filter(|l| !l.is_empty() && !l.starts_with('#'))
-            .count()
+        self.headers.active_count(cx)
     }
 }

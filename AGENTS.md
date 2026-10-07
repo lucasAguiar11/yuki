@@ -24,6 +24,10 @@ app/              binário `yuki` (GPUI) — única camada que conhece gpui
   src/workspace.rs  root view `Yuki`: workspaces, abas, painéis, paletas, ações
   src/editor.rs   `RequestEditor` (estado/lógica de uma aba)
   src/document.rs Render do RequestEditor: prompt, meta line, editor de request
+  src/body.rs     painel body: select de tipo + input por tipo (raw, form/multipart, binary, graphql)
+  src/table.rs    tabela nome/valor (headers e campos form/multipart); última linha sempre em branco
+  src/complete.rs autocomplete de `{{ VAR }}` (ao digitar `{{` ou ⌃space) em URL, células e editores de código
+  src/code_vars.rs "badge" de `{{ VAR }}` nos editores de código (decorations; `EditorState` não aceita tokens)
   src/response.rs faixa de status, body/headers, histórico (●●●)
   src/var_view.rs chips `{{ VAR }}` + tooltip; src/vars.rs modelo/tokenização (puro)
   src/vars_panel.rs painel ⌘⇧E;  src/sidebar.rs, tabs.rs, chrome.rs, palette.rs
@@ -73,7 +77,9 @@ Detalhes e padrões na skill `yuki-gpui`. Resumo do que custou caro:
 5. **Resizable:** nunca `.visible(false)` em painel de `h_resizable` — painel oculto deixa tamanho velho e a borda "pula" ao arrastar. Omita o painel e use id de grupo por combinação (`main-{sidebar}-{vars}`). Painéis com tamanho: `.flex_none()` + `size_range`.
 6. **Hover em tokens de input:** não guarde hover em estado da view (o re-render reseta o tracking e o hover morre). Use `.tooltip(...)` no elemento do chip.
 7. **Paleta (`Command`):** a lista ocupa `max_h` inteiro; a altura é calculada por `matched_count` (`palette::list_height`) e a view só re-renderiza quando a contagem muda (observer com guarda — notify incondicional = loop).
-8. **Template chips:** `vars::content` ao carregar e `chip_templates!` em cada `InputEvent::Change`; o texto salvo continua literal (`{{ BASE }}`).
+8. **Template chips:** `vars::content` ao carregar e `chip_templates!` em cada `InputEvent::Change`; o texto salvo continua literal (`{{ BASE }}`). `EditorState` (código) recusa tokens: lá o badge é `RangeDecoration` + `TextDecoration` (`code_vars.rs`); dentro de string JSON a cor da sintaxe vence a do nome.
+9. **Teclas de popup sobre `Input`:** o `Input` consome ↑↓↵⇥esc. Para vencer, binding com contexto `"VarComplete > Input"` (mesma profundidade, registrado depois) e `key_context("VarComplete")` no ancestral só enquanto o popup está aberto. ⌘space é do Spotlight — nunca chega ao app.
+10. **Células single-line:** `InputState` remove quebras de linha; `draft::cell_value` devolve o valor salvo se a célula não foi tocada (evita corromper valor multi-linha).
 
 ## Fluxo de entrega
 

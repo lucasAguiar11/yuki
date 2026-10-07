@@ -73,7 +73,7 @@ impl RequestStore {
     /// Smallest order strictly greater than `after` among siblings sharing
     /// `parent_id`; the midpoint places a new item directly below `after`.
     /// Falls back to `after + 1.0` when `after` is already the last sibling.
-    fn order_after(
+    pub fn order_after(
         &self,
         workspace_id: &str,
         parent_id: Option<&str>,

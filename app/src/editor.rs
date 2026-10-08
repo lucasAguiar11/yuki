@@ -15,6 +15,7 @@ use yuki_core::{BodyKind, HttpRequest, HttpResponse};
 use yuki_storage::StoredHttpResponseSummary;
 
 use crate::{
+    auth_form::AuthForm,
     backend::Backend,
     body::BodyInputs,
     chip_templates,
@@ -33,6 +34,7 @@ pub type MethodSelect = SelectState<SearchableVec<SharedString>>;
 pub enum ReqTab {
     Headers,
     Body,
+    Auth,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -56,6 +58,7 @@ pub struct RequestEditor {
     pub url: Entity<InputState>,
     pub headers: Table,
     pub body: BodyInputs,
+    pub auth: AuthForm,
     pub req_tab: ReqTab,
     pub editor_open: bool,
     pub sending: bool,
@@ -112,6 +115,7 @@ impl RequestEditor {
             cx,
         );
         let (body, body_subs) = BodyInputs::new(req.body.as_ref(), window, cx);
+        let (auth, auth_sub) = AuthForm::new(&req.auth, window, cx);
         let response_body = cx.new(|cx| EditorState::new(window, cx).language("json"));
 
         let mut _subs = vec![
@@ -131,6 +135,7 @@ impl RequestEditor {
             }),
         ];
         _subs.extend(body_subs);
+        _subs.push(auth_sub);
         let has_body = req.body.as_ref().is_some_and(|b| b.kind != BodyKind::None);
         let mut this = Self {
             backend,
@@ -138,6 +143,7 @@ impl RequestEditor {
             dirty: false,
             method,
             url,
+            auth,
             headers,
             body,
             req_tab: if has_body {
@@ -187,13 +193,17 @@ impl RequestEditor {
             .selected_value()
             .cloned()
             .unwrap_or_else(|| "GET".into());
-        draft::build(
+        let mut req = draft::build(
             &self.saved,
             &method,
             &self.url.read(cx).value(),
             self.headers.params(cx),
             &self.body.draft(cx),
-        )
+        );
+        if let Some(auth) = self.auth.draft(cx) {
+            req.auth = auth;
+        }
+        req
     }
 
     pub(crate) fn refresh_dirty(&mut self, cx: &mut Context<Self>) {

@@ -67,6 +67,7 @@ impl RequestEditor {
         let mut texts = vec![self.url.read(cx).value()];
         texts.extend(self.headers.texts(cx));
         texts.extend(self.body.template_texts(cx));
+        texts.extend(self.auth.texts(cx));
         vars::used(texts.iter().map(|s| s.as_ref()))
     }
 

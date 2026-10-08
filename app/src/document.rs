@@ -158,6 +158,12 @@ impl RequestEditor {
             cx,
         );
         let body = segment("meta-body", format!("body {body_kind}"), ReqTab::Body, cx);
+        let auth = segment(
+            "meta-auth",
+            format!("auth {}", self.auth.label()),
+            ReqTab::Auth,
+            cx,
+        );
         let vars_segment = self.render_vars_segment(cx);
         let theme = cx.theme();
         let dot = || div().text_color(theme.muted_foreground).child("·");
@@ -174,11 +180,7 @@ impl RequestEditor {
             .child(dot())
             .child(body)
             .child(dot())
-            .child(
-                div()
-                    .px_1p5()
-                    .child(format!("auth {}", ui::kind_name(&self.saved.auth))),
-            )
+            .child(auth)
             .child(dot())
             .child(vars_segment)
             .child(div().flex_1())
@@ -200,6 +202,7 @@ impl RequestEditor {
         let pane = match self.req_tab {
             ReqTab::Headers => self.render_table(Which::Headers, false, cx),
             ReqTab::Body => self.render_body(cx),
+            ReqTab::Auth => self.render_auth(cx),
         };
         div()
             .size_full()

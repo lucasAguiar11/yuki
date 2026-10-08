@@ -1,3 +1,5 @@
+mod auth;
+mod auth_form;
 mod backend;
 mod body;
 mod chrome;
@@ -8,9 +10,11 @@ mod draft;
 mod editor;
 mod items;
 mod moving;
+mod oauth;
 mod palette;
 mod rename;
 mod response;
+mod secrets;
 mod sent;
 mod sidebar;
 mod table;

@@ -11,6 +11,7 @@ use yuki_core::{
 use yuki_mcp::{api::ApiBackend, resolve};
 use yuki_storage::StoredHttpResponseSummary;
 
+use crate::secrets;
 use crate::vars::{Source, Var, Vars};
 
 /// Engine handle shared by every view. Stores do blocking YAML I/O — call them
@@ -18,7 +19,7 @@ use crate::vars::{Source, Var, Vars};
 /// because reqwest needs one.
 pub struct Backend {
     pub api: Arc<ApiBackend>,
-    rt: tokio::runtime::Runtime,
+    pub(crate) rt: tokio::runtime::Runtime,
 }
 
 pub struct WorkspaceData {
@@ -62,10 +63,18 @@ impl Backend {
         list
     }
 
+    /// Requests come back with their auth secrets decrypted: the editor and
+    /// its dirty check work on plaintext; `save` encrypts again.
     pub fn load(&self, ws_id: &str) -> Result<WorkspaceData, YukiError> {
+        let mut requests = self.api.requests.list_requests(ws_id)?;
+        if let Ok(Some(key)) = secrets::key(&self.api, ws_id) {
+            for r in &mut requests {
+                r.auth = secrets::open(std::mem::take(&mut r.auth), &key);
+            }
+        }
         Ok(WorkspaceData {
             folders: self.api.requests.list_folders(ws_id)?,
-            requests: self.api.requests.list_requests(ws_id)?,
+            requests,
             environments: self.api.environments.list(ws_id)?,
         })
     }
@@ -199,15 +208,23 @@ impl Backend {
 }
 
 fn save(api: &ApiBackend, req: &HttpRequest) -> Result<(), YukiError> {
+    let ws = &req.workspace_id;
+    let auth = match secrets::key(api, ws)? {
+        Some(key) => {
+            let stored = api.requests.get_request(ws, &req.id)?.auth;
+            secrets::seal(&req.auth, &stored, &key)?
+        }
+        None => req.auth.clone(),
+    };
     api.requests.update_request(
-        &req.workspace_id,
+        ws,
         &req.id,
         req.method.clone(),
         req.url.clone(),
         req.parameters.clone(),
         req.headers.clone(),
         req.body.clone(),
-        req.auth.clone(),
+        auth,
     )
 }
 

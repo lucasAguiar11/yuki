@@ -28,6 +28,9 @@ use crate::{
 
 const METHODS: [&str; 7] = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
 
+/// Quiet time after the last edit before it is written.
+const AUTOSAVE_DELAY: Duration = Duration::from_millis(400);
+
 pub type MethodSelect = SelectState<SearchableVec<SharedString>>;
 
 #[derive(Clone, Copy, PartialEq)]
@@ -76,6 +79,10 @@ pub struct RequestEditor {
     pub env_id: Option<String>,
     pub vars: Rc<Vars>,
     pub(crate) complete: Option<Completion>,
+    /// Pending autosave; replacing it (next keystroke) cancels the old one.
+    autosave: Option<Task<()>>,
+    /// A write is in flight: the next one waits, so disk never ends up older.
+    saving: bool,
     _subs: Vec<Subscription>,
 }
 
@@ -163,6 +170,8 @@ impl RequestEditor {
             env_id,
             vars: Rc::default(),
             complete: None,
+            autosave: None,
+            saving: false,
             _subs,
         };
         this.refresh_history(true, window, cx);
@@ -213,6 +222,13 @@ impl RequestEditor {
             cx.emit(EditorChanged);
             cx.notify();
         }
+        // Local-first: edits reach disk shortly after typing stops.
+        self.autosave = dirty.then(|| {
+            cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(AUTOSAVE_DELAY).await;
+                _ = this.update(cx, |e, cx| e.save(cx));
+            })
+        });
     }
 
     pub fn toggle_editor(&mut self, tab: Option<ReqTab>, cx: &mut Context<Self>) {
@@ -227,9 +243,11 @@ impl RequestEditor {
     }
 
     pub fn save(&mut self, cx: &mut Context<Self>) {
-        if !self.dirty {
+        // In flight: its `mark_saved` re-checks dirty and schedules the rest.
+        if !self.dirty || self.saving {
             return;
         }
+        self.saving = true;
         let req = self.draft(cx);
         let backend = self.backend.clone();
         let task = cx.background_spawn({
@@ -238,9 +256,12 @@ impl RequestEditor {
         });
         cx.spawn(async move |this, cx| {
             let result = task.await;
-            this.update(cx, |this, cx| match result {
-                Ok(()) => this.mark_saved(req, cx),
-                Err(e) => this.response = Some(Err(format!("Falha ao salvar: {e}"))),
+            this.update(cx, |this, cx| {
+                this.saving = false;
+                match result {
+                    Ok(()) => this.mark_saved(req, cx),
+                    Err(e) => this.response = Some(Err(format!("Falha ao salvar: {e}"))),
+                }
             })
         })
         .detach();

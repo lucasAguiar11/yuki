@@ -215,6 +215,9 @@ impl Yuki {
 
     /// Synchronous flush for quit/close, where an async save would die with
     /// the app.
+    // ponytail: an autosave already in flight can land after this and write
+    // the draft from ≤400 ms earlier; a per-request write sequence fixes it if
+    // it ever shows up.
     fn flush_blocking(&self, cx: &App) {
         for tab in &self.tabs {
             let e = tab.read(cx);

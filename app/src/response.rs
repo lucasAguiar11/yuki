@@ -22,13 +22,16 @@ pub fn body_for_editor(resp: &HttpResponse) -> (String, &'static str) {
             "text",
         );
     }
-    match serde_json::from_str::<serde_json::Value>(&resp.body) {
-        Ok(v) => (
-            serde_json::to_string_pretty(&v).unwrap_or_else(|_| resp.body.clone()),
-            "json",
-        ),
-        Err(_) => (resp.body.clone(), "text"),
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&resp.body) {
+        let pretty = serde_json::to_string_pretty(&v).unwrap_or_else(|_| resp.body.clone());
+        return (pretty, "json");
     }
+    // XML rides the HTML grammar (same tags/attributes; no XML grammar ships).
+    let markup = resp.headers.iter().any(|h| {
+        h.name.eq_ignore_ascii_case("content-type")
+            && (h.value.contains("html") || h.value.contains("xml"))
+    });
+    (resp.body.clone(), if markup { "html" } else { "text" })
 }
 
 pub fn render(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> AnyElement {

@@ -5,7 +5,7 @@ edition = "2021"
 license.workspace = true
 
 [dependencies]
-gpui-kit = { version = "0.7", features = ["tree-sitter"] }
+gpui-kit = { version = "0.7", features = ["tree-sitter", "tree-sitter-html", "tree-sitter-graphql"] }
 yuki-core = { path = "../crates/yuki-core" }
 yuki-mcp = { path = "../crates/yuki-mcp" }
 yuki-storage = { path = "../crates/yuki-storage" }

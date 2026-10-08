@@ -117,7 +117,8 @@
           "attribute": { "color": "#e0b97a" },
           "type": { "color": "#82c8cf" },
           "function": { "color": "#8fb8e8" },
-          "variable": { "color": "#d2d4d8" }
+          "variable": { "color": "#d2d4d8" },
+          "variable.special": { "color": "#f08a8a" }
         }
       }
     }

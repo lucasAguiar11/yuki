@@ -118,6 +118,16 @@ fn bind_keys(cx: &mut App) {
     .detach();
 }
 
+/// gpui-component ships the GraphQL grammar with an empty highlight query;
+/// give it ours (`graphql.scm`) so query bodies get colors.
+fn register_graphql() {
+    let registry = gpui_kit::component::highlighter::LanguageRegistry::singleton();
+    if let Some(mut config) = registry.language("graphql") {
+        config.highlights = include_str!("graphql.scm").into();
+        registry.register("graphql", &config);
+    }
+}
+
 fn main() {
     let backend = match backend::Backend::open() {
         Ok(b) => b,
@@ -135,6 +145,7 @@ fn main() {
             gpui_kit::init(cx);
             apply_theme(cx);
             bind_keys(cx);
+            register_graphql();
             let options = WindowOptions {
                 window_bounds: Some(WindowBounds::centered(size(px(1280.), px(800.)), cx)),
                 ..TitleBar::window_options()

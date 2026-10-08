@@ -37,11 +37,14 @@ const KINDS: [BodyKind; 9] = [
 
 type KindSelect = SelectState<SearchableVec<SharedString>>;
 
+/// Highlighter for a raw body. XML rides the HTML grammar: tags, attributes
+/// and strings parse the same and gpui-component ships no XML grammar.
 fn lang(kind: &BodyKind) -> &'static str {
-    if *kind == BodyKind::Json {
-        "json"
-    } else {
-        "text"
+    match kind {
+        BodyKind::Json => "json",
+        BodyKind::Xml | BodyKind::Html => "html",
+        BodyKind::Graphql => "graphql",
+        _ => "text",
     }
 }
 

@@ -123,6 +123,7 @@ impl Yuki {
         }
         self.data = Some(data);
         self.refresh_rows();
+        self.refresh_git(cx);
         if self.tabs.len() != before {
             self.active = self.active.min(self.tabs.len().saturating_sub(1));
             self.focus_active(window, cx);

@@ -7,6 +7,7 @@ use gpui_kit::component::{
 use gpui_kit::{prelude::FluentBuilder as _, *};
 
 use crate::{
+    git_panel,
     moving::{Dest, Dragged},
     palette::Kind,
     ui,
@@ -73,6 +74,15 @@ pub fn render(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
                 .child(row.name.clone())
                 .into_any_element(),
         };
+        // `M`/`A` at the row end: changed since the last commit.
+        let mark = yuki.git.change_of(&row.id).map(|c| {
+            let (letter, color) = git_panel::change_mark(c, cx);
+            div()
+                .text_xs()
+                .font_family(theme.mono_font_family.clone())
+                .text_color(color)
+                .child(letter)
+        });
         let dest = if is_folder {
             Dest::Into(Some(id.to_string()))
         } else {
@@ -104,6 +114,7 @@ pub fn render(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
             .children(guides.collect::<Vec<_>>())
             .child(lead)
             .child(label)
+            .children(mark)
             // The rename input takes the clicks while it is open.
             .when(renaming.is_none(), |s| {
                 let dragged = Dragged {

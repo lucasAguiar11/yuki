@@ -13,6 +13,8 @@ use crate::{
     backend::{self, Backend, WorkspaceData},
     chrome,
     editor::{EditorChanged, RequestEditor},
+    git::Git,
+    git_panel,
     palette::{Kind, Palette},
     rename::Rename,
     sidebar, tabs, tree, vars_panel, *,
@@ -32,6 +34,8 @@ pub struct Yuki {
     pub active: usize,
     sidebar: bool,
     vars_panel: bool,
+    git_panel: bool,
+    pub git: Git,
     /// Show secret values in the variables panel.
     pub reveal: bool,
     pub env: Option<Entity<EnvSelect>>,
@@ -57,6 +61,8 @@ impl Yuki {
             active: 0,
             sidebar: true,
             vars_panel: false,
+            git_panel: false,
+            git: Git::default(),
             reveal: false,
             env: None,
             env_ids: vec![],
@@ -66,6 +72,7 @@ impl Yuki {
             _subs: vec![],
         };
         this.focus.focus(window, cx);
+        this.init_git_inputs(window, cx);
         this.reload_workspaces(window, cx);
         let weak = cx.entity().downgrade();
         window.on_window_should_close(cx, move |_, cx| {
@@ -114,6 +121,8 @@ impl Yuki {
                     this.status = format!("{} requests", data.requests.len()).into();
                     this.data = Some(data);
                     this.ws = Some(ws);
+                    this.git.view = None;
+                    this.refresh_git(cx);
                     this.refresh_rows();
                     // The old tab's URL bar held focus; without a focused
                     // element no keybinding fires.
@@ -199,6 +208,8 @@ impl Yuki {
                         *r = saved;
                     }
                     this.refresh_rows();
+                    // A save changes what git sees.
+                    this.refresh_git(cx);
                     cx.notify();
                 }),
             );
@@ -289,10 +300,12 @@ impl Yuki {
     /// panels then fight over the gap while dragging (visible flicker). Each
     /// visibility combo gets its own state key so indices never shift.
     fn render_panels(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let id = SharedString::from(format!(
-            "main-{}-{}",
-            self.sidebar as u8, self.vars_panel as u8
-        ));
+        let right = if self.git_panel {
+            2
+        } else {
+            self.vars_panel as u8
+        };
+        let id = SharedString::from(format!("main-{}-{right}", self.sidebar as u8));
         let mut group = h_resizable(id);
         if self.sidebar {
             group = group.child(
@@ -308,13 +321,18 @@ impl Yuki {
                 .size_range(px(320.)..Pixels::MAX)
                 .child(self.render_center(cx)),
         );
-        if self.vars_panel {
+        if self.vars_panel || self.git_panel {
+            let panel = if self.git_panel {
+                git_panel::render(self, cx).into_any_element()
+            } else {
+                vars_panel::render(self, cx).into_any_element()
+            };
             group = group.child(
                 resizable_panel()
                     .size(px(300.))
                     .size_range(px(220.)..px(600.))
                     .flex_none()
-                    .child(vars_panel::render(self, cx)),
+                    .child(panel),
             );
         }
         group
@@ -352,6 +370,13 @@ impl Render for Yuki {
             }))
             .on_action(cx.listener(|this, _: &ToggleVars, _, cx| {
                 this.vars_panel = !this.vars_panel;
+                this.git_panel = false;
+                cx.notify();
+            }))
+            .on_action(cx.listener(|this, _: &ToggleGit, _, cx| {
+                this.git_panel = !this.git_panel;
+                this.vars_panel = false;
+                this.refresh_git(cx);
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &ToggleSidebar, _, cx| {

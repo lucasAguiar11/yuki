@@ -7,7 +7,7 @@ use gpui_kit::{prelude::FluentBuilder as _, *};
 
 use crate::{
     ui, workspace::Yuki, ImportVoleeo, OpenCommands, OpenRequests, OpenWorkspaces, ToggleEditor,
-    ToggleSidebar, ToggleVars,
+    ToggleGit, ToggleSidebar, ToggleVars,
 };
 
 /// `demo / JSONPlaceholder / photos                         env [Local ▾]`
@@ -58,14 +58,35 @@ pub fn title_bar(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
 /// Vim-flavoured hints, each one clickable: `:requests ⌘P  :comandos ⌘⇧P …`
 pub fn status_line(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
     let theme = cx.theme();
-    let commands: [(&str, &str, Box<dyn Action>); 6] = [
+    let commands: [(&str, &str, Box<dyn Action>); 7] = [
         (":requests", "⌘P", Box::new(OpenRequests)),
         (":workspace", "⌘O", Box::new(OpenWorkspaces)),
         (":comandos", "⌘⇧P", Box::new(OpenCommands)),
         (":sidebar", "⌘B", Box::new(ToggleSidebar)),
         (":request", "⌘E", Box::new(ToggleEditor)),
         (":vars", "⌘⇧E", Box::new(ToggleVars)),
+        (":git", "⌘⇧G", Box::new(ToggleGit)),
     ];
+    // `⎇ main · 3 ↑1` — branch, uncommitted changes, unpushed commits.
+    let git = yuki.git.view.as_ref().filter(|v| v.info.is_repo).map(|v| {
+        let mut chip = format!("⎇ {}", v.info.branch.as_deref().unwrap_or("?"));
+        if !v.changes.is_empty() {
+            chip += &format!(" · {}", v.changes.len());
+        }
+        if v.info.ahead > 0 {
+            chip += &format!(" ↑{}", v.info.ahead);
+        }
+        if v.info.behind > 0 {
+            chip += &format!(" ↓{}", v.info.behind);
+        }
+        let fg = theme.foreground;
+        div()
+            .id("git-chip")
+            .cursor_pointer()
+            .hover(move |s| s.text_color(fg))
+            .child(chip)
+            .on_click(|_, window, cx| window.dispatch_action(Box::new(ToggleGit), cx))
+    });
     h_flex()
         .h(px(24.))
         .px_3()
@@ -95,6 +116,7 @@ pub fn status_line(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
         )
         .child(div().flex_1())
         .child(yuki.status.clone())
+        .children(git)
 }
 
 /// Empty center: the app name and the handful of commands that matter.

@@ -8,6 +8,9 @@ mod complete;
 mod document;
 mod draft;
 mod editor;
+mod git;
+mod git_ops;
+mod git_panel;
 mod items;
 mod moving;
 mod oauth;
@@ -46,6 +49,7 @@ actions!(
         ImportVoleeo,
         ToggleEditor,
         ToggleVars,
+        ToggleGit,
         Quit,
         FocusNext,
         FocusPrev,
@@ -83,6 +87,7 @@ fn bind_keys(cx: &mut App) {
         KeyBinding::new("cmd-b", ToggleSidebar, None),
         KeyBinding::new("cmd-e", ToggleEditor, None),
         KeyBinding::new("cmd-shift-e", ToggleVars, None),
+        KeyBinding::new("cmd-shift-g", ToggleGit, None),
         KeyBinding::new("cmd-s", Save, None),
         KeyBinding::new("cmd-enter", Send, None),
         // Inputs bind cmd-enter themselves (newline + PressEnter); same-context

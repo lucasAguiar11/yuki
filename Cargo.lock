@@ -9960,6 +9960,7 @@ dependencies = [
  "yuki-auth",
  "yuki-core",
  "yuki-crypto",
+ "yuki-git",
  "yuki-mcp",
  "yuki-oauth",
  "yuki-storage",

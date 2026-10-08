@@ -161,6 +161,7 @@ impl Yuki {
                     action("Excluir request", Box::new(DeleteItem)),
                     action("Fechar aba", Box::new(CloseTab)),
                     action("Alternar sidebar", Box::new(ToggleSidebar)),
+                    action("Git: commit, branches, pull/push…", Box::new(ToggleGit)),
                     action("Ir para request…", Box::new(OpenRequests)),
                     action("Trocar de workspace…", Box::new(OpenWorkspaces)),
                     action("Importar workspaces do Voleeo", Box::new(ImportVoleeo)),

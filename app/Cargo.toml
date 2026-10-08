@@ -16,5 +16,6 @@ serde_json = { workspace = true }
 chrono = { workspace = true }
 yuki-oauth = { path = "../crates/yuki-oauth" }
 yuki-auth = { path = "../crates/yuki-auth" }
+yuki-git = { path = "../crates/yuki-git" }
 reqwest = { workspace = true }
 dirs = "6"

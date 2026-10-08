@@ -9,7 +9,9 @@ Compiling proves nothing about UI. Run the real app on isolated data, drive it, 
 
 ## Safety first
 
-- **The user often has their own Yuki open.** Always target your process by **PID** (`wid <pid>`), never by app name. Driving their window has already happened once.
+- **The user often has their own Yuki open.** Always target your process by **PID** (`wid <pid>`), never by app name. Driving their window has already happened twice. Both windows open at the **same screen position**, so a click/keystroke can land on theirs even with yours "frontmost" — move yours first: `osascript -e 'tell application "System Events" to set position of first window of (first process whose unix id is <pid>) to {700, 120}'`, then re-read `wid`.
+- `cargo clippy`/`cargo test` do not refresh `target/debug/yuki`: run `cargo build -p yuki` before launching.
+- Keep the window inside the main display (x ≤ ~800 for a 1280-wide window on a 1920 screen): synthetic clicks past the screen edge are silently dropped — looks like a dead button.
 - Keystrokes/clicks go to the real machine: keep sessions short, set your app frontmost right before each burst, and tell the user if they may be typing.
 - Never use the real data dir (`~/Library/Application Support/dev.yuki`) — always `YUKI_DATA_DIR=/tmp/...`.
 - Never send requests to the user's real APIs; point fixtures at a local server.

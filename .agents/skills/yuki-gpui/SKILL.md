@@ -32,6 +32,7 @@ use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, IconName, Sizable as
 | Network | `backend.save_and_send(req, env).await` (tokio runtime inside `Backend`) |
 | Clipboard | `cx.write_to_clipboard(ClipboardItem::new_string(s))` |
 | Tooltip | `.id(..).tooltip(move \|w, cx\| Tooltip::new(text.clone()).build(w, cx))`; rich: `Tooltip::element(\|_, cx\| ...)` |
+| Selectable text | `gpui_kit::base::SelectableText::new(id, text).document_order(n)` per line (window-wide selection, ⌘C via Root); clicks inside it start a selection, so put buttons outside (`sent.rs`) |
 | Split panes | `h_resizable(id)` / `v_resizable` + `resizable_panel().size(px).size_range(a..b).flex_none()` |
 | Palette | `palette::Palette` (wraps `Command`/`CommandState`; `Target` decides confirm) |
 | Select | `SelectState::new(SearchableVec::new(Vec<SharedString>), Some(IndexPath::new(i)), window, cx)` + `SelectEvent` |
@@ -40,6 +41,7 @@ use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, IconName, Sizable as
 | Drag & drop | `.on_drag(payload, \|d, grab, _, cx\| cx.new(..preview view..))` + `.drag_over::<T>(style)` + `.on_drop(cx.listener(..))` (`moving::Dragged`) |
 | Tree mutation | `Yuki::mutate(rename, op)` — store op off-thread, then reload + resync open tabs |
 | Text inputs | `InputState` (1 line) · `TextareaState` (multi) · `EditorState::new(..).language("json")` (code; **no tokens**) |
+| Highlighting | languages = gpui-kit `tree-sitter-*` features in `app/Cargo.toml` (json, html, graphql). XML uses `"html"`. GraphQL ships an empty query → ours in `app/src/graphql.scm`, registered in `main::register_graphql` |
 | Chips | `state.set_value(vars::content(text), window, cx)`; renderer `Input::new(&s).token(\|ctx, w, cx\| ...)` |
 | Icons | `IconName::X` — only the default set (`gpui-kit-assets-0.7.1/default-icons.txt`: chevron-*, close, copy, eye, eye-off, search, panel-left, chevrons-up-down, …) |
 
@@ -68,6 +70,7 @@ use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, IconName, Sizable as
 - **`Command` list** fills its `max_h`; size it from `matched_count` (`palette::list_height`, 28 px rows).
 - **Tokio runtime ownership**: tasks spawned on `Backend.rt` must not own `Arc<Backend>`.
 - **`#[macro_export]` macros** live at crate root: call as `crate::name!` / `$crate::...` inside.
+- **`use gpui_kit::*` shadows `#[test]`** (gpui's own macro → "recursion limit" error): test modules import names explicitly, not `super::*`, when the parent globs gpui.
 
 ## Verify
 

@@ -28,11 +28,13 @@ app/              binário `yuki` (GPUI) — única camada que conhece gpui
   src/table.rs    tabela nome/valor (headers e campos form/multipart); última linha sempre em branco
   src/complete.rs autocomplete de `{{ VAR }}` (ao digitar `{{` ou ⌃space) em URL, células e editores de código
   src/code_vars.rs "badge" de `{{ VAR }}` nos editores de código (decorations; `EditorState` não aceita tokens)
-  src/response.rs faixa de status, body/headers, histórico (●●●)
+  src/response.rs faixa de status (tempo, hora local), body/headers, histórico (●●●)
+  src/sent.rs     aba timeline: request resolvido como enviado + log de eventos do motor (credenciais mascaradas)
   src/var_view.rs chips `{{ VAR }}` + tooltip; src/vars.rs modelo/tokenização (puro)
   src/vars_panel.rs painel ⌘⇧E;  src/sidebar.rs, tabs.rs, chrome.rs, palette.rs
   src/items.rs    CRUD da árvore (criar/duplicar/excluir); moving.rs drag & drop + "mover para…"; rename.rs renomear inline
   src/backend.rs  ponte para o motor: tokio runtime, load/save/send, import Voleeo
+  src/auth.rs     esquemas de auth como dados (campos por tipo) + AuthConfig⇄form via serde; auth_form.rs aba auth; oauth.rs "obter token"; secrets.rs cripto dos segredos
   src/draft.rs, tree.rs, ui.rs  helpers puros
 crates/yuki-*     motor herdado do Voleeo (MIT), sem gpui/tauri
   yuki-core tipos+erros · yuki-storage YAML · yuki-http executor · yuki-mcp ApiBackend+resolve
@@ -45,8 +47,10 @@ crates/yuki-*     motor herdado do Voleeo (MIT), sem gpui/tauri
 
 - Diretório: `~/Library/Application Support/dev.yuki` (override `YUKI_DATA_DIR`). Mesmo layout do Voleeo (`workspaces/{id}/req_*.yaml`, `envs-local/{id}/`, `keys/{id}.key`, `responses-local/`).
 - Import: `backend::import_voleeo` **copia** (nunca link) workspaces, envs locais e key files; pula `.git` e ids existentes.
-- Salvar só escreve se mudou (`save_request_if_changed`); ids de headers são preservados por posição (`draft::text_to_headers`) — fresh ids = diff fantasma no git do usuário.
+- Local-first: edição vai para o disco 400 ms depois da última tecla (`editor::refresh_dirty` → `save`; uma escrita por vez). ⌘S, enviar, fechar aba e sair só adiantam. Salvar só escreve se mudou (`save_request_if_changed`); ids de headers são preservados por posição (`draft::text_to_headers`) — fresh ids = diff fantasma no git do usuário.
+- Workspace criptografado: segredos de auth abertos no `Backend::load`, selados no `save` (`secrets.rs`). Segredo inalterado reaproveita o ciphertext guardado — recriptografar sorteia nonce novo = diff fantasma.
 - Keychain service: `yuki`. Chave de arquivo é o fallback (e o que o import traz).
+- Git: cada `workspaces/{id}` é um repositório próprio (modelo Voleeo), via `yuki-git` (libgit2, sem git instalado). Painel ⌘⇧G (`git.rs` estado/ops em background, `git_ops.rs` ações, `git_panel.rs` UI). Conflito de pull: escolhe-se o arquivo inteiro de um lado; o disco nunca fica com `<<<<<<<`.
 
 ## Comandos
 

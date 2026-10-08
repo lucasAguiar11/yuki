@@ -107,23 +107,34 @@ impl Backend {
         self.api.responses.list(ws_id, req_id).unwrap_or_default()
     }
 
-    /// A stored response with its body inlined (large bodies live in a side file).
+    /// A stored response with its body inlined (large bodies live in a side
+    /// file), plus the resolved request that produced it, when recorded.
     pub fn stored_response(
         &self,
         ws_id: &str,
         req_id: &str,
         resp_id: &str,
-    ) -> Result<HttpResponse, YukiError> {
+    ) -> Result<(HttpResponse, Option<HttpRequest>), YukiError> {
         let responses = &self.api.responses;
         let stored = responses
             .get(ws_id, req_id, resp_id)?
             .ok_or_else(|| YukiError::NotFound(format!("response {resp_id}")))?;
         let body = responses.read_full_body(ws_id, &stored)?;
-        Ok(HttpResponse {
+        let resp = HttpResponse {
             body,
             body_windowed: false,
             ..stored.response
-        })
+        };
+        Ok((resp, stored.resolved_request))
+    }
+
+    /// The request exactly as sent (literal URL/headers/body) for a stored response.
+    pub fn sent_request(&self, ws_id: &str, req_id: &str, resp_id: &str) -> Option<HttpRequest> {
+        self.api
+            .responses
+            .get(ws_id, req_id, resp_id)
+            .ok()??
+            .resolved_request
     }
 
     /// Every variable visible to a request in `folder_id` under `env_id`, resolved,

@@ -1,4 +1,8 @@
-use std::{rc::Rc, sync::Arc};
+use std::{
+    rc::Rc,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use gpui_kit::component::{
     input::{EditorState, InputEvent, InputState},
@@ -35,6 +39,8 @@ pub enum ReqTab {
 pub enum RespTab {
     Body,
     Headers,
+    /// What was actually sent + the engine's event log.
+    Timeline,
 }
 
 /// Emitted when the saved/dirty state changes so the tab bar re-renders.
@@ -53,7 +59,13 @@ pub struct RequestEditor {
     pub req_tab: ReqTab,
     pub editor_open: bool,
     pub sending: bool,
+    /// When the in-flight send started (drives the live elapsed counter).
+    pub sent_at: Option<Instant>,
     pub response: Option<Result<HttpResponse, String>>,
+    /// The shown response's request as sent: literal URL/headers/body.
+    pub sent: Option<HttpRequest>,
+    /// Focused when the timeline is clicked, so ⌘C copies its selection.
+    pub timeline_focus: FocusHandle,
     pub resp_tab: RespTab,
     pub response_body: Entity<EditorState>,
     pub history: Vec<StoredHttpResponseSummary>,
@@ -135,9 +147,12 @@ impl RequestEditor {
             },
             editor_open: has_body,
             sending: false,
+            sent_at: None,
             response: None,
+            sent: None,
             resp_tab: RespTab::Body,
             response_body,
+            timeline_focus: cx.focus_handle(),
             history: vec![],
             env_id,
             vars: Rc::default(),
@@ -234,15 +249,59 @@ impl RequestEditor {
         }
         let req = self.draft(cx);
         self.sending = true;
+        self.sent_at = Some(Instant::now());
         cx.notify();
+        // Re-render the elapsed counter until the send settles.
+        cx.spawn(async move |this, cx| loop {
+            cx.background_executor()
+                .timer(Duration::from_millis(100))
+                .await;
+            let sending = this.update(cx, |e, cx| {
+                cx.notify();
+                e.sending
+            });
+            if !matches!(sending, Ok(true)) {
+                break;
+            }
+        })
+        .detach();
         let backend = self.backend.clone();
         cx.spawn_in(window, async move |this, cx| {
             let result = backend.save_and_send(req.clone(), env_id).await;
             this.update_in(cx, |this, window, cx| {
                 this.sending = false;
                 this.mark_saved(req, cx);
+                let resp_id = result.as_ref().map(|r| r.response_id.clone()).ok();
+                this.sent = None;
                 this.show_response(result, window, cx);
+                if let Some(id) = resp_id.filter(|id| !id.is_empty()) {
+                    this.load_sent(id, window, cx);
+                }
                 this.refresh_history(false, window, cx);
+            })
+        })
+        .detach();
+    }
+
+    /// Elapsed time of the in-flight send: `1.2 s`, `340 ms`.
+    pub fn elapsed(&self) -> String {
+        let ms = self.sent_at.map_or(0, |t| t.elapsed().as_millis());
+        if ms < 1000 {
+            format!("{ms} ms")
+        } else {
+            format!("{:.1} s", ms as f64 / 1000.)
+        }
+    }
+
+    fn load_sent(&mut self, resp_id: String, window: &mut Window, cx: &mut Context<Self>) {
+        let backend = self.backend.clone();
+        let (ws, id) = (self.saved.workspace_id.clone(), self.saved.id.clone());
+        let task = cx.background_spawn(async move { backend.sent_request(&ws, &id, &resp_id) });
+        cx.spawn_in(window, async move |this, cx| {
+            let sent = task.await;
+            this.update(cx, |this, cx| {
+                this.sent = sent;
+                cx.notify();
             })
         })
         .detach();
@@ -268,7 +327,8 @@ impl RequestEditor {
             let (history, latest) = task.await;
             this.update_in(cx, |this, window, cx| {
                 this.history = history;
-                if let Some(resp) = latest {
+                if let Some((resp, sent)) = latest {
+                    this.sent = sent;
                     this.show_response(Ok(resp), window, cx);
                 }
                 cx.notify();
@@ -283,8 +343,15 @@ impl RequestEditor {
         let task = cx.background_spawn(async move { backend.stored_response(&ws, &id, &resp_id) });
         cx.spawn_in(window, async move |this, cx| {
             let result = task.await.map_err(|e| e.to_string());
-            this.update_in(cx, |this, window, cx| {
-                this.show_response(result, window, cx)
+            this.update_in(cx, |this, window, cx| match result {
+                Ok((resp, sent)) => {
+                    this.sent = sent;
+                    this.show_response(Ok(resp), window, cx)
+                }
+                Err(e) => {
+                    this.sent = None;
+                    this.show_response(Err(e), window, cx)
+                }
             })
         })
         .detach();

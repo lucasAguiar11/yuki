@@ -11,6 +11,7 @@ mod moving;
 mod palette;
 mod rename;
 mod response;
+mod sent;
 mod sidebar;
 mod table;
 mod tabs;

@@ -4,7 +4,7 @@ use yuki_core::HttpResponse;
 
 use crate::{
     editor::{RequestEditor, RespTab},
-    ui,
+    sent, ui,
 };
 
 /// Body text for the read-only viewer + highlighter language.
@@ -34,7 +34,7 @@ pub fn body_for_editor(resp: &HttpResponse) -> (String, &'static str) {
 pub fn render(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> AnyElement {
     let theme = cx.theme();
     let content = match &editor.response {
-        None => empty(editor.sending, cx),
+        None => empty(editor, cx),
         Some(Err(e)) => v_flex()
             .p_4()
             .gap_2()
@@ -60,6 +60,9 @@ pub fn render(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> AnyEle
                 )
                 .into_any_element(),
             RespTab::Headers => headers_table(resp, cx),
+            RespTab::Timeline => {
+                sent::render(resp, editor.sent.as_ref(), &editor.timeline_focus, cx)
+            }
         },
     };
     v_flex()
@@ -69,7 +72,7 @@ pub fn render(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> AnyEle
         .into_any_element()
 }
 
-/// `200 OK · 128 ms · 1.0 KB      body  headers 20      ●●●●`
+/// `200 OK · 128 ms · 1.0 KB · 14:03:12   body  headers 20  timeline   ●●●●`
 fn strip(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> impl IntoElement {
     let theme = cx.theme();
     let muted = theme.muted_foreground;
@@ -84,7 +87,8 @@ fn strip(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> impl IntoEl
         .border_b_1()
         .border_color(theme.border);
 
-    if let Some(Ok(resp)) = &editor.response {
+    // While a send is in flight the strip shows its clock, not the old result.
+    if let Some(Ok(resp)) = editor.response.as_ref().filter(|_| !editor.sending) {
         let tab = |id: &'static str, label: String, t: RespTab, cx: &mut Context<RequestEditor>| {
             let active = editor.resp_tab == t;
             div()
@@ -102,6 +106,12 @@ fn strip(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> impl IntoEl
                     cx.notify();
                 }))
         };
+        // When it was sent (local time), if history has it.
+        let at = editor
+            .history
+            .iter()
+            .find(|s| s.id == resp.response_id)
+            .map(|s| ui::clock(&s.recorded_at));
         row = row
             .child(
                 div()
@@ -109,8 +119,17 @@ fn strip(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> impl IntoEl
                     .text_color(ui::status_color(resp.status, cx))
                     .child(format!("{} {}", resp.status, resp.status_text)),
             )
-            .child(format!("{:.0} ms", resp.timing.total_ms))
+            .child(
+                div()
+                    .id("resp-time")
+                    .child(format!("{:.0} ms", resp.timing.total_ms))
+                    .tooltip({
+                        let label = SharedString::from(timing_label(resp));
+                        move |window, cx| Tooltip::new(label.clone()).build(window, cx)
+                    }),
+            )
             .child(ui::human_bytes(resp.body_size))
+            .children(at.map(|t| div().text_color(ui::faint(cx)).child(t)))
             .child(div().w(px(16.)))
             .child(tab("resp-body", "body".into(), RespTab::Body, cx))
             .child(tab(
@@ -118,15 +137,59 @@ fn strip(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> impl IntoEl
                 format!("headers {}", resp.headers.len()),
                 RespTab::Headers,
                 cx,
-            ));
+            ))
+            .child(tab(
+                "resp-timeline",
+                "timeline".into(),
+                RespTab::Timeline,
+                cx,
+            ))
+            // Outside the timeline itself: clicks there start a selection.
+            .when(editor.resp_tab == RespTab::Timeline, |r| {
+                let text = sent::copy_text(resp, editor.sent.as_ref());
+                let fg = cx.theme().foreground;
+                r.child(
+                    div()
+                        .id("timeline-copy")
+                        .px_1p5()
+                        .cursor_pointer()
+                        .hover(move |s| s.text_color(fg))
+                        .child("copiar tudo")
+                        .on_click(move |_, _, cx| {
+                            cx.write_to_clipboard(ClipboardItem::new_string(text.clone()))
+                        }),
+                )
+            });
     } else {
         row = row.child(if editor.sending {
-            "enviando…"
+            format!("enviando… {}", editor.elapsed())
         } else {
-            "sem resposta"
+            "sem resposta".into()
         });
     }
     row.child(div().flex_1()).child(history(editor, cx))
+}
+
+/// `espera 112 ms · download 16 ms` — the phases the client can measure.
+fn timing_label(resp: &HttpResponse) -> String {
+    let t = &resp.timing;
+    let phases = [
+        ("dns", t.dns_ms),
+        ("conexão", t.connect_ms),
+        ("tls", t.tls_ms),
+        ("espera do servidor", t.first_byte_ms),
+        ("download", t.download_ms),
+    ];
+    let parts: Vec<String> = phases
+        .iter()
+        .filter(|(_, ms)| *ms >= 0.5)
+        .map(|(name, ms)| format!("{name} {ms:.0} ms"))
+        .collect();
+    if parts.is_empty() {
+        "sem detalhamento de tempo".into()
+    } else {
+        parts.join(" · ")
+    }
 }
 
 /// Last sends, oldest → newest; click to reopen a stored response.
@@ -202,12 +265,12 @@ fn headers_table(resp: &HttpResponse, cx: &App) -> AnyElement {
         .into_any_element()
 }
 
-fn empty(sending: bool, cx: &App) -> AnyElement {
+fn empty(editor: &RequestEditor, cx: &App) -> AnyElement {
     let theme = cx.theme();
-    let (title, hint) = if sending {
-        ("enviando…", "⌘↵ cancela")
+    let (title, hint) = if editor.sending {
+        (format!("enviando… {}", editor.elapsed()), "⌘↵ cancela")
     } else {
-        ("nenhuma resposta ainda", "⌘↵ envia o request")
+        ("nenhuma resposta ainda".into(), "⌘↵ envia o request")
     };
     v_flex()
         .size_full()

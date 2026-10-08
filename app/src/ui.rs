@@ -57,8 +57,16 @@ pub fn kind_name(value: impl serde::Serialize) -> String {
     }
 }
 
-/// `2026-10-06T20:13:56.123` → `20:13:56`.
-pub fn clock(iso: &str) -> &str {
-    iso.split_once('T')
-        .map_or(iso, |(_, t)| t.get(..8).unwrap_or(t))
+/// History stamps are UTC (`2026-10-06T23:13:56.123Z`); show local `20:13:56`.
+pub fn clock(iso: &str) -> String {
+    match chrono::DateTime::parse_from_rfc3339(iso) {
+        Ok(t) => t
+            .with_timezone(&chrono::Local)
+            .format("%H:%M:%S")
+            .to_string(),
+        Err(_) => iso
+            .split_once('T')
+            .map_or(iso, |(_, t)| t.get(..8).unwrap_or(t))
+            .to_string(),
+    }
 }

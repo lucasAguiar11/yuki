@@ -88,6 +88,7 @@ impl Yuki {
         let Some(ws) = self.ws.as_ref().map(|w| w.id.clone()) else {
             return;
         };
+        self.close_settings(window, cx);
         if let Some((screen, _)) = &self.env_screen {
             let screen = screen.clone();
             if let Some(key) = add {

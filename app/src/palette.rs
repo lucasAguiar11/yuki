@@ -163,6 +163,7 @@ impl Yuki {
                     action(&t!("Toggle sidebar"), Box::new(ToggleSidebar)),
                     action("Git: commit, branches, pull/push…", Box::new(ToggleGit)),
                     action(&t!("Environments and variables…"), Box::new(OpenEnvs)),
+                    action(&t!("Settings…"), Box::new(OpenSettings)),
                     action(&t!("Go to request…"), Box::new(OpenRequests)),
                     action(&t!("Switch workspace…"), Box::new(OpenWorkspaces)),
                     action(&t!("Import workspaces from Voleeo"), Box::new(ImportVoleeo)),

@@ -25,11 +25,14 @@ mod items;
 mod moving;
 mod oauth;
 mod palette;
+mod prefs;
 mod rename;
 mod response;
 mod secrets;
 mod sent;
 mod sidebar;
+mod settings;
+mod settings_view;
 mod table;
 mod tabs;
 mod tree;
@@ -62,6 +65,8 @@ actions!(
         ToggleGit,
         OpenEnvs,
         CloseEnvs,
+        OpenSettings,
+        CloseSettings,
         Quit,
         FocusNext,
         FocusPrev,
@@ -102,6 +107,9 @@ fn bind_keys(cx: &mut App) {
         KeyBinding::new("cmd-shift-g", ToggleGit, None),
         KeyBinding::new("cmd-alt-e", OpenEnvs, None),
         KeyBinding::new("escape", CloseEnvs, Some("EnvScreen")),
+        // ⌘, on macOS, ctrl-, elsewhere.
+        KeyBinding::new("secondary-,", OpenSettings, None),
+        KeyBinding::new("escape", CloseSettings, Some("SettingsScreen")),
         KeyBinding::new("cmd-s", Save, None),
         KeyBinding::new("cmd-enter", Send, None),
         // Inputs bind cmd-enter themselves (newline + PressEnter); same-context
@@ -173,6 +181,7 @@ fn main() {
         .run(move |cx| {
             gpui_kit::init(cx);
             apply_theme(cx);
+            prefs::Prefs::init(cx);
             bind_keys(cx);
             register_graphql();
             let options = WindowOptions {

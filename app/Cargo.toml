@@ -13,6 +13,7 @@ yuki-crypto = { path = "../crates/yuki-crypto" }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+serde_yaml = { workspace = true }
 chrono = { workspace = true }
 yuki-oauth = { path = "../crates/yuki-oauth" }
 yuki-auth = { path = "../crates/yuki-auth" }

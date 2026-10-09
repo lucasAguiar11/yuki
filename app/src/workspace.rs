@@ -12,6 +12,7 @@ use crate::{
     chrome,
     editor::{EditorChanged, RequestEditor},
     env_screen::EnvScreen,
+    settings::SettingsScreen,
     git::Git,
     git_panel,
     palette::{Kind, Palette},
@@ -42,6 +43,8 @@ pub struct Yuki {
     pub(crate) env_sub: Option<Subscription>,
     /// The "Environments" screen, shown in place of the request while open.
     pub(crate) env_screen: Option<(Entity<EnvScreen>, Subscription)>,
+    /// The "Settings" screen, same place; one of the two at a time.
+    pub(crate) settings: Option<(Entity<SettingsScreen>, Subscription)>,
     pub(crate) palette: Option<Palette>,
     /// Sidebar row being renamed inline.
     pub renaming: Option<Rename>,
@@ -70,6 +73,7 @@ impl Yuki {
             env_ids: vec![],
             env_sub: None,
             env_screen: None,
+            settings: None,
             palette: None,
             renaming: None,
             status: "".into(),
@@ -122,6 +126,9 @@ impl Yuki {
                     this._subs.clear();
                     this.active = 0;
                     if let Some((screen, _)) = this.env_screen.take() {
+                        screen.update(cx, |s, cx| s.flush(cx));
+                    }
+                    if let Some((screen, _)) = this.settings.take() {
                         screen.update(cx, |s, cx| s.flush(cx));
                     }
                     this.set_envs(&data.environments, None, window, cx);
@@ -200,6 +207,9 @@ impl Yuki {
     // it ever shows up.
     fn flush_blocking(&self, cx: &App) {
         self.flush_envs_blocking(cx);
+        if let Some((screen, _)) = &self.settings {
+            screen.read(cx).flush_blocking(cx);
+        }
         for tab in &self.tabs {
             let e = tab.read(cx);
             if e.dirty {
@@ -255,6 +265,9 @@ impl Yuki {
     }
 
     fn render_center(&self, cx: &mut Context<Self>) -> AnyElement {
+        if let Some((screen, _)) = &self.settings {
+            return screen.clone().into_any_element();
+        }
         if let Some((screen, _)) = &self.env_screen {
             return screen.clone().into_any_element();
         }
@@ -360,6 +373,16 @@ impl Render for Yuki {
                 }
             }))
             .on_action(cx.listener(|this, _: &CloseEnvs, window, cx| this.close_envs(window, cx)))
+            .on_action(cx.listener(|this, _: &OpenSettings, window, cx| {
+                if this.settings.is_some() {
+                    this.close_settings(window, cx)
+                } else {
+                    this.open_settings(window, cx)
+                }
+            }))
+            .on_action(
+                cx.listener(|this, _: &CloseSettings, window, cx| this.close_settings(window, cx)),
+            )
             .on_action(cx.listener(|this, _: &ToggleSidebar, _, cx| {
                 this.sidebar = !this.sidebar;
                 cx.notify();

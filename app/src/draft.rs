@@ -1,6 +1,8 @@
 //! Editor state -> model mapping: what the request would look like if saved.
 
-use yuki_core::{BodyField, BodyKind, HttpRequest, RequestBody, RequestParameter};
+use yuki_core::{
+    new_id, BodyField, BodyKind, DnsOverride, HttpRequest, RequestBody, RequestParameter,
+};
 
 /// Table cells are single-line inputs: line breaks show as spaces.
 pub fn one_line(s: &str) -> String {
@@ -81,6 +83,45 @@ pub fn build(
     }
 }
 
+/// DNS overrides as `/etc/hosts` lines (`127.0.0.1 api.local`); `#` = disabled.
+pub fn hosts_text(rows: &[DnsOverride]) -> String {
+    let line = |r: &DnsOverride| {
+        let l = format!("{} {}", r.address, r.hostname);
+        let l = l.trim();
+        if r.enabled {
+            l.to_string()
+        } else {
+            format!("# {l}")
+        }
+    };
+    rows.iter().map(line).collect::<Vec<_>>().join("\n")
+}
+
+/// Lines back to overrides. Ids are kept by position: fresh ids would be a
+/// phantom diff in the user's git.
+pub fn hosts_rows(text: &str, prev: &[DnsOverride]) -> Vec<DnsOverride> {
+    text.lines()
+        .filter_map(|l| {
+            let l = l.trim();
+            let (enabled, l) = match l.strip_prefix('#') {
+                Some(rest) => (false, rest.trim()),
+                None => (true, l),
+            };
+            let mut parts = l.split_whitespace();
+            let address = parts.next()?.to_string();
+            let hostname = parts.next().unwrap_or_default().to_string();
+            Some((enabled, address, hostname))
+        })
+        .enumerate()
+        .map(|(i, (enabled, address, hostname))| DnsOverride {
+            id: prev.get(i).map_or_else(new_id, |p| p.id.clone()),
+            enabled,
+            hostname,
+            address,
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -140,5 +181,32 @@ mod tests {
         let mut typed = BodyDraft::from(None);
         typed.text = "{}".into();
         assert_eq!(apply_body(None, &typed).unwrap().kind, BodyKind::Json);
+    }
+
+    #[test]
+    fn hosts_text_roundtrips_and_keeps_ids() {
+        let row = |id: &str, enabled, address: &str, hostname: &str| DnsOverride {
+            id: id.into(),
+            enabled,
+            hostname: hostname.into(),
+            address: address.into(),
+        };
+        let rows = vec![
+            row("a", true, "127.0.0.1", "api.local"),
+            row("b", false, "::1", "v6.local"),
+        ];
+        let text = hosts_text(&rows);
+        assert_eq!(text, "127.0.0.1 api.local\n# ::1 v6.local");
+        assert_eq!(hosts_rows(&text, &rows), rows);
+        // Blank and bare `#` lines vanish; a new line gets a fresh id.
+        let edited = hosts_rows(
+            "\n#\n10.0.0.1 a.local\n  #10.0.0.2   b.local  \n1.1.1.1 c",
+            &rows,
+        );
+        assert_eq!(edited.len(), 3);
+        assert_eq!((edited[0].id.as_str(), edited[0].enabled), ("a", true));
+        assert_eq!((edited[1].id.as_str(), edited[1].enabled), ("b", false));
+        assert_eq!(edited[1].hostname, "b.local");
+        assert!(!edited[2].id.is_empty() && edited[2].id != "a" && edited[2].id != "b");
     }
 }

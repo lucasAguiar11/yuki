@@ -34,7 +34,7 @@ app/              `yuki` binary (GPUI) — the only layer that knows gpui
   src/var_view.rs `{{ VAR }}` chips + tooltip; src/vars.rs model/tokenization (pure)
   src/vars_panel.rs ⌘⇧E panel;  src/sidebar.rs, tabs.rs, chrome.rs, palette.rs
   src/env_screen.rs "environments" screen ⌘⌥E (state, autosave, create/rename/delete); env_view.rs render; envs.rs title-bar `env` select
-  src/settings.rs "settings" screen ⌘, (workspace name, DNS overrides as hosts lines, shell-env allowlist); settings_view.rs render; prefs.rs font sizes
+  src/settings.rs "settings" screen ⌘, (workspace name, DNS overrides as hosts lines, shell-env allowlist); settings_view.rs render; prefs.rs font sizes + language
   src/items.rs    tree CRUD (create/duplicate/delete); moving.rs drag & drop + "move to…"; rename.rs inline rename
   src/backend.rs  bridge to the engine: tokio runtime, load/save/send, Voleeo import
   src/auth.rs     auth schemes as data (fields per type) + AuthConfig⇄form via serde; auth_form.rs auth tab; oauth.rs "get token"; secrets.rs secret crypto
@@ -51,7 +51,7 @@ crates/yuki-*     engine inherited from Voleeo (MIT), no gpui/tauri
 - Supported: `en` (source) and `pt-BR`. Code, comments, `AGENTS.md`, skills and commits are English. UI copy is English inside `t!("...")` (rust-i18n, gettext style): the English text **is** the key; every key goes into every `app/locales/<lang>.yml`.
 - User-facing docs are bilingual: `README.md` ↔ `README.pt-BR.md`, `docs/legal/TERMS.md` ↔ `TERMS.pt-BR.md` — change both in the same commit.
 - Any copy or doc change: skill `yuki-i18n` (rules, adding a language). Validate with `cargo test -p yuki locales_test` (missing, stale and divergent keys) and `.agents/skills/yuki-i18n/scripts/doc-parity.sh`.
-- Language: system locale (`sys-locale`); `YUKI_LANG=en` / `YUKI_LANG=pt-BR` overrides.
+- Language: `YUKI_LANG` (dev override) > settings → appearance (`settings.yaml` `language`) > system locale (`sys-locale`). Switching is live, but text cached at creation (input placeholders, select lists) only changes after a restart.
 
 ## Data
 

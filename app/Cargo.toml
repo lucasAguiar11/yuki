@@ -19,3 +19,5 @@ yuki-auth = { path = "../crates/yuki-auth" }
 yuki-git = { path = "../crates/yuki-git" }
 reqwest = { workspace = true }
 dirs = "6"
+rust-i18n = "4"
+sys-locale = "0.3"

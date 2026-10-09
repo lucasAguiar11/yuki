@@ -18,7 +18,7 @@ pub fn body_for_editor(resp: &HttpResponse) -> (String, &'static str) {
     }
     if !resp.body_is_text {
         return (
-            format!("<binário, {}>", ui::human_bytes(resp.body_size)),
+            t!("<binary, %{size}>", size = ui::human_bytes(resp.body_size)).into_owned(),
             "text",
         );
     }
@@ -42,13 +42,13 @@ pub fn render(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> AnyEle
             .p_4()
             .gap_2()
             .text_sm()
-            .child(div().text_color(theme.red).child("✕ falha no envio"))
+            .child(div().text_color(theme.red).child(t!("✕ send failed")))
             .child(div().text_color(theme.foreground).child(e.clone()))
             .child(
                 div()
                     .text_xs()
                     .text_color(theme.muted_foreground)
-                    .child("confira a URL e o ambiente selecionado"),
+                    .child(t!("check the URL and the selected environment")),
             )
             .into_any_element(),
         Some(Ok(resp)) => match editor.resp_tab {
@@ -157,7 +157,7 @@ fn strip(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> impl IntoEl
                         .px_1p5()
                         .cursor_pointer()
                         .hover(move |s| s.text_color(fg))
-                        .child("copiar tudo")
+                        .child(t!("copy all"))
                         .on_click(move |_, _, cx| {
                             cx.write_to_clipboard(ClipboardItem::new_string(text.clone()))
                         }),
@@ -165,31 +165,31 @@ fn strip(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> impl IntoEl
             });
     } else {
         row = row.child(if editor.sending {
-            format!("enviando… {}", editor.elapsed())
+            t!("sending… %{elapsed}", elapsed = editor.elapsed()).into_owned()
         } else {
-            "sem resposta".into()
+            t!("no response").into_owned()
         });
     }
     row.child(div().flex_1()).child(history(editor, cx))
 }
 
-/// `espera 112 ms · download 16 ms` — the phases the client can measure.
+/// `server wait 112 ms · download 16 ms` — the phases the client can measure.
 fn timing_label(resp: &HttpResponse) -> String {
     let t = &resp.timing;
     let phases = [
         ("dns", t.dns_ms),
-        ("conexão", t.connect_ms),
+        ("connection", t.connect_ms),
         ("tls", t.tls_ms),
-        ("espera do servidor", t.first_byte_ms),
+        ("server wait", t.first_byte_ms),
         ("download", t.download_ms),
     ];
     let parts: Vec<String> = phases
         .iter()
         .filter(|(_, ms)| *ms >= 0.5)
-        .map(|(name, ms)| format!("{name} {ms:.0} ms"))
+        .map(|(name, ms)| format!("{} {ms:.0} ms", t!(*name)))
         .collect();
     if parts.is_empty() {
-        "sem detalhamento de tempo".into()
+        t!("no timing breakdown").into_owned()
     } else {
         parts.join(" · ")
     }
@@ -271,9 +271,12 @@ fn headers_table(resp: &HttpResponse, cx: &App) -> AnyElement {
 fn empty(editor: &RequestEditor, cx: &App) -> AnyElement {
     let theme = cx.theme();
     let (title, hint) = if editor.sending {
-        (format!("enviando… {}", editor.elapsed()), "⌘↵ cancela")
+        (
+            t!("sending… %{elapsed}", elapsed = editor.elapsed()).into_owned(),
+            t!("⌘↵ cancels"),
+        )
     } else {
-        ("nenhuma resposta ainda".into(), "⌘↵ envia o request")
+        (t!("no response yet").into_owned(), t!("⌘↵ sends the request"))
     };
     v_flex()
         .size_full()

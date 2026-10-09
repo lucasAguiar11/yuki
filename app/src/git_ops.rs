@@ -9,7 +9,7 @@ use crate::{
 
 impl Yuki {
     pub fn git_init(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.git_op("criando repositório…", false, Box::new(init), window, cx);
+        self.git_op("creating repository…", false, Box::new(init), window, cx);
     }
 
     pub(crate) fn git_commit(
@@ -27,14 +27,14 @@ impl Yuki {
             let c = yuki_git::commit(dir, &message, None)?;
             Ok(Some(format!("commit {} · {}", c.short_id, c.summary)))
         });
-        self.git_op("commitando…", false, op, window, cx);
+        self.git_op("committing…", false, op, window, cx);
     }
 
     pub fn git_commit_button(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(i) = &self.git.inputs else { return };
         let message = i.message.read(cx).value().trim().to_string();
         if message.is_empty() {
-            self.git.error = "escreva a mensagem do commit".into();
+            self.git.error = t!("write the commit message").into_owned().into();
             cx.notify();
             return;
         }
@@ -52,17 +52,17 @@ impl Yuki {
         }
         let op: GitOp = Box::new(move |dir| {
             yuki_git::create_branch(dir, &name)?;
-            Ok(Some(format!("branch {name} criada")))
+            Ok(Some(t!("branch %{name} created", name = name).into_owned()))
         });
-        self.git_op("criando branch…", false, op, window, cx);
+        self.git_op("creating branch…", false, op, window, cx);
     }
 
     pub fn git_checkout(&mut self, name: String, window: &mut Window, cx: &mut Context<Self>) {
         let op: GitOp = Box::new(move |dir| {
             yuki_git::checkout_branch(dir, &name)?;
-            Ok(Some(format!("na branch {name}")))
+            Ok(Some(t!("on branch %{name}", name = name).into_owned()))
         });
-        self.git_op("trocando de branch…", true, op, window, cx);
+        self.git_op("switching branch…", true, op, window, cx);
     }
 
     pub(crate) fn git_set_remote(
@@ -73,9 +73,9 @@ impl Yuki {
     ) {
         let op: GitOp = Box::new(move |dir| {
             yuki_git::set_remote(dir, "origin", &url)?;
-            Ok(Some("remote origin configurado".into()))
+            Ok(Some(t!("remote origin set").into_owned()))
         });
-        self.git_op("configurando remote…", false, op, window, cx);
+        self.git_op("setting remote…", false, op, window, cx);
     }
 
     pub(crate) fn git_set_identity(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -83,15 +83,15 @@ impl Yuki {
         let name = i.name.read(cx).value().trim().to_string();
         let email = i.email.read(cx).value().trim().to_string();
         if name.is_empty() || email.is_empty() {
-            self.git.error = "preencha nome e e-mail".into();
+            self.git.error = t!("fill in name and e-mail").into_owned().into();
             cx.notify();
             return;
         }
         let op: GitOp = Box::new(move |dir| {
             yuki_git::set_identity(dir, &name, &email)?;
-            Ok(Some("autor dos commits salvo".into()))
+            Ok(Some(t!("commit author saved").into_owned()))
         });
-        self.git_op("salvando…", false, op, window, cx);
+        self.git_op("saving…", false, op, window, cx);
     }
 
     pub fn git_identity_button(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -103,24 +103,24 @@ impl Yuki {
             let r = yuki_git::pull(dir, None)?;
             Ok(Some(
                 if r.conflicted {
-                    "pull com conflitos — escolha um lado em cada um"
+                    t!("pull with conflicts — pick a side in each one")
                 } else if r.up_to_date {
-                    "já está atualizado"
+                    t!("already up to date")
                 } else {
-                    "atualizado do remote"
+                    t!("updated from remote")
                 }
-                .into(),
+                .into_owned(),
             ))
         });
-        self.git_op("puxando…", true, op, window, cx);
+        self.git_op("pulling…", true, op, window, cx);
     }
 
     pub fn git_push(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let op: GitOp = Box::new(|dir| {
             yuki_git::push(dir, None)?;
-            Ok(Some("enviado para o remote".into()))
+            Ok(Some(t!("pushed to remote").into_owned()))
         });
-        self.git_op("enviando…", false, op, window, cx);
+        self.git_op("pushing…", false, op, window, cx);
     }
 
     /// Settle one conflict with a side's whole file (`None` = that side deleted it).
@@ -138,14 +138,14 @@ impl Yuki {
             }
             Ok(None)
         });
-        self.git_op("resolvendo…", true, op, window, cx);
+        self.git_op("resolving…", true, op, window, cx);
     }
 
     pub fn git_finish_merge(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let op: GitOp = Box::new(|dir| {
             let c = yuki_git::finish_merge(dir, "Merge remote changes", None)?;
-            Ok(Some(format!("merge concluído · {}", c.short_id)))
+            Ok(Some(t!("merge done · %{id}", id = c.short_id).into_owned()))
         });
-        self.git_op("concluindo merge…", true, op, window, cx);
+        self.git_op("finishing merge…", true, op, window, cx);
     }
 }

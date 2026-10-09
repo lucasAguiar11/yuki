@@ -55,9 +55,9 @@ fn blank() -> BodyField {
 
 fn value_placeholder(is_file: bool) -> &'static str {
     if is_file {
-        "/caminho/do/arquivo"
+        "/path/to/file"
     } else {
-        "valor"
+        "value"
     }
 }
 
@@ -70,7 +70,7 @@ impl Row {
     ) -> Self {
         let mut cell = |text: &str, placeholder: &'static str| {
             let input = cx.new(|cx| {
-                let mut s = InputState::new(window, cx).placeholder(placeholder);
+                let mut s = InputState::new(window, cx).placeholder(t!(placeholder).to_string());
                 s.set_value(vars::content(&draft::one_line(text)), window, cx);
                 s
             });
@@ -88,7 +88,7 @@ impl Row {
             );
             (input, sub)
         };
-        let (name, s1) = cell(&field.name, "nome");
+        let (name, s1) = cell(&field.name, "name");
         let (value, s2) = cell(&field.value, value_placeholder(field.is_file));
         Self {
             field,
@@ -268,7 +268,7 @@ impl RequestEditor {
         .detach();
     }
 
-    /// `files` adds the texto/arquivo column (multipart only).
+    /// `files` adds the text/file column (multipart only).
     pub(crate) fn render_table(
         &self,
         which: Which,
@@ -291,9 +291,9 @@ impl RequestEditor {
             .border_b_1()
             .border_color(border)
             .child(div().w(px(16.)))
-            .child(div().w(relative(0.3)).px_2p5().child("nome"))
-            .child(div().flex_1().px_2p5().child("valor"))
-            .when(files, |r| r.child(div().w(px(56.)).child("tipo")))
+            .child(div().w(relative(0.3)).px_2p5().child(t!("name")))
+            .child(div().flex_1().px_2p5().child(t!("value")))
+            .when(files, |r| r.child(div().w(px(56.)).child(t!("type"))))
             .child(div().w(px(16.)));
         let rows = table.rows.iter().enumerate().map(|(ix, row)| {
             let blank = ix == last;
@@ -319,7 +319,7 @@ impl RequestEditor {
                     .cursor_pointer()
                     .text_color(faint)
                     .hover(|s| s.text_color(fg))
-                    .child("escolher")
+                    .child(t!("choose"))
                     .on_click(cx.listener({
                         let id = id.clone();
                         move |this, _, window, cx| this.pick_row_file(id.clone(), window, cx)
@@ -330,14 +330,14 @@ impl RequestEditor {
                     d.cursor_pointer()
                         .text_color(if f.is_file { cyan } else { muted })
                         .hover(|s| s.text_color(fg))
-                        .child(if f.is_file { "arquivo" } else { "texto" })
+                        .child(if f.is_file { t!("file") } else { t!("text") })
                         .on_click(cx.listener({
                             let id = id.clone();
                             move |this, _, window, cx| {
                                 this.update_row(which, &id, window, cx, |r, window, cx| {
                                     r.field.is_file = !r.field.is_file;
                                     let p = value_placeholder(r.field.is_file);
-                                    r.value.update(cx, |s, cx| s.set_placeholder(p, window, cx));
+                                    r.value.update(cx, |s, cx| s.set_placeholder(t!(p).to_string(), window, cx));
                                 })
                             }
                         }))

@@ -111,7 +111,8 @@ impl RequestEditor {
             )
         });
         let url = cx.new(|cx| {
-            let mut s = InputState::new(window, cx).placeholder("https://api.exemplo.com/recurso");
+            let mut s = InputState::new(window, cx)
+                .placeholder(t!("https://api.example.com/resource").into_owned());
             s.set_value(vars::content(&req.url), window, cx);
             s
         });
@@ -260,7 +261,10 @@ impl RequestEditor {
                 this.saving = false;
                 match result {
                     Ok(()) => this.mark_saved(req, cx),
-                    Err(e) => this.response = Some(Err(format!("Falha ao salvar: {e}"))),
+                    Err(e) => {
+                        this.response =
+                            Some(Err(t!("failed to save: %{error}", error = e).into_owned()))
+                    }
                 }
             })
         })

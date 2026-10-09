@@ -65,7 +65,7 @@ impl Render for RequestEditor {
 }
 
 impl RequestEditor {
-    /// `GET ▸ https://…   ⌘↵ enviar` — the caret brightens while the URL has focus.
+    /// `GET ▸ https://…   ⌘↵ send` — the caret brightens while the URL has focus.
     fn render_prompt(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let focused = self.url.read(cx).focus_handle(cx).is_focused(window);
@@ -73,12 +73,12 @@ impl RequestEditor {
             h_flex()
                 .gap_2()
                 .child(Spinner::new().small().color(theme.muted_foreground))
-                .child("cancelar")
+                .child(t!("cancel"))
         } else {
             h_flex()
                 .gap_2()
                 .child(div().text_color(theme.muted_foreground).child("⌘↵"))
-                .child("enviar")
+                .child(t!("send"))
         };
         h_flex()
             .h(px(52.))
@@ -220,7 +220,7 @@ impl RequestEditor {
         move |ctx, _, cx| var_view::chip(ctx, &vars, cx).into_any_element()
     }
 
-    /// `vars 4` — or `vars 4 · 1 faltando` in red; opens the variables panel.
+    /// `vars 4` — or `vars 4 · 1 missing` in red; opens the variables panel.
     fn render_vars_segment(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let used = self.used_vars(cx).len();
@@ -237,7 +237,7 @@ impl RequestEditor {
                 s.child(
                     div()
                         .text_color(theme.red)
-                        .child(format!("· {missing} faltando")),
+                        .child(t!("· %{n} missing", n = missing).into_owned()),
                 )
             })
             .on_click(|_, window, cx| window.dispatch_action(Box::new(ToggleVars), cx))

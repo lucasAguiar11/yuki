@@ -45,7 +45,7 @@ fn link(id: impl Into<ElementId>, label: &'static str, cx: &App) -> Stateful<Div
         .cursor_pointer()
         .text_color(muted)
         .hover(move |s| s.text_color(fg))
-        .child(label)
+        .child(t!(label).into_owned())
 }
 
 pub fn render(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
@@ -57,7 +57,7 @@ pub fn render(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
         theme.border,
         theme.mono_font_family.clone(),
     );
-    // `git  ⎇ main                 commitando…`
+    // `git  ⎇ main                 committing…`
     let branch = yuki
         .git
         .view
@@ -74,11 +74,11 @@ pub fn render(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
         .child("git")
         .children(branch)
         .child(div().flex_1())
-        .children(yuki.git.busy.map(|b| div().child(b)));
+        .children(yuki.git.busy.map(|b| div().child(t!(b).into_owned())));
     let shell = v_flex().size_full().bg(bg).child(header);
 
     let (Some(view), Some(_)) = (&yuki.git.view, &yuki.git.inputs) else {
-        return shell.child(section("carregando…".into(), cx));
+        return shell.child(section(t!("loading…").into_owned(), cx));
     };
     if !view.info.is_repo {
         return shell.child(
@@ -87,13 +87,13 @@ pub fn render(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
                 .gap_2()
                 .text_xs()
                 .text_color(muted)
-                .child("este workspace ainda não é versionado.")
-                .child("cada workspace vira um repositório git na própria pasta; os arquivos YAML dos requests são o que entra nos commits.")
+                .child(t!("this workspace isn't versioned yet."))
+                .child(t!("each workspace becomes a git repository in its own folder; the requests' YAML files are what goes into the commits."))
                 .child(
                     Button::new("git-init")
                         .small()
                         .primary()
-                        .label("iniciar repositório")
+                        .label(t!("init repository").into_owned())
                         .on_click(cx.listener(|this, _, window, cx| this.git_init(window, cx))),
                 )
                 .children(error(yuki, cx)),
@@ -151,7 +151,7 @@ fn error(yuki: &Yuki, cx: &App) -> Option<Div> {
 fn author(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
     let inputs = yuki.git.inputs.as_ref().expect("inputs exist with a view");
     v_flex()
-        .child(section("quem assina os commits".into(), cx))
+        .child(section(t!("who signs the commits").into_owned(), cx))
         .child(
             v_flex()
                 .px_3()
@@ -163,7 +163,7 @@ fn author(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
                         .small()
                         .primary()
                         .w_full()
-                        .label("salvar autor")
+                        .label(t!("save author").into_owned())
                         .on_click(
                             cx.listener(|this, _, window, cx| this.git_identity_button(window, cx)),
                         ),
@@ -171,12 +171,12 @@ fn author(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
         )
 }
 
-/// `293 alterações · 280 novas · 13 modificadas`, message, commit.
+/// `293 changes · 280 new · 13 modified`, message, commit.
 fn composer(yuki: &Yuki, view: &GitView, cx: &mut Context<Yuki>) -> impl IntoElement {
     let inputs = yuki.git.inputs.as_ref().expect("inputs exist with a view");
     let n = view.changes.len();
     if n == 0 {
-        return v_flex().child(section("tudo commitado".into(), cx));
+        return v_flex().child(section(t!("all committed").into_owned(), cx));
     }
     let count = |kinds: &[GitChange]| {
         view.changes
@@ -184,26 +184,26 @@ fn composer(yuki: &Yuki, view: &GitView, cx: &mut Context<Yuki>) -> impl IntoEle
             .filter(|c| kinds.contains(&c.change))
             .count()
     };
-    let mut summary = vec![format!("{n} {}", plural(n, "alteração", "alterações"))];
+    let mut summary = vec![t!(plural(n, "1 change", "%{n} changes"), n = n).into_owned()];
     for (k, one, many) in [
         (
             count(&[GitChange::Added, GitChange::Untracked]),
-            "nova",
-            "novas",
+            "1 new",
+            "%{n} new",
         ),
         (
             count(&[GitChange::Modified, GitChange::Renamed]),
-            "modificada",
-            "modificadas",
+            "1 modified",
+            "%{n} modified",
         ),
-        (count(&[GitChange::Deleted]), "excluída", "excluídas"),
+        (count(&[GitChange::Deleted]), "1 deleted", "%{n} deleted"),
     ] {
         if k > 0 && k < n {
-            summary.push(format!("{k} {}", plural(k, one, many)));
+            summary.push(t!(plural(k, one, many), n = k).into_owned());
         }
     }
     let first = view.log.is_empty();
-    let label = if first { "commit inicial" } else { "commit" };
+    let label = if first { t!("initial commit") } else { "commit".into() };
     let blocked = yuki.git.busy.is_some() || !view.conflicts.is_empty();
     v_flex().child(section(summary.join(" · "), cx)).child(
         v_flex()
@@ -264,10 +264,10 @@ fn branches(yuki: &Yuki, view: &GitView, cx: &mut Context<Yuki>) -> impl IntoEle
         .child(section("branches".into(), cx))
         .children(rows.collect::<Vec<_>>())
         .when(unborn, |s| {
-            s.child(div().px_3().text_color(ui::faint(cx)).child(format!(
-                "{} · nasce no primeiro commit",
-                view.info.branch.as_deref().unwrap_or("main")
-            )))
+            s.child(div().px_3().text_color(ui::faint(cx)).child(t!(
+                "%{branch} · created on the first commit",
+                branch = view.info.branch.as_deref().unwrap_or("main")
+            ).into_owned()))
         })
         .when(!unborn, |s| {
             s.child(
@@ -315,7 +315,7 @@ fn changes(yuki: &Yuki, view: &GitView, cx: &mut Context<Yuki>) -> impl IntoElem
         .collect::<Vec<_>>();
     v_flex()
         .when(!rows.is_empty(), |s| {
-            s.child(section(format!("alterações {}", view.changes.len()), cx))
+            s.child(section(t!("changes %{n}", n = view.changes.len()).into_owned(), cx))
         })
         .children(rows)
 }
@@ -374,17 +374,17 @@ fn conflicts(yuki: &Yuki, view: &GitView, cx: &mut Context<Yuki>) -> impl IntoEl
                     .text_color(fg)
                     .child(yuki.git_label(c.node_id.as_deref(), &c.path)),
             )
-            .child(link(("mine", ix), "meu", cx).on_click(cx.listener(
+            .child(link(("mine", ix), "mine", cx).on_click(cx.listener(
                 move |this, _, window, cx| this.git_resolve(path.clone(), ours.clone(), window, cx),
             )))
-            .child(link(("theirs", ix), "deles", cx).on_click(cx.listener(
+            .child(link(("theirs", ix), "theirs", cx).on_click(cx.listener(
                 move |this, _, window, cx| {
                     this.git_resolve(path2.clone(), theirs.clone(), window, cx)
                 },
             )))
     });
     v_flex()
-        .child(section(format!("conflitos {}", view.conflicts.len()), cx))
+        .child(section(t!("conflicts %{n}", n = view.conflicts.len()).into_owned(), cx))
         .children(rows.collect::<Vec<_>>())
 }
 
@@ -414,16 +414,16 @@ fn history(view: &GitView, cx: &mut Context<Yuki>) -> impl IntoElement {
                     Button::new("git-finish")
                         .small()
                         .outline()
-                        .label("concluir merge")
+                        .label(t!("finish merge").into_owned())
                         .on_click(
                             cx.listener(|this, _, window, cx| this.git_finish_merge(window, cx)),
                         ),
                 ),
             )
         })
-        .child(section("histórico".into(), cx))
+        .child(section(t!("history").into_owned(), cx))
         .children(rows.collect::<Vec<_>>())
         .when(view.log.is_empty(), |s| {
-            s.child(div().px_3().text_color(faint).child("nenhum commit ainda"))
+            s.child(div().px_3().text_color(faint).child(t!("no commits yet")))
         })
 }

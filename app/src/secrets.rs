@@ -166,10 +166,10 @@ mod tests {
         assert_eq!(edited[0].value, stored[0].value);
 
         // Changed secret → new ciphertext that opens to the new value.
-        let mut changed = vec![var("TOKEN", "novo", true)];
+        let mut changed = vec![var("TOKEN", "new", true)];
         seal_vars(&mut changed, &stored, &key).unwrap();
         assert_ne!(changed[0].value, stored[0].value);
         open_vars(&mut changed, &key);
-        assert_eq!(changed[0].value, "novo");
+        assert_eq!(changed[0].value, "new");
     }
 }

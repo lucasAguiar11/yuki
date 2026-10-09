@@ -49,7 +49,10 @@ impl AuthForm {
         cx: &mut Context<RequestEditor>,
     ) -> (Self, Subscription) {
         let scheme = auth::scheme_ix(auth);
-        let names: Vec<SharedString> = SCHEMES.iter().map(|s| s.label.into()).collect();
+        let names: Vec<SharedString> = SCHEMES
+            .iter()
+            .map(|s| t!(s.label).into_owned().into())
+            .collect();
         let kind = cx.new(|cx| {
             SelectState::new(
                 SearchableVec::new(names),
@@ -124,10 +127,10 @@ impl AuthForm {
         auth::build(&SCHEMES[self.scheme], &self.base, &self.values(cx))
     }
 
-    pub fn label(&self) -> &'static str {
+    pub fn label(&self) -> std::borrow::Cow<'static, str> {
         match self.scheme {
-            0 => "—",
-            ix => SCHEMES[ix].label,
+            0 => "—".into(),
+            ix => t!(SCHEMES[ix].label),
         }
     }
 
@@ -219,8 +222,8 @@ impl RequestEditor {
                             .children(options.into_iter().map(|opt| {
                                 let active = current.as_ref() == opt;
                                 let label = match opt.as_str() {
-                                    "true" => "sim".to_string(),
-                                    "false" => "não".to_string(),
+                                    "true" => t!("yes").into_owned(),
+                                    "false" => t!("no").into_owned(),
                                     o => o.replace('_', " "),
                                 };
                                 div()
@@ -252,7 +255,7 @@ impl RequestEditor {
                             .flex_none()
                             .text_xs()
                             .text_color(muted)
-                            .child(field.label),
+                            .child(t!(field.label)),
                     )
                     .child(control)
             })
@@ -267,7 +270,7 @@ impl RequestEditor {
                     Button::new("oauth2-token")
                         .small()
                         .outline()
-                        .label("obter token")
+                        .label(t!("get token").into_owned())
                         .on_click(cx.listener(|this, _, window, cx| this.fetch_token(window, cx))),
                 )
                 .child(div().text_xs().text_color(muted).child(form.status.clone()))
@@ -286,7 +289,7 @@ impl RequestEditor {
                             .w(px(150.))
                             .child(Select::new(&form.kind).appearance(false).xsmall()),
                     )
-                    .child(scheme.hint),
+                    .child(t!(scheme.hint)),
             )
             .child(
                 v_flex()

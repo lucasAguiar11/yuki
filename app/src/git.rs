@@ -43,7 +43,7 @@ pub struct GitInputs {
 pub struct Git {
     pub view: Option<GitView>,
     pub inputs: Option<GitInputs>,
-    /// Op in flight (`"commitando…"`); buttons wait.
+    /// Op in flight (`"committing…"`); buttons wait.
     pub busy: Option<&'static str>,
     pub error: SharedString,
     refresh: Option<Task<()>>,
@@ -64,7 +64,7 @@ impl Git {
     }
 }
 
-const GITIGNORE: &str = "# Yuki — arquivos locais da máquina, não commitar\n.DS_Store\n";
+const GITIGNORE: &str = "# Yuki — machine-local files, do not commit\n.DS_Store\n";
 
 impl Backend {
     /// The repo dir of a workspace, symlinks resolved (a workspace may live in
@@ -125,7 +125,7 @@ pub fn init(dir: &Path) -> Result<Option<String>, YukiError> {
     if !ignore.exists() {
         std::fs::write(ignore, GITIGNORE).map_err(|e| YukiError::Git(e.to_string()))?;
     }
-    Ok(Some("repositório criado".into()))
+    Ok(Some(t!("repository created").into_owned()))
 }
 
 pub(crate) type GitOp = Box<dyn FnOnce(&Path) -> Result<Option<String>, YukiError> + Send>;
@@ -133,14 +133,14 @@ pub(crate) type GitOp = Box<dyn FnOnce(&Path) -> Result<Option<String>, YukiErro
 impl Yuki {
     pub(crate) fn init_git_inputs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let mut input = |placeholder: &'static str, cx: &mut Context<Self>| {
-            cx.new(|cx| InputState::new(window, cx).placeholder(placeholder))
+            cx.new(|cx| InputState::new(window, cx).placeholder(t!(placeholder).into_owned()))
         };
         let inputs = GitInputs {
-            message: input("mensagem do commit ↵", cx),
-            branch: input("nova branch ↵", cx),
-            remote: input("url do remote (origin) ↵", cx),
-            name: input("seu nome", cx),
-            email: input("seu e-mail ↵", cx),
+            message: input("commit message ↵", cx),
+            branch: input("new branch ↵", cx),
+            remote: input("remote url (origin) ↵", cx),
+            name: input("your name", cx),
+            email: input("your e-mail ↵", cx),
         };
         let on_enter =
             |cx: &mut Context<Self>,
@@ -294,7 +294,7 @@ impl Yuki {
         self.focus_active(window, cx);
     }
 
-    /// `GET listar posts` / `pasta auth` / the file name, for a changed path.
+    /// `GET list posts` / `folder auth` / the file name, for a changed path.
     pub fn git_label(&self, node_id: Option<&str>, path: &str) -> String {
         let data = self.data.as_ref();
         let id = node_id.unwrap_or("");
@@ -302,7 +302,7 @@ impl Yuki {
             return format!("{} {}", r.method, r.name);
         }
         if let Some(f) = data.and_then(|d| d.folders.iter().find(|f| f.id == id)) {
-            return format!("pasta {}", f.name);
+            return t!("folder %{name}", name = f.name).into_owned();
         }
         match path {
             "workspace.yaml" => "workspace".into(),
@@ -311,13 +311,13 @@ impl Yuki {
     }
 }
 
-/// `há 5 min` / `há 3 h` / `12/09` for a unix timestamp.
+/// `5 min ago` / `3 h ago` / `12/09` for a unix timestamp.
 pub fn ago(ts: f64) -> String {
     let secs = chrono::Utc::now().timestamp() - ts as i64;
     match secs {
-        ..60 => "agora".into(),
-        60..3600 => format!("há {} min", secs / 60),
-        3600..86400 => format!("há {} h", secs / 3600),
+        ..60 => t!("now").into_owned(),
+        60..3600 => t!("%{n} min ago", n = secs / 60).into_owned(),
+        3600..86400 => t!("%{n} h ago", n = secs / 3600).into_owned(),
         _ => chrono::DateTime::from_timestamp(ts as i64, 0)
             .map(|t| t.with_timezone(&chrono::Local).format("%d/%m").to_string())
             .unwrap_or_default(),

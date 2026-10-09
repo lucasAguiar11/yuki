@@ -88,7 +88,7 @@ impl Yuki {
                     }
                 }
                 Err(e) => {
-                    this.status = format!("falhou: {e}").into();
+                    this.status = t!("failed: %{e}", e = e).to_string().into();
                     cx.notify();
                 }
             })
@@ -143,12 +143,12 @@ impl Yuki {
         }
         let op: Op = Box::new(move |s, ws| {
             Ok(Some(if folder {
-                s.create_folder(ws.into(), parent, "nova pasta".into())?.id
+                s.create_folder(ws.into(), parent, t!("new folder").into_owned())?.id
             } else {
                 s.create_request(
                     ws.into(),
                     parent,
-                    "nova request".into(),
+                    t!("new request").into_owned(),
                     "GET".into(),
                     String::new(),
                 )?
@@ -162,8 +162,8 @@ impl Yuki {
         let (folder, Some(name)) = (self.is_folder(&id), self.name_of(&id)) else {
             return;
         };
+        let copy = t!("%{name} copy", name = name).into_owned();
         let op: Op = Box::new(move |s, ws| {
-            let copy = format!("{name} cópia");
             Ok(Some(if folder {
                 let f = s.duplicate_folder(ws, &id)?;
                 s.rename_folder(ws, &f.id, copy)?;
@@ -195,16 +195,21 @@ impl Yuki {
                 .filter(|r| tree::within(&data.folders, r.folder_id.as_deref(), &id))
                 .count();
             match n {
-                0 => "a pasta vazia será apagada do disco.".into(),
-                1 => "a pasta e a request dentro dela serão apagadas do disco.".into(),
-                n => {
-                    format!("a pasta e as {n} requests dentro dela serão apagadas do disco.").into()
-                }
+                0 => t!("the empty folder will be deleted from disk.").to_string().into(),
+                1 => t!("the folder and the request inside it will be deleted from disk.")
+                    .to_string()
+                    .into(),
+                n => t!(
+                    "the folder and the %{n} requests inside it will be deleted from disk.",
+                    n = n
+                )
+                .to_string()
+                .into(),
             }
         } else {
-            "a request e o arquivo dela serão apagados do disco.".into()
+            t!("the request and its file will be deleted from disk.").to_string().into()
         };
-        let title: SharedString = format!("excluir “{name}”?").into();
+        let title: SharedString = t!("delete “%{name}”?", name = name).to_string().into();
         let this = cx.entity().downgrade();
         let build = move |alert: AlertDialog, _: &mut Window, _: &mut App| {
             let (this, id) = (this.clone(), id.clone());
@@ -212,9 +217,9 @@ impl Yuki {
                 .title(title.clone())
                 .description(detail.clone())
                 .show_cancel(true)
-                .ok_text("excluir")
+                .ok_text(t!("delete").to_string())
                 .ok_variant(ButtonVariant::Danger)
-                .cancel_text("cancelar")
+                .cancel_text(t!("cancel").to_string())
                 .on_ok(move |_, window, cx| {
                     let id = id.to_string();
                     _ = this.update(cx, |this, cx| {

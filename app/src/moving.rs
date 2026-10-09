@@ -1,4 +1,4 @@
-//! Moving tree items: sidebar drag & drop and the "mover para…" palette.
+//! Moving tree items: sidebar drag & drop and the "move to…" palette.
 
 use gpui_kit::component::command::CommandItem;
 use gpui_kit::*;
@@ -82,7 +82,7 @@ impl Yuki {
             })
             .collect();
         folders.sort();
-        std::iter::once(target("raiz".into(), None))
+        std::iter::once(target(t!("root").into_owned(), None))
             .chain(folders.into_iter().map(|(path, id)| target(path, Some(id))))
             .collect()
     }
@@ -105,7 +105,7 @@ impl Yuki {
         };
         let folder = self.is_folder(&id);
         if folder && tree::within(&data.folders, parent.as_deref(), &id) {
-            self.status = "uma pasta não pode ir para dentro de si mesma".into();
+            self.status = t!("a folder can't go inside itself").to_string().into();
             cx.notify();
             return;
         }

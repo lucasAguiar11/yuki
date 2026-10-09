@@ -76,10 +76,10 @@ impl Palette {
         let this = cx.entity().downgrade();
         let on_confirm = this.clone();
         let placeholder = match self.kind {
-            Kind::Requests => "Ir para request…",
-            Kind::Commands => "Executar comando…",
-            Kind::Workspaces => "Trocar de workspace…",
-            Kind::Move(_) => "Mover para…",
+            Kind::Requests => t!("Go to request…"),
+            Kind::Commands => t!("Run command…"),
+            Kind::Workspaces => t!("Switch workspace…"),
+            Kind::Move(_) => t!("Move to…"),
         };
         let theme = cx.theme();
         // Backdrop: a click outside dismisses, like Zed's modals.
@@ -112,7 +112,7 @@ impl Palette {
                     .child(
                         Command::new(&self.state)
                             .items(self.items.iter().cloned())
-                            .placeholder(placeholder)
+                            .placeholder(placeholder.into_owned())
                             .bordered(false)
                             .max_h(px(list_height(self.state.read(cx).matched_count())))
                             .on_confirm(move |ix: IndexPath, window, cx| {
@@ -151,21 +151,21 @@ impl Yuki {
                     )
                 };
                 vec![
-                    action("Enviar request", Box::new(Send)),
-                    action("Salvar", Box::new(Save)),
-                    action("Nova request", Box::new(NewRequest)),
-                    action("Nova pasta", Box::new(NewFolder)),
-                    action("Renomear request", Box::new(RenameItem)),
-                    action("Duplicar request", Box::new(DuplicateItem)),
-                    action("Mover request para…", Box::new(MoveItem)),
-                    action("Excluir request", Box::new(DeleteItem)),
-                    action("Fechar aba", Box::new(CloseTab)),
-                    action("Alternar sidebar", Box::new(ToggleSidebar)),
+                    action(&t!("Send request"), Box::new(Send)),
+                    action(&t!("Save"), Box::new(Save)),
+                    action(&t!("New request"), Box::new(NewRequest)),
+                    action(&t!("New folder"), Box::new(NewFolder)),
+                    action(&t!("Rename request"), Box::new(RenameItem)),
+                    action(&t!("Duplicate request"), Box::new(DuplicateItem)),
+                    action(&t!("Move request to…"), Box::new(MoveItem)),
+                    action(&t!("Delete request"), Box::new(DeleteItem)),
+                    action(&t!("Close tab"), Box::new(CloseTab)),
+                    action(&t!("Toggle sidebar"), Box::new(ToggleSidebar)),
                     action("Git: commit, branches, pull/push…", Box::new(ToggleGit)),
-                    action("Ambientes e variáveis…", Box::new(OpenEnvs)),
-                    action("Ir para request…", Box::new(OpenRequests)),
-                    action("Trocar de workspace…", Box::new(OpenWorkspaces)),
-                    action("Importar workspaces do Voleeo", Box::new(ImportVoleeo)),
+                    action(&t!("Environments and variables…"), Box::new(OpenEnvs)),
+                    action(&t!("Go to request…"), Box::new(OpenRequests)),
+                    action(&t!("Switch workspace…"), Box::new(OpenWorkspaces)),
+                    action(&t!("Import workspaces from Voleeo"), Box::new(ImportVoleeo)),
                 ]
             }
             Kind::Workspaces => {

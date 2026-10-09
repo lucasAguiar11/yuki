@@ -1,5 +1,5 @@
 //! Environments on the app side: the `env` select in the title bar and the
-//! "Ambientes" screen (`env_screen.rs`) that edits them.
+//! "Environments" screen (`env_screen.rs`) that edits them.
 
 use gpui_kit::component::{
     searchable_list::SearchableVec,
@@ -29,7 +29,7 @@ impl Yuki {
             .iter()
             .filter(|e| e.kind == EnvironmentKind::Personal)
             .collect();
-        let mut names = vec![SharedString::from("Sem ambiente")];
+        let mut names = vec![SharedString::from(t!("No environment").into_owned())];
         names.extend(personal.iter().map(|e| SharedString::from(e.name.clone())));
         self.env_ids = std::iter::once(None)
             .chain(personal.iter().map(|e| Some(e.id.clone())))
@@ -82,7 +82,7 @@ impl Yuki {
         cx.notify();
     }
 
-    /// Show the "Ambientes" screen on the active environment (global when
+    /// Show the "Environments" screen on the active environment (global when
     /// none); `add` starts a variable with that name there.
     pub fn open_envs(&mut self, add: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
         let Some(ws) = self.ws.as_ref().map(|w| w.id.clone()) else {
@@ -122,7 +122,9 @@ impl Yuki {
                     cx.notify();
                 }
                 Err(e) => {
-                    this.status = format!("falha ao ler ambientes: {e}").into();
+                    this.status = t!("failed to read environments: %{e}", e = e)
+                        .into_owned()
+                        .into();
                     cx.notify();
                 }
             });

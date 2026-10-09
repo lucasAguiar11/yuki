@@ -211,7 +211,7 @@ pub fn render(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
                         .text_xs()
                         .text_color(theme.muted_foreground)
                         .when(yuki.rows.is_empty() && yuki.ws.is_some(), |s| {
-                            s.child("vazio — ⌘N nova request")
+                            s.child(t!("empty — ⌘N new request"))
                         })
                         .drag_over::<Dragged>(move |s, _, _, _| s.bg(drop_bg))
                         .on_drop(cx.listener(|this, d: &Dragged, window, cx| {
@@ -226,7 +226,7 @@ pub fn render(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
                     .p_3()
                     .text_xs()
                     .text_color(theme.muted_foreground)
-                    .child("nenhum workspace — use :comandos → Importar"),
+                    .child(t!("no workspace — use :commands → Import")),
             )
         })
 }
@@ -242,10 +242,10 @@ fn menu(
         let parent = id.map(|i| i.to_string());
         let p = parent.clone();
         m = m
-            .item(item(this, "nova request", move |y, w, cx| {
+            .item(item(this, "new request", move |y, w, cx| {
                 y.new_item(false, p.clone(), w, cx)
             }))
-            .item(item(this, "nova pasta", move |y, w, cx| {
+            .item(item(this, "new folder", move |y, w, cx| {
                 y.new_item(true, parent.clone(), w, cx)
             }));
     }
@@ -254,17 +254,17 @@ fn menu(
         m = m.separator();
     }
     let (a, b, c, d) = (id.clone(), id.clone(), id.clone(), id);
-    m.item(item(this, "renomear", move |y, w, cx| {
+    m.item(item(this, "rename", move |y, w, cx| {
         y.start_rename(a.clone(), w, cx)
     }))
-    .item(item(this, "duplicar", move |y, w, cx| {
+    .item(item(this, "duplicate", move |y, w, cx| {
         y.duplicate(b.clone(), w, cx)
     }))
-    .item(item(this, "mover para…", move |y, w, cx| {
+    .item(item(this, "move to…", move |y, w, cx| {
         y.open_palette(Kind::Move(c.clone()), w, cx)
     }))
     .separator()
-    .item(item(this, "excluir", move |y, w, cx| {
+    .item(item(this, "delete", move |y, w, cx| {
         y.confirm_delete(d.clone(), w, cx)
     }))
 }
@@ -275,7 +275,7 @@ fn item(
     f: impl Fn(&mut Yuki, &mut Window, &mut Context<Yuki>) + 'static,
 ) -> PopupMenuItem {
     let this = this.clone();
-    PopupMenuItem::new(label).on_click(move |_, window, cx| {
+    PopupMenuItem::new(t!(label).to_string()).on_click(move |_, window, cx| {
         _ = this.update(cx, |y, cx| f(y, window, cx));
     })
 }

@@ -290,7 +290,7 @@ impl RequestEditor {
                     .px_2()
                     .pt_1()
                     .text_color(faint)
-                    .child("↑↓ escolher · ↵ inserir · esc fechar"),
+                    .child(t!("↑↓ choose · ↵ insert · esc close")),
             );
         Some(
             deferred(

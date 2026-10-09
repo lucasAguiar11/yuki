@@ -76,7 +76,7 @@ pub fn title_bar(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
                             .px_1()
                             .cursor_pointer()
                             .hover(move |s| s.text_color(fg))
-                            .child("editar")
+                            .child(t!("edit"))
                             .on_click(|_, window, cx| {
                                 window.dispatch_action(Box::new(OpenEnvs), cx)
                             }),
@@ -85,13 +85,13 @@ pub fn title_bar(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
     )
 }
 
-/// Vim-flavoured hints, each one clickable: `:requests ⌘P  :comandos ⌘⇧P …`
+/// Vim-flavoured hints, each one clickable: `:requests ⌘P  :commands ⌘⇧P …`
 pub fn status_line(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
     let theme = cx.theme();
     let commands: [(&str, &str, Box<dyn Action>); 8] = [
         (":requests", "⌘P", Box::new(OpenRequests)),
         (":workspace", "⌘O", Box::new(OpenWorkspaces)),
-        (":comandos", "⌘⇧P", Box::new(OpenCommands)),
+        (":commands", "⌘⇧P", Box::new(OpenCommands)),
         (":sidebar", "⌘B", Box::new(ToggleSidebar)),
         (":request", "⌘E", Box::new(ToggleEditor)),
         (":vars", "⌘⇧E", Box::new(ToggleVars)),
@@ -138,7 +138,7 @@ pub fn status_line(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
                         .gap_1()
                         .cursor_pointer()
                         .hover(|s| s.text_color(theme.foreground))
-                        .child(name)
+                        .child(t!(name))
                         .child(div().text_color(ui::faint(cx)).child(key))
                         .on_click(move |_, window, cx| {
                             window.dispatch_action(action.boxed_clone(), cx)
@@ -154,11 +154,11 @@ pub fn status_line(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
 pub fn welcome(has_workspaces: bool, cx: &App) -> impl IntoElement {
     let theme = cx.theme();
     let rows: [(&str, &str, &str); 5] = [
-        (":requests", "⌘P", "abrir um request"),
-        (":workspace", "⌘O", "trocar de workspace"),
-        (":comandos", "⌘⇧P", "todas as ações"),
-        (":enviar", "⌘↵", "enviar o request ativo"),
-        (":sidebar", "⌘B", "mostrar/ocultar a árvore"),
+        (":requests", "⌘P", "open a request"),
+        (":workspace", "⌘O", "switch workspace"),
+        (":commands", "⌘⇧P", "all actions"),
+        (":send", "⌘↵", "send the active request"),
+        (":sidebar", "⌘B", "show/hide the tree"),
     ];
     v_flex()
         .size_full()
@@ -179,7 +179,7 @@ pub fn welcome(has_workspaces: bool, cx: &App) -> impl IntoElement {
                     div()
                         .text_sm()
                         .text_color(theme.muted_foreground)
-                        .child("console de APIs"),
+                        .child(t!("API console")),
                 ),
         )
         .child(
@@ -189,14 +189,14 @@ pub fn welcome(has_workspaces: bool, cx: &App) -> impl IntoElement {
                 .children(rows.map(|(cmd, key, desc)| {
                     h_flex()
                         .gap_4()
-                        .child(div().w(px(110.)).child(cmd))
+                        .child(div().w(px(110.)).child(t!(cmd)))
                         .child(
                             div()
                                 .w(px(48.))
                                 .text_color(theme.muted_foreground)
                                 .child(key),
                         )
-                        .child(div().text_color(theme.muted_foreground).child(desc))
+                        .child(div().text_color(theme.muted_foreground).child(t!(desc)))
                 })),
         )
         .when(!has_workspaces, |s| {
@@ -204,7 +204,7 @@ pub fn welcome(has_workspaces: bool, cx: &App) -> impl IntoElement {
                 Button::new("welcome-import")
                     .small()
                     .outline()
-                    .label("Importar workspaces do Voleeo")
+                    .label(t!("Import workspaces from Voleeo").into_owned())
                     .on_click(|_, window, cx| window.dispatch_action(Box::new(ImportVoleeo), cx)),
             )
         })

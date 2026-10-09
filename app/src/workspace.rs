@@ -40,7 +40,7 @@ pub struct Yuki {
     pub env: Option<Entity<EnvSelect>>,
     pub(crate) env_ids: Vec<Option<String>>,
     pub(crate) env_sub: Option<Subscription>,
-    /// The "Ambientes" screen, shown in place of the request while open.
+    /// The "Environments" screen, shown in place of the request while open.
     pub(crate) env_screen: Option<(Entity<EnvScreen>, Subscription)>,
     pub(crate) palette: Option<Palette>,
     /// Sidebar row being renamed inline.
@@ -125,7 +125,7 @@ impl Yuki {
                         screen.update(cx, |s, cx| s.flush(cx));
                     }
                     this.set_envs(&data.environments, None, window, cx);
-                    this.status = format!("{} requests", data.requests.len()).into();
+                    this.status = t!("%{n} requests", n = data.requests.len()).into_owned().into();
                     this.data = Some(data);
                     this.ws = Some(ws);
                     this.git.view = None;
@@ -136,7 +136,9 @@ impl Yuki {
                     this.focus_active(window, cx);
                     cx.notify();
                 }
-                Err(e) => this.status = format!("Falha ao abrir workspace: {e}").into(),
+                Err(e) => {
+                    this.status = t!("Failed to open workspace: %{error}", error = e).into_owned().into()
+                }
             })
         })
         .detach();
@@ -243,8 +245,8 @@ impl Yuki {
             let result = task.await;
             this.update_in(cx, |this, window, cx| {
                 this.status = match result {
-                    Ok(n) => format!("{n} workspace(s) importado(s) do Voleeo").into(),
-                    Err(e) => format!("Import do Voleeo falhou: {e}").into(),
+                    Ok(n) => t!("%{n} workspace(s) imported from Voleeo", n = n).into_owned().into(),
+                    Err(e) => t!("Voleeo import failed: %{error}", error = e).into_owned().into(),
                 };
                 this.reload_workspaces(window, cx);
             })

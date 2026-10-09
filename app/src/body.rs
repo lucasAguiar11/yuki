@@ -84,7 +84,7 @@ impl BodyInputs {
             CodeVars::new(graphql_vars.clone(), cx),
         ];
         let file = cx.new(|cx| {
-            let mut s = InputState::new(window, cx).placeholder("/caminho/do/arquivo");
+            let mut s = InputState::new(window, cx).placeholder(t!("/path/to/file").into_owned());
             s.set_value(t.file, window, cx);
             s
         });
@@ -182,7 +182,7 @@ impl RequestEditor {
             BodyKind::None => div()
                 .text_sm()
                 .text_color(cx.theme().muted_foreground)
-                .child("sem body")
+                .child(t!("no body"))
                 .into_any_element(),
             BodyKind::FormUrlEncoded | BodyKind::Multipart => {
                 self.render_table(Which::Fields, kind == BodyKind::Multipart, cx)
@@ -214,8 +214,8 @@ impl RequestEditor {
             _ => editor(&b.text).into_any_element(),
         };
         let pick = match kind {
-            BodyKind::Binary => Some("escolher arquivo"),
-            BodyKind::Multipart => Some("+ arquivo"),
+            BodyKind::Binary => Some(t!("choose file")),
+            BodyKind::Multipart => Some(t!("+ file")),
             _ => None,
         };
         let pick = pick.map(|label| {

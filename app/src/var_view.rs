@@ -129,13 +129,13 @@ fn card(expr: &str, kind: Kind, var: Option<&Var>, cx: &App) -> impl IntoElement
     let theme = cx.theme();
     let muted = |text: String| div().text_color(theme.muted_foreground).child(text);
     let origin = match (kind, var) {
-        (Kind::Function, _) => "função".to_string(),
+        (Kind::Function, _) => t!("function").into_owned(),
         (_, Some(v)) => v.source.label(),
-        (_, None) => "não definida".to_string(),
+        (_, None) => t!("not defined").into_owned(),
     };
     let mut lines = v_flex().gap_1();
     match (kind, var) {
-        (Kind::Function, _) => lines = lines.child(muted("avaliada no momento do envio".into())),
+        (Kind::Function, _) => lines = lines.child(muted(t!("evaluated at send time").into_owned())),
         (_, Some(v)) => {
             let shown = if v.secret {
                 MASK.to_string()
@@ -152,10 +152,11 @@ fn card(expr: &str, kind: Kind, var: Option<&Var>, cx: &App) -> impl IntoElement
                 .child(
                     div()
                         .text_color(theme.red)
-                        .child("sem valor no ambiente atual"),
+                        .child(t!("no value in the current environment")),
                 )
                 .child(muted(
-                    "defina no ambiente, no global ou numa pasta · ⌘⇧E lista tudo".into(),
+                    t!("define it in the environment, in global or in a folder · ⌘⇧E lists everything")
+                        .into_owned(),
                 ))
         }
     }

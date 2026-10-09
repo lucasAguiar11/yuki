@@ -1,4 +1,4 @@
-//! OAuth 2.0 "obter token": run the grant now and cache the token where sends
+//! OAuth 2.0 "get token": run the grant now and cache the token where sends
 //! look (`yuki_oauth`'s cache), so the next send just uses it. Browser grants
 //! (authorization code, implicit) open the auth URL and wait on a loopback.
 
@@ -46,7 +46,7 @@ async fn fetch(
         .await
         .map_err(|e| YukiError::Storage(e.to_string()))?;
     let config = OAuth2Config::from_auth(&req.auth)
-        .ok_or_else(|| YukiError::InvalidConfig("a auth não é OAuth 2.0".into()))?;
+        .ok_or_else(|| YukiError::InvalidConfig(t!("auth is not OAuth 2.0").into()))?;
     let encrypted = api.workspaces.get(&ws).is_ok_and(|w| w.encrypted);
     let dir = &api.app_data_dir;
     let key = config.cache_key();
@@ -129,18 +129,19 @@ fn loopback_port(redirect_uri: &str) -> Result<u16, YukiError> {
     match (host, port.parse()) {
         ("127.0.0.1" | "localhost", Ok(port)) => Ok(port),
         _ => Err(YukiError::InvalidConfig(
-            "redirect uri precisa ser http://127.0.0.1:<porta>/… (ou vazio)".into(),
+            t!("redirect uri must be http://127.0.0.1:<port>/… (or empty)").into(),
         )),
     }
 }
 
 fn summary(expires_at: i64) -> String {
     match chrono::DateTime::from_timestamp(expires_at, 0).filter(|_| expires_at > 0) {
-        Some(t) => format!(
-            "token obtido · expira às {}",
-            t.with_timezone(&chrono::Local).format("%H:%M")
-        ),
-        None => "token obtido".into(),
+        Some(t) => t!(
+            "token obtained · expires at %{time}",
+            time = t.with_timezone(&chrono::Local).format("%H:%M")
+        )
+        .into_owned(),
+        None => t!("token obtained").into_owned(),
     }
 }
 
@@ -148,13 +149,13 @@ impl RequestEditor {
     pub(crate) fn fetch_token(&mut self, _: &mut Window, cx: &mut Context<Self>) {
         let (url_tx, url_rx) = oneshot::channel::<String>();
         let (backend, req, env) = (self.backend.clone(), self.draft(cx), self.env_id.clone());
-        self.auth.status = "obtendo token…".into();
+        self.auth.status = t!("fetching token…").into_owned().into();
         cx.notify();
         cx.spawn(async move |this, cx| {
             if let Ok(url) = url_rx.await {
                 _ = this.update(cx, |e, cx| {
                     cx.open_url(&url);
-                    e.auth.status = "aguardando login no navegador…".into();
+                    e.auth.status = t!("waiting for browser login…").into_owned().into();
                     cx.notify();
                 });
             }
@@ -165,7 +166,7 @@ impl RequestEditor {
             _ = this.update(cx, |e, cx| {
                 e.auth.status = match result {
                     Ok(s) => s.into(),
-                    Err(err) => format!("falhou: {err}").into(),
+                    Err(err) => t!("failed: %{err}", err = err).into_owned().into(),
                 };
                 cx.notify();
             });

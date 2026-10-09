@@ -1,4 +1,4 @@
-//! Render of the "Ambientes" screen: environments on the left, the selected
+//! Render of the "Environments" screen: environments on the left, the selected
 //! one's variables as a name/value table on the right.
 
 use gpui_kit::component::{
@@ -78,7 +78,7 @@ impl EnvScreen {
                 .cursor_pointer()
                 .text_color(muted)
                 .hover(move |s| s.text_color(fg))
-                .child("+ novo ambiente")
+                .child(t!("+ new environment"))
                 .on_click(
                     cx.listener(|this, _, window, cx| this.start_naming(Naming::New, window, cx)),
                 )
@@ -99,7 +99,7 @@ impl EnvScreen {
                     .items_center()
                     .text_xs()
                     .text_color(muted)
-                    .child("ambientes"),
+                    .child(t!("environments")),
             )
             .children(rows.collect::<Vec<_>>())
             .child(new_env)
@@ -134,7 +134,7 @@ impl EnvScreen {
                 })
                 .into_any_element(),
         };
-        let action = |id: &'static str, label: &'static str| {
+        let action = |id: &'static str, label: std::borrow::Cow<'static, str>| {
             div()
                 .id(id)
                 .text_xs()
@@ -162,12 +162,16 @@ impl EnvScreen {
                     .text_color(if shared { yellow } else { muted })
                     .border_1()
                     .border_color(border)
-                    .child(if shared { "no git" } else { "só nesta máquina" })
+                    .child(if shared {
+                        t!("in git")
+                    } else {
+                        t!("this machine only")
+                    })
                     .tooltip(move |window, cx| {
                         gpui_kit::component::tooltip::Tooltip::new(if shared {
-                            "salvo na pasta do workspace: entra nos commits. clique para manter só nesta máquina"
+                            t!("saved in the workspace folder: goes into commits. click to keep it on this machine only").into_owned()
                         } else {
-                            "salvo fora do repositório: nunca vai para o git. clique para versionar"
+                            t!("saved outside the repository: never goes to git. click to version it").into_owned()
                         })
                         .build(window, cx)
                     })
@@ -175,22 +179,22 @@ impl EnvScreen {
             )
             .child(div().flex_1())
             .when(!global, |h| {
-                h.child(action("env-rename", "renomear").on_click(cx.listener(
+                h.child(action("env-rename", t!("rename")).on_click(cx.listener(
                     |this, _, window, cx| this.start_naming(Naming::Rename, window, cx),
                 )))
-                .child(action("env-delete", "excluir").on_click(cx.listener(
+                .child(action("env-delete", t!("delete")).on_click(cx.listener(
                     |this, _, window, cx| this.confirm_delete(window, cx),
                 )))
             })
             .child(
-                action("env-close", "fechar esc")
+                action("env-close", t!("close esc"))
                     .on_click(|_, window, cx| window.dispatch_action(Box::new(CloseEnvs), cx)),
             );
 
         let hint = if global {
-            "valem para todos os requests, em qualquer ambiente; o ambiente ativo sobrescreve."
+            t!("applies to every request, in any environment; the active environment overrides it.")
         } else {
-            "ativo pelo seletor env do título; sobrescreve as globais."
+            t!("active via the env picker in the title bar; overrides the globals.")
         };
         let leak = shared && self.rows.iter().any(|r| r.secret) && !self.encrypted_ws;
         let head = h_flex()
@@ -202,9 +206,9 @@ impl EnvScreen {
             .border_b_1()
             .border_color(border)
             .child(div().w(px(16.)))
-            .child(div().w(relative(0.3)).px_2p5().child("nome"))
-            .child(div().flex_1().px_2p5().child("valor"))
-            .child(div().w(px(64.)).child("segredo"))
+            .child(div().w(relative(0.3)).px_2p5().child(t!("name")))
+            .child(div().flex_1().px_2p5().child(t!("value")))
+            .child(div().w(px(64.)).child(t!("secret")))
             .child(div().w(px(16.)));
         let last = self.rows.len().saturating_sub(1);
         let rows = self.rows.iter().enumerate().map(|(ix, row)| {
@@ -224,7 +228,7 @@ impl EnvScreen {
                     d.cursor_pointer()
                         .text_color(if row.secret { yellow } else { faint })
                         .hover(move |s| s.text_color(fg))
-                        .child(if row.secret { "● sim" } else { "○ não" })
+                        .child(if row.secret { t!("● yes") } else { t!("○ no") })
                         .on_click(cx.listener(move |this, _, window, cx| {
                             this.toggle_secret(ix, window, cx)
                         }))
@@ -285,7 +289,7 @@ impl EnvScreen {
             )
             .when(leak, |s| {
                 s.child(div().px_4().pb_2().text_xs().text_color(yellow).child(
-                    "atenção: este workspace não é criptografado — segredos de um ambiente no git vão em texto puro.",
+                    t!("warning: this workspace isn't encrypted — secrets of an environment in git are stored in plain text."),
                 ))
             })
             .when(!self.error.is_empty(), |s| {
@@ -311,12 +315,16 @@ impl EnvScreen {
 
     fn confirm_delete(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let env = self.current();
-        let title: SharedString = format!("excluir o ambiente “{}”?", env.name).into();
+        let title: SharedString = t!("delete the environment “%{name}”?", name = env.name)
+            .into_owned()
+            .into();
         let n = env.variables.len();
         let detail: SharedString = match n {
-            0 => "o ambiente está vazio.".into(),
-            1 => "a variável dele será apagada do disco.".into(),
-            n => format!("as {n} variáveis dele serão apagadas do disco.").into(),
+            0 => t!("the environment is empty.").into_owned().into(),
+            1 => t!("its variable will be deleted from disk.").into_owned().into(),
+            n => t!("its %{n} variables will be deleted from disk.", n = n)
+                .into_owned()
+                .into(),
         };
         let this = cx.entity().downgrade();
         let build = move |alert: AlertDialog, _: &mut Window, _: &mut App| {
@@ -325,9 +333,9 @@ impl EnvScreen {
                 .title(title.clone())
                 .description(detail.clone())
                 .show_cancel(true)
-                .ok_text("excluir")
+                .ok_text(t!("delete").into_owned())
                 .ok_variant(ButtonVariant::Danger)
-                .cancel_text("cancelar")
+                .cancel_text(t!("cancel").into_owned())
                 .on_ok(move |_, window, cx| {
                     _ = this.update(cx, |s, cx| s.delete(window, cx));
                     true

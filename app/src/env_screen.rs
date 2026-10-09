@@ -1,4 +1,4 @@
-//! "Ambientes" screen (⌘⌥E): pick an environment on the left, register its
+//! "Environments" screen (⌘⌥E): pick an environment on the left, register its
 //! variables on the right. Edits go to disk 400 ms after typing stops, like
 //! requests. Secrets are plaintext here; encrypted workspaces seal them on save.
 
@@ -156,13 +156,13 @@ impl EnvScreen {
 
     fn row(&self, v: &EnvironmentVariable, window: &mut Window, cx: &mut Context<Self>) -> VarRow {
         let key = cx.new(|cx| {
-            let mut s = InputState::new(window, cx).placeholder("NOME");
+            let mut s = InputState::new(window, cx).placeholder(t!("NAME").into_owned());
             s.set_value(v.key.clone(), window, cx);
             s
         });
         let value = cx.new(|cx| {
             let mut s = InputState::new(window, cx)
-                .placeholder("valor")
+                .placeholder(t!("value").into_owned())
                 .masked(v.encrypted);
             s.set_value(v.value.clone(), window, cx);
             s
@@ -264,7 +264,7 @@ impl EnvScreen {
                         // Edits typed during the write.
                         s.changed(cx);
                     }
-                    Err(e) => s.error = format!("falha ao salvar: {e}").into(),
+                    Err(e) => s.error = t!("save failed: %{e}", e = e).into_owned().into(),
                 }
                 cx.notify();
             });
@@ -316,7 +316,7 @@ impl EnvScreen {
         }
     }
 
-    /// Start a variable named `key` (from "faltando") and put the cursor in its value.
+    /// Start a variable named `key` (from "missing") and put the cursor in its value.
     pub fn add_var(&mut self, key: &str, window: &mut Window, cx: &mut Context<Self>) {
         let existing = self
             .rows
@@ -370,7 +370,7 @@ impl EnvScreen {
                         }
                         s.emit(None, cx);
                     }
-                    Err(e) => s.error = format!("falhou: {e}").into(),
+                    Err(e) => s.error = t!("failed: %{e}", e = e).into_owned().into(),
                 }
                 cx.notify();
             });
@@ -384,7 +384,8 @@ impl EnvScreen {
             Naming::Rename => self.current().name.clone(),
         };
         let input = cx.new(|cx| {
-            let mut s = InputState::new(window, cx).placeholder("nome do ambiente ↵");
+            let mut s =
+                InputState::new(window, cx).placeholder(t!("environment name ↵").into_owned());
             s.set_value(name, window, cx);
             s.select_all(window, cx);
             s
@@ -454,7 +455,7 @@ impl EnvScreen {
                     focus.focus(window, cx);
                 }
                 Err(e) => {
-                    s.error = format!("falhou: {e}").into();
+                    s.error = t!("failed: %{e}", e = e).into_owned().into();
                     cx.notify();
                 }
             });
@@ -483,7 +484,7 @@ impl EnvScreen {
                     s.emit(None, cx);
                 }
                 Err(e) => {
-                    s.error = format!("falhou: {e}").into();
+                    s.error = t!("failed: %{e}", e = e).into_owned().into();
                     cx.notify();
                 }
             });

@@ -18,10 +18,10 @@ pub enum Source {
 impl Source {
     pub fn label(&self) -> String {
         match self {
-            Source::Folder(name) => format!("pasta · {name}"),
+            Source::Folder(name) => t!("folder · %{name}", name = name).into_owned(),
             Source::Env(name) => name.clone(),
             Source::Global => "global".into(),
-            Source::System => "sistema".into(),
+            Source::System => t!("system").into_owned(),
         }
     }
 }

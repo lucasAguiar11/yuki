@@ -77,7 +77,7 @@ fn ms(at: f64) -> String {
     }
 }
 
-/// The timeline as plain lines (what ⌘C / "copiar" yield), each flagged as
+/// The timeline as plain lines (what ⌘C / "copy" yield), each flagged as
 /// wire traffic (bright) or an engine note (muted). `curl -v` shaped.
 fn lines(resp: &HttpResponse, sent: Option<&HttpRequest>) -> Vec<(String, bool)> {
     let mut out = Vec::new();
@@ -102,7 +102,7 @@ fn lines(resp: &HttpResponse, sent: Option<&HttpRequest>) -> Vec<(String, bool)>
     out
 }
 
-/// The whole timeline as text, for "copiar tudo".
+/// The whole timeline as text, for "copy all".
 pub fn copy_text(resp: &HttpResponse, sent: Option<&HttpRequest>) -> String {
     let mut out: Vec<String> = lines(resp, sent).into_iter().map(|(l, _)| l).collect();
     out.extend(sent.and_then(body_text).map(|b| format!("\n{b}")));
@@ -154,12 +154,12 @@ pub fn render(
         col = col.child(
             div()
                 .text_color(muted)
-                .child("sem eventos registrados para este envio"),
+                .child(t!("no events recorded for this send")),
         );
     }
     if let Some(body) = body {
         col = col
-            .child(div().pt_3().text_color(muted).child("body enviado"))
+            .child(div().pt_3().text_color(muted).child(t!("sent body")))
             .child(
                 div()
                     .p_2()

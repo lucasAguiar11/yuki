@@ -50,8 +50,8 @@ pub struct Scheme {
 
 use Ty::*;
 
-const USER: Field = f("username", "usuário", Text);
-const PASS: Field = f("password", "senha", Secret);
+const USER: Field = f("username", "username", Text);
+const PASS: Field = f("password", "password", Secret);
 const CODE: &[&str] = &["authorization_code"];
 const BROWSER: &[&str] = &["authorization_code", "implicit"];
 const TOKEN_URL: &[&str] = &["client_credentials", "authorization_code", "password"];
@@ -59,15 +59,15 @@ const TOKEN_URL: &[&str] = &["client_credentials", "authorization_code", "passwo
 pub const SCHEMES: &[Scheme] = &[
     Scheme {
         kind: "none",
-        label: "sem auth",
-        hint: "o request sai sem autenticação",
+        label: "no auth",
+        hint: "the request goes out unauthenticated",
         fields: &[],
     },
     Scheme {
         kind: "inherit",
-        label: "herdar",
-        hint: "usa a auth da pasta mais próxima ou do workspace",
-        fields: &[f("from", "de", Choice(&["folder", "workspace"]))],
+        label: "inherit",
+        hint: "uses the auth of the nearest folder or the workspace",
+        fields: &[f("from", "from", Choice(&["folder", "workspace"]))],
     },
     Scheme {
         kind: "bearer",
@@ -78,52 +78,52 @@ pub const SCHEMES: &[Scheme] = &[
     Scheme {
         kind: "basic",
         label: "basic",
-        hint: "Authorization: Basic base64(usuário:senha)",
+        hint: "Authorization: Basic base64(username:password)",
         fields: &[USER, PASS],
     },
     Scheme {
         kind: "api_key",
         label: "api key",
-        hint: "nome = valor, no header ou na query",
+        hint: "name = value, in the header or the query",
         fields: &[
-            f("key", "nome", Text),
-            f("value", "valor", Secret),
-            f("location", "enviar em", Choice(&["header", "query"])),
+            f("key", "name", Text),
+            f("value", "value", Secret),
+            f("location", "send in", Choice(&["header", "query"])),
         ],
     },
     Scheme {
         kind: "digest",
         label: "digest",
-        hint: "responde ao desafio 401 do servidor (RFC 7616)",
+        hint: "answers the server's 401 challenge (RFC 7616)",
         fields: &[USER, PASS],
     },
     Scheme {
         kind: "ntlm",
         label: "ntlm",
-        hint: "handshake NTLMv2 numa conexão dedicada (só http)",
+        hint: "NTLMv2 handshake on a dedicated connection (http only)",
         fields: &[
             USER,
             PASS,
-            f("domain", "domínio", Text),
-            f("workstation", "estação", Text),
+            f("domain", "domain", Text),
+            f("workstation", "workstation", Text),
         ],
     },
     Scheme {
         kind: "aws_sig_v4",
         label: "aws sigv4",
-        hint: "assina o request final com AWS Signature V4",
+        hint: "signs the final request with AWS Signature V4",
         fields: &[
             f("access_key", "access key", Text),
             f("secret_key", "secret key", Secret),
             f("session_token", "session token", Secret),
-            f("region", "região", Text),
-            f("service", "serviço", Text),
+            f("region", "region", Text),
+            f("service", "service", Text),
         ],
     },
     Scheme {
         kind: "oauth1",
         label: "oauth 1.0",
-        hint: "assina com OAuth 1.0 (RFC 5849)",
+        hint: "signs with OAuth 1.0 (RFC 5849)",
         fields: &[
             f("consumer_key", "consumer key", Text),
             f("consumer_secret", "consumer secret", Secret),
@@ -131,7 +131,7 @@ pub const SCHEMES: &[Scheme] = &[
             f("token_secret", "token secret", Secret),
             f(
                 "signature_method",
-                "assinatura",
+                "signature",
                 Choice(&[
                     "hmac_sha1",
                     "hmac_sha256",
@@ -144,7 +144,7 @@ pub const SCHEMES: &[Scheme] = &[
             ),
             f(
                 "params_location",
-                "parâmetros em",
+                "params in",
                 Choice(&["header", "query"]),
             ),
             f("realm", "realm", Text),
@@ -153,7 +153,7 @@ pub const SCHEMES: &[Scheme] = &[
     Scheme {
         kind: "oauth2",
         label: "oauth 2.0",
-        hint: "obtém o token e envia Authorization: Bearer",
+        hint: "gets the token and sends Authorization: Bearer",
         fields: &[
             f(
                 "grant_type",
@@ -178,7 +178,7 @@ pub const SCHEMES: &[Scheme] = &[
             only(
                 f(
                     "client_auth",
-                    "credenciais em",
+                    "credentials in",
                     Choice(&["basic_header", "request_body"]),
                 ),
                 TOKEN_URL,

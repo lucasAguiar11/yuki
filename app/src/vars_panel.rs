@@ -20,7 +20,7 @@ pub fn render(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
         .justify_between()
         .text_xs()
         .text_color(theme.muted_foreground)
-        .child("variáveis")
+        .child(t!("variables"))
         .child(
             h_flex()
                 .id("reveal")
@@ -33,9 +33,9 @@ pub fn render(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
                     IconName::Eye
                 })
                 .child(if yuki.reveal {
-                    "ocultar segredos"
+                    t!("hide secrets")
                 } else {
-                    "revelar segredos"
+                    t!("reveal secrets")
                 })
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.reveal = !this.reveal;
@@ -50,7 +50,7 @@ pub fn render(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
                 .p_3()
                 .text_xs()
                 .text_color(theme.muted_foreground)
-                .child("abra um request para ver as variáveis"),
+                .child(t!("open a request to see its variables")),
         );
     };
     let (used, missing, vars) = (
@@ -71,18 +71,18 @@ pub fn render(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
     let mut list = v_flex().pb_3().text_xs().font_family(mono);
     if !missing.is_empty() {
         list = list
-            .child(group_header("faltando", missing.len(), red, cx))
+            .child(group_header(&t!("missing"), missing.len(), red, cx))
             .children(missing.iter().map(|name| {
                 let key = name.clone();
                 let fg = theme.foreground;
-                row(name, "sem valor".into(), true, red, muted).child(
+                row(name, t!("no value").into_owned(), true, red, muted).child(
                     div()
                         .id(SharedString::from(format!("create-{name}")))
                         .flex_none()
                         .cursor_pointer()
                         .text_color(muted)
                         .hover(move |s| s.text_color(fg))
-                        .child("+ criar")
+                        .child(t!("+ create"))
                         .on_click(cx.listener(move |this, _, window, cx| {
                             this.open_envs(Some(key.clone()), window, cx)
                         })),
@@ -182,7 +182,10 @@ fn copy_row(
         theme.muted_foreground
     };
     let group = SharedString::from(format!("var-{name}"));
-    let tip = SharedString::from(format!("{name} = {shown}\nclique para copiar o valor"));
+    let tip = SharedString::from(format!(
+        "{name} = {shown}\n{}",
+        t!("click to copy the value")
+    ));
     let label = name.to_string();
     row(name, shown, used, name_color, theme.muted_foreground)
         .cursor_pointer()
@@ -198,7 +201,7 @@ fn copy_row(
         .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
         .on_click(cx.listener(move |this, _, _, cx| {
             cx.write_to_clipboard(ClipboardItem::new_string(real.clone()));
-            this.status = format!("{label} copiado").into();
+            this.status = t!("%{label} copied", label = label).into_owned().into();
             cx.notify();
         }))
 }

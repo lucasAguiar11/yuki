@@ -30,9 +30,9 @@ mod rename;
 mod response;
 mod secrets;
 mod sent;
-mod sidebar;
 mod settings;
 mod settings_view;
+mod sidebar;
 mod table;
 mod tabs;
 mod tree;
@@ -160,12 +160,6 @@ fn register_graphql() {
 }
 
 fn main() {
-    // YUKI_LANG overrides the system language (e.g. `YUKI_LANG=en` to test the source copy).
-    let lang = std::env::var("YUKI_LANG")
-        .ok()
-        .or_else(sys_locale::get_locale)
-        .unwrap_or_default();
-    rust_i18n::set_locale(&lang);
     let backend = match backend::Backend::open() {
         Ok(b) => b,
         Err(e) => {

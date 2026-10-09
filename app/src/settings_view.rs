@@ -208,10 +208,47 @@ impl SettingsScreen {
         };
         let ui_font = stepper("font-ui", Font::Ui, cx);
         let code_font = stepper("font-code", Font::Code, cx);
+        // Language names stay in their own language: readable whatever is active.
+        let current = cx.global::<Prefs>().language.clone();
+        let theme = cx.theme();
+        let (fg, muted, active_bg, hover_bg) = (
+            theme.foreground,
+            theme.muted_foreground,
+            theme.list_active,
+            theme.list_hover,
+        );
+        let langs = [
+            (None, t!("system").into_owned()),
+            (Some("en"), "english".into()),
+            (Some("pt-BR"), "português".into()),
+        ]
+        .map(|(lang, label): (Option<&'static str>, String)| {
+            let selected = current.as_deref() == lang;
+            div()
+                .id(SharedString::from(format!(
+                    "lang-{}",
+                    lang.unwrap_or("system")
+                )))
+                .px_2()
+                .py_0p5()
+                .rounded_sm()
+                .cursor_pointer()
+                .text_color(if selected { fg } else { muted })
+                .when(selected, |s| s.bg(active_bg))
+                .hover(move |s| s.bg(hover_bg))
+                .child(label)
+                .on_click(cx.listener(move |this, _, _, cx| this.set_language(lang, cx)))
+        });
         v_flex()
             .gap_4()
             .child(field(t!("interface font").into_owned(), ui_font, None, cx))
             .child(field(t!("code font").into_owned(), code_font, None, cx))
+            .child(field(
+                t!("language").into_owned(),
+                h_flex().gap_2().children(langs),
+                Some(t!("open tabs finish switching after a restart.").into_owned()),
+                cx,
+            ))
             .into_any_element()
     }
 }

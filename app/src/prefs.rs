@@ -1,5 +1,5 @@
-//! App-wide preferences (font sizes) in `settings.yaml` in the data dir,
-//! applied over the theme at startup and from the settings screen.
+//! App-wide preferences (font sizes, language) in `settings.yaml` in the data
+//! dir, applied over the theme at startup and from the settings screen.
 
 use std::path::PathBuf;
 
@@ -10,14 +10,16 @@ use yuki_core::YukiError;
 
 use crate::backend;
 
-/// `None` = theme default.
-#[derive(Default, Clone, Copy, Serialize, Deserialize)]
+/// `None` = theme default / system language.
+#[derive(Default, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Prefs {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub font_size: Option<f32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mono_font_size: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
 }
 
 impl Global for Prefs {}
@@ -43,7 +45,14 @@ impl Prefs {
         cx.set_global(prefs);
     }
 
-    fn apply(self, cx: &mut App) {
+    fn apply(&self, cx: &mut App) {
+        // YUKI_LANG (dev override) beats the setting, which beats the system.
+        let lang = std::env::var("YUKI_LANG")
+            .ok()
+            .or_else(|| self.language.clone())
+            .or_else(sys_locale::get_locale)
+            .unwrap_or_default();
+        rust_i18n::set_locale(&lang);
         let theme = Theme::global_mut(cx);
         if let Some(s) = self.font_size {
             theme.font_size = px(s);
@@ -54,7 +63,16 @@ impl Prefs {
         cx.refresh_windows();
     }
 
-    pub fn save(self) -> Result<(), YukiError> {
+    /// `None` = follow the system. Applied at once; the caller saves.
+    pub fn set_language(lang: Option<&str>, cx: &mut App) -> Prefs {
+        let prefs = cx.global_mut::<Prefs>();
+        prefs.language = lang.map(str::to_owned);
+        let prefs = prefs.clone();
+        prefs.apply(cx);
+        prefs
+    }
+
+    pub fn save(&self) -> Result<(), YukiError> {
         let text = serde_yaml::to_string(&self).map_err(|e| YukiError::Storage(e.to_string()))?;
         yuki_storage::write_atomic(path(), text)
     }
@@ -81,7 +99,7 @@ impl Prefs {
             Font::Ui => prefs.font_size = size,
             Font::Code => prefs.mono_font_size = size,
         }
-        let prefs = *prefs;
+        let prefs = prefs.clone();
         prefs.apply(cx);
         prefs
     }

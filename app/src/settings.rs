@@ -1,6 +1,6 @@
 //! "Configurações" screen (⌘,): the workspace (name, DNS overrides, shell env
-//! allowlist) and the app's appearance (font sizes). Workspace edits go to disk
-//! 400 ms after typing stops; font sizes apply and save on click.
+//! allowlist) and the app's appearance (font sizes, language). Workspace edits
+//! go to disk 400 ms after typing stops; appearance applies and saves on click.
 
 use std::{sync::Arc, time::Duration};
 
@@ -199,6 +199,15 @@ impl SettingsScreen {
     /// Step a font size; applied at once, saved off-thread.
     pub fn bump(&mut self, font: Font, delta: f32, cx: &mut Context<Self>) {
         let prefs = Prefs::bump(font, delta, cx);
+        self.save_prefs(prefs, cx);
+    }
+
+    pub fn set_language(&mut self, lang: Option<&str>, cx: &mut Context<Self>) {
+        let prefs = Prefs::set_language(lang, cx);
+        self.save_prefs(prefs, cx);
+    }
+
+    fn save_prefs(&mut self, prefs: Prefs, cx: &mut Context<Self>) {
         let task = cx.background_spawn(async move { prefs.save() });
         cx.spawn(async move |this, cx| {
             if let Err(e) = task.await {

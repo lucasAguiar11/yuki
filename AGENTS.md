@@ -48,11 +48,10 @@ crates/yuki-*     engine inherited from Voleeo (MIT), no gpui/tauri
 
 ## Localization
 
-- Code, comments, docs and commits are English. UI copy is written in English inside `t!("...")` (rust-i18n, gettext style): the English text **is** the key; a locale without the key shows the English text.
-- Translations: `app/locales/<lang>.yml`, one line per string, `"English": "translation"`, both quoted. New UI string → add its pt-BR line (even if identical; `cargo test -p yuki` fails on literal keys missing from pt-BR). Changed English text → update its key in every locale file. Keys passed as variables (`t!(label)` over a table) aren't checked — keep them in sync by hand.
-- Placeholders: `t!("%{n} min ago", n = mins)` — never `format!` around copy (translators need to reorder words). No plurals: separate keys.
-- Not copy (never `t!`): methods, header names, `{{ VAR }}`, scheme names, serde values, element ids, eprintln/expect messages.
-- Language: system locale (`sys-locale`); `YUKI_LANG=en` / `YUKI_LANG=pt-BR` overrides. New language = new `app/locales/<lang>.yml`; `app/build.rs` rebuilds on locale changes.
+- Supported: `en` (source) and `pt-BR`. Code, comments, `AGENTS.md`, skills and commits are English. UI copy is English inside `t!("...")` (rust-i18n, gettext style): the English text **is** the key; every key goes into every `app/locales/<lang>.yml`.
+- User-facing docs are bilingual: `README.md` ↔ `README.pt-BR.md`, `docs/legal/TERMS.md` ↔ `TERMS.pt-BR.md` — change both in the same commit.
+- Any copy or doc change: skill `yuki-i18n` (rules, adding a language). Validate with `cargo test -p yuki locales_test` (missing, stale and divergent keys) and `.agents/skills/yuki-i18n/scripts/doc-parity.sh`.
+- Language: system locale (`sys-locale`); `YUKI_LANG=en` / `YUKI_LANG=pt-BR` overrides.
 
 ## Data
 
@@ -71,7 +70,7 @@ cargo run -p yuki                       # dev (deps at opt-level 3, app at 0)
 YUKI_DATA_DIR=/tmp/yk cargo run -p yuki # isolated data for testing
 YUKI_LANG=pt-BR cargo run -p yuki       # force a UI language
 cargo build --release -p yuki
-cargo test -p yuki -p yuki-mcp          # unit tests (app: draft, vars)
+cargo test -p yuki -p yuki-mcp          # unit tests (app: draft, vars, locales)
 cargo clippy -p yuki && cargo fmt --all
 ```
 

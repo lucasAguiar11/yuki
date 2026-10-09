@@ -1,0 +1,40 @@
+# Yuki
+
+[English](README.md) · **Português**
+
+Um console de APIs nativo para macOS, feito para o teclado, escrito em Rust sobre GPUI. Um documento por request (`GET ▸ url`), monoespaçado onde há dado, cor só onde ela significa algo.
+
+Pré-lançamento: ainda não há `.app` empacotado; rode a partir do código.
+
+## Rodar
+
+```bash
+cargo run -p yuki                        # dev
+YUKI_DATA_DIR=/tmp/yk cargo run -p yuki  # diretório de dados isolado
+YUKI_LANG=pt-BR cargo run -p yuki        # força um idioma da interface (padrão: o do sistema)
+cargo build --release -p yuki
+```
+
+## Atalhos
+
+| Tecla | Ação |
+|---|---|
+| ⌘↵ | enviar request |
+| ⌘P / ⌘⇧P / ⌘O | ir para request / comandos / trocar de workspace |
+| ⌘N / ⌘⇧N | novo request / nova pasta |
+| ⌘E | mostrar/ocultar o editor do request |
+| ⌘⇧E | painel de variáveis |
+| ⌘⌥E | ambientes e variáveis |
+| ⌘⇧G | painel do git |
+| ⌘, | configurações: nome do workspace, DNS overrides, variáveis do shell, tamanho das fontes |
+| ⌘B | mostrar/ocultar a barra lateral |
+| ⌘W / ⌃⇥ / ⌃⇧⇥ | fechar / próxima / aba anterior |
+| ⌘S | salvar agora (as edições já salvam sozinhas) |
+
+## Dados
+
+Tudo fica em `~/Library/Application Support/dev.yuki` (troque com `YUKI_DATA_DIR`) como YAML legível: uma pasta por workspace, cada uma um repositório git próprio. Workspaces do Voleeo podem ser importados (copiados, nunca linkados) pela paleta de comandos.
+
+## Licença
+
+MIT — veja [LICENSE](LICENSE) e [NOTICE](NOTICE). Os crates do motor (`crates/yuki-*`) derivam do Voleeo. O código é totalmente aberto; o uso comercial dos binários oficiais segue os [termos](docs/legal/TERMS.pt-BR.md).

@@ -42,15 +42,33 @@ pub fn title_bar(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
             .child(trail)
             .children(yuki.env.as_ref().map(|env| {
                 let fg = theme.foreground;
+                let color = yuki.active_env_color(cx);
                 h_flex()
                     .gap_1()
                     .text_xs()
                     .text_color(theme.muted_foreground)
-                    .child("env")
                     .child(
-                        div()
-                            .w(px(150.))
-                            .child(Select::new(env).small().appearance(false)),
+                        // `● Local ▾` — tinted with the env's color, so the
+                        // active environment reads at a glance.
+                        h_flex()
+                            .w(px(170.))
+                            .pl_2()
+                            .gap_1()
+                            .rounded(theme.radius)
+                            .border_1()
+                            .border_color(color.map_or(transparent_black(), |c| c.opacity(0.5)))
+                            .when_some(color, |s, c| s.bg(c.opacity(0.12)))
+                            .child(match color {
+                                Some(c) => {
+                                    div().size(px(8.)).rounded_full().bg(c).into_any_element()
+                                }
+                                None => div().child("env").into_any_element(),
+                            })
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .child(Select::new(env).small().appearance(false)),
+                            ),
                     )
                     .child(
                         div()

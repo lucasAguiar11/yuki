@@ -61,6 +61,18 @@ impl Yuki {
         self.env_ids.get(ix).cloned().flatten()
     }
 
+    /// Color of the active environment, if it has one.
+    pub fn active_env_color(&self, cx: &App) -> Option<Hsla> {
+        let id = self.env_id(cx)?;
+        let env = self
+            .data
+            .as_ref()?
+            .environments
+            .iter()
+            .find(|e| e.id == id)?;
+        crate::ui::env_color(&env.color)
+    }
+
     /// Every open request re-resolves its variables (env picked or edited).
     fn reresolve(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let env_id = self.env_id(cx);

@@ -339,6 +339,12 @@ impl EnvScreen {
         self.changed(cx);
     }
 
+    pub fn set_color(&mut self, color: String, cx: &mut Context<Self>) {
+        let mut next = self.current().clone();
+        next.color = color;
+        self.write_meta(next, cx);
+    }
+
     pub fn toggle_shared(&mut self, cx: &mut Context<Self>) {
         let env = &mut self.envs[self.selected];
         let mut next = env.clone();

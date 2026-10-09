@@ -53,6 +53,8 @@ impl EnvScreen {
                 .text_color(if selected { fg } else { muted })
                 .when(selected, |s| s.bg(active_bg))
                 .hover(move |s| s.bg(hover_bg))
+                // Slot always reserved so names line up with or without a color.
+                .child(dot(ui::env_color(&env.color), 8.))
                 .child(div().flex_1().truncate().child(if ix == 0 {
                     "global".to_string()
                 } else {
@@ -104,6 +106,8 @@ impl EnvScreen {
     }
 
     fn render_vars(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        // Built first: the click listeners need `cx` mutably, `theme` borrows it.
+        let swatches = (!self.is_global()).then(|| self.swatches(cx));
         let theme = cx.theme();
         let (fg, muted, faint, border, red, yellow) = (
             theme.foreground,
@@ -147,6 +151,7 @@ impl EnvScreen {
             .border_b_1()
             .border_color(border)
             .child(title)
+            .children(swatches)
             .child(
                 div()
                     .id("env-shared")
@@ -336,4 +341,48 @@ impl EnvScreen {
         });
     }
 
+    /// `○ ● ● ● ● ● ●` — no color, then the theme's; the current one ringed.
+    fn swatches(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let current = self.current().color.to_lowercase();
+        let (ring, muted) = (cx.theme().foreground, cx.theme().muted_foreground);
+        let chip = |id: usize, color: String, fill: Option<Hsla>, cx: &mut Context<Self>| {
+            let on = color == current || (fill.is_none() && ui::env_color(&current).is_none());
+            div()
+                .id(("env-color", id))
+                .size(px(16.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded_full()
+                .cursor_pointer()
+                .border_1()
+                .border_color(if on { ring } else { transparent_black() })
+                .child(match fill {
+                    Some(c) => dot(Some(c), 10.).into_any_element(),
+                    // "No color": an empty ring.
+                    None => div()
+                        .size(px(10.))
+                        .rounded_full()
+                        .border_1()
+                        .border_color(muted)
+                        .into_any_element(),
+                })
+                .on_click(cx.listener(move |this, _, _, cx| this.set_color(color.clone(), cx)))
+        };
+        let mut row = h_flex().gap_0p5().child(chip(0, String::new(), None, cx));
+        for (ix, hex) in ui::env_palette(cx).into_iter().enumerate() {
+            let fill = ui::env_color(&hex);
+            row = row.child(chip(ix + 1, hex, fill, cx));
+        }
+        row
+    }
+}
+
+/// A filled circle, or an empty slot of the same size.
+pub fn dot(color: Option<Hsla>, size: f32) -> Div {
+    div()
+        .size(px(size))
+        .flex_none()
+        .rounded_full()
+        .when_some(color, |d, c| d.bg(c))
 }

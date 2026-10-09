@@ -1,5 +1,5 @@
 use gpui_kit::component::ActiveTheme;
-use gpui_kit::{App, Hsla};
+use gpui_kit::{App, Hsla, Rgba};
 
 /// Status keeps the strongest signal; methods use the same palette, quieter.
 pub fn status_color(status: u16, cx: &App) -> Hsla {
@@ -69,4 +69,24 @@ pub fn clock(iso: &str) -> String {
             .map_or(iso, |(_, t)| t.get(..8).unwrap_or(t))
             .to_string(),
     }
+}
+
+/// An environment's color as stored (`#rrggbb`, Voleeo's format); anything
+/// else (`''`, CSS vars from old exports) means no color.
+pub fn env_color(stored: &str) -> Option<Hsla> {
+    stored
+        .starts_with('#')
+        .then(|| Rgba::try_from(stored).ok().map(Hsla::from))
+        .flatten()
+}
+
+/// Colors offered for environments: the theme's, written to disk as hex so
+/// the YAML stays readable by Voleeo.
+pub fn env_palette(cx: &App) -> [String; 6] {
+    let t = cx.theme();
+    [t.red, t.yellow, t.green, t.cyan, t.blue, t.magenta].map(|c| {
+        let c = Rgba::from(c);
+        let byte = |v: f32| (v * 255.).round() as u8;
+        format!("#{:02x}{:02x}{:02x}", byte(c.r), byte(c.g), byte(c.b))
+    })
 }

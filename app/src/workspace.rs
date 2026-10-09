@@ -431,6 +431,11 @@ impl Render for Yuki {
                 cx.listener(|this, _: &CancelRename, window, cx| this.cancel_rename(window, cx)),
             )
             .child(chrome::title_bar(self, cx))
+            // Which environment requests go to, readable from anywhere.
+            .children(
+                self.active_env_color(cx)
+                    .map(|c| div().h(px(2.)).w_full().flex_none().bg(c)),
+            )
             .child(div().flex_1().min_h_0().child(self.render_panels(cx)))
             .child(chrome::status_line(self, cx))
             .children(self.palette.as_ref().map(|p| p.render(cx)))

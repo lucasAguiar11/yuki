@@ -16,7 +16,7 @@ pub fn snapshot() -> &'static HashMap<String, String> {
 /// Snapshot values for the workspace's allowlisted names. An empty allowlist
 /// short-circuits so the shell capture never runs unless the user opted in.
 pub(super) fn allowlisted_vars(workspace_id: &str, app_data_dir: &Path) -> HashMap<String, String> {
-    let allow = read_allowlist(workspace_id, app_data_dir);
+    let allow = allowlist(workspace_id, app_data_dir);
     if allow.is_empty() {
         return HashMap::new();
     }
@@ -27,9 +27,11 @@ pub(super) fn allowlisted_vars(workspace_id: &str, app_data_dir: &Path) -> HashM
         .collect()
 }
 
+const SETTINGS_FILE: &str = "workspace-settings.yaml";
+
 /// Lenient read of the one field we need from `workspace-settings.yaml`
 /// (canonical schema: `src-tauri/src/commands/workspace/settings.rs`).
-fn read_allowlist(workspace_id: &str, app_data_dir: &Path) -> Vec<String> {
+pub fn allowlist(workspace_id: &str, app_data_dir: &Path) -> Vec<String> {
     #[derive(Default, serde::Deserialize)]
     struct File {
         #[serde(default)]
@@ -41,7 +43,7 @@ fn read_allowlist(workspace_id: &str, app_data_dir: &Path) -> Vec<String> {
         #[serde(default, rename = "systemEnvAllowlist")]
         system_env_allowlist: Option<Vec<String>>,
     }
-    let Ok(text) = std::fs::read_to_string(app_data_dir.join("workspace-settings.yaml")) else {
+    let Ok(text) = std::fs::read_to_string(app_data_dir.join(SETTINGS_FILE)) else {
         return Vec::new();
     };
     serde_yaml::from_str::<File>(&text)
@@ -53,6 +55,49 @@ fn read_allowlist(workspace_id: &str, app_data_dir: &Path) -> Vec<String> {
                 .and_then(|e| e.system_env_allowlist)
         })
         .unwrap_or_default()
+}
+
+/// Replace the workspace's allowlist. The file holds other machine-local
+/// settings (Voleeo's too), so it is edited as a YAML tree: unknown keys stay.
+pub fn set_allowlist(
+    workspace_id: &str,
+    app_data_dir: &Path,
+    names: &[String],
+) -> Result<(), yuki_core::YukiError> {
+    use serde_yaml::{Mapping, Value};
+    let path = app_data_dir.join(SETTINGS_FILE);
+    let mut root = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|t| serde_yaml::from_str::<Value>(&t).ok())
+        .filter(Value::is_mapping)
+        .unwrap_or_else(|| Value::Mapping(Mapping::new()));
+    let map = root.as_mapping_mut().expect("filtered to a mapping");
+    let list = map
+        .entry("workspaces".into())
+        .or_insert_with(|| Value::Sequence(vec![]));
+    if !list.is_sequence() {
+        *list = Value::Sequence(vec![]);
+    }
+    let list = list.as_sequence_mut().expect("just made a sequence");
+    let pos = list
+        .iter()
+        .position(|e| e.get("id").and_then(Value::as_str) == Some(workspace_id));
+    let entry = match pos {
+        Some(ix) => &mut list[ix],
+        None => {
+            let mut m = Mapping::new();
+            m.insert("id".into(), workspace_id.into());
+            list.push(Value::Mapping(m));
+            list.last_mut().expect("just pushed")
+        }
+    };
+    let names = Value::Sequence(names.iter().map(|n| n.as_str().into()).collect());
+    if let Some(m) = entry.as_mapping_mut() {
+        m.insert("systemEnvAllowlist".into(), names);
+    }
+    let text =
+        serde_yaml::to_string(&root).map_err(|e| yuki_core::YukiError::Storage(e.to_string()))?;
+    yuki_storage::write_atomic(path, text)
 }
 
 /// Spawn the user's login shell once and dump its env — the VS Code approach.
@@ -138,14 +183,31 @@ mod tests {
             "workspaces:\n- id: ws1\n  activeEnvId: dev\n  systemEnvAllowlist:\n  - HOME\n  - API_KEY\n- id: ws2\n",
         )
         .unwrap();
-        assert_eq!(read_allowlist("ws1", dir.path()), vec!["HOME", "API_KEY"]);
-        assert!(read_allowlist("ws2", dir.path()).is_empty());
-        assert!(read_allowlist("missing", dir.path()).is_empty());
+        assert_eq!(allowlist("ws1", dir.path()), vec!["HOME", "API_KEY"]);
+        assert!(allowlist("ws2", dir.path()).is_empty());
+        assert!(allowlist("missing", dir.path()).is_empty());
+    }
+
+    #[test]
+    fn set_allowlist_keeps_other_keys_and_workspaces() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("workspace-settings.yaml"),
+            "theme: dark\nworkspaces:\n- id: ws1\n  activeEnvId: dev\n  systemEnvAllowlist:\n  - HOME\n- id: ws2\n",
+        )
+        .unwrap();
+        set_allowlist("ws1", dir.path(), &["AWS_PROFILE".into()]).unwrap();
+        set_allowlist("ws3", dir.path(), &["TOKEN".into()]).unwrap();
+        assert_eq!(allowlist("ws1", dir.path()), vec!["AWS_PROFILE"]);
+        assert_eq!(allowlist("ws3", dir.path()), vec!["TOKEN"]);
+        let text = std::fs::read_to_string(dir.path().join("workspace-settings.yaml")).unwrap();
+        assert!(text.contains("theme: dark") && text.contains("activeEnvId: dev"));
+        assert!(text.contains("id: ws2"));
     }
 
     #[test]
     fn missing_settings_file_means_empty_allowlist() {
         let dir = tempfile::tempdir().unwrap();
-        assert!(read_allowlist("ws1", dir.path()).is_empty());
+        assert!(allowlist("ws1", dir.path()).is_empty());
     }
 }

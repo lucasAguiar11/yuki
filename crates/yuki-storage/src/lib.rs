@@ -21,7 +21,7 @@ pub fn validate_id(id: &str) -> Result<(), YukiError> {
 /// Write via temp-file + rename so a crash mid-write leaves the old file
 /// intact instead of a truncated one (read paths treat corrupt YAML as empty,
 /// so a torn write would silently drop the file's data).
-pub(crate) fn write_atomic(
+pub fn write_atomic(
     path: impl AsRef<std::path::Path>,
     content: impl AsRef<[u8]>,
 ) -> Result<(), YukiError> {

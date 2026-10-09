@@ -25,7 +25,9 @@ use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, IconName, Sizable as
 |---|---|
 | Root view | `workspace::Yuki` (owns tabs, panels, palette, env select) |
 | One request | `Entity<RequestEditor>` (`editor.rs` state, `document.rs` Render) |
-| Action | `actions!` in `main.rs` → `bind_keys` → `.on_action(cx.listener(...))` in `Yuki::render` |
+| Action | `actions!` in `main.rs` → `bind_keys` → `.on_action(cx.listener(...))` in `Yuki::render`. `secondary-x` = ⌘ on macOS, ctrl elsewhere |
+| Full screen in the center | `Option<(Entity<Screen>, Subscription)>` on `Yuki`, returned first by `render_center`; own `key_context` + `escape` binding; autosave 400 ms + `flush`/`flush_blocking` (quit, workspace switch). `env_screen.rs` and `settings.rs`; opening one closes the other |
+| App-wide state | `impl Global for T` + `cx.set_global` at startup, `cx.global_mut::<T>()` later (`prefs::Prefs`) |
 | Event from child | `impl EventEmitter<E>` + `cx.subscribe(&entity, ...)` (ex.: `EditorChanged`) |
 | Input events | `cx.subscribe_in(&input, window, \|this, input, ev: &InputEvent, window, cx\| ...)` |
 | Blocking I/O | `let t = cx.background_spawn(async move { backend.x() }); cx.spawn_in(window, async move \|this, cx\| { let v = t.await; this.update_in(cx, \|this, window, cx\| ...) }).detach();` |
@@ -40,7 +42,7 @@ use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, IconName, Sizable as
 | Confirm dialog | `window.open_alert_dialog(cx, \|a, _, _\| a.title(..).show_cancel(true).ok_variant(ButtonVariant::Danger).on_ok(..))` (see `items::confirm_delete`) |
 | Drag & drop | `.on_drag(payload, \|d, grab, _, cx\| cx.new(..preview view..))` + `.drag_over::<T>(style)` + `.on_drop(cx.listener(..))` (`moving::Dragged`) |
 | Tree mutation | `Yuki::mutate(rename, op)` — store op off-thread, then reload + resync open tabs |
-| Text inputs | `InputState` (1 line) · `TextareaState` (multi) · `EditorState::new(..).language("json")` (code; **no tokens**) |
+| Text inputs | `InputState` (1 line) · `TextareaState::new(..).auto_grow(min, max)` + `Textarea::new(&s)` (multi) · `EditorState::new(..).language("json")` (code; **no tokens**) |
 | Highlighting | languages = gpui-kit `tree-sitter-*` features in `app/Cargo.toml` (json, html, graphql). XML uses `"html"`. GraphQL ships an empty query → ours in `app/src/graphql.scm`, registered in `main::register_graphql` |
 | Chips | `state.set_value(vars::content(text), window, cx)`; renderer `Input::new(&s).token(\|ctx, w, cx\| ...)` |
 | Icons | `IconName::X` — only the default set (`gpui-kit-assets-0.7.1/default-icons.txt`: chevron-*, close, copy, eye, eye-off, search, panel-left, chevrons-up-down, …) |

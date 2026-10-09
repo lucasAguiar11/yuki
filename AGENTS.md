@@ -34,6 +34,7 @@ app/              `yuki` binary (GPUI) — the only layer that knows gpui
   src/var_view.rs `{{ VAR }}` chips + tooltip; src/vars.rs model/tokenization (pure)
   src/vars_panel.rs ⌘⇧E panel;  src/sidebar.rs, tabs.rs, chrome.rs, palette.rs
   src/env_screen.rs "environments" screen ⌘⌥E (state, autosave, create/rename/delete); env_view.rs render; envs.rs title-bar `env` select
+  src/settings.rs "settings" screen ⌘, (workspace name, DNS overrides as hosts lines, shell-env allowlist); settings_view.rs render; prefs.rs font sizes
   src/items.rs    tree CRUD (create/duplicate/delete); moving.rs drag & drop + "move to…"; rename.rs inline rename
   src/backend.rs  bridge to the engine: tokio runtime, load/save/send, Voleeo import
   src/auth.rs     auth schemes as data (fields per type) + AuthConfig⇄form via serde; auth_form.rs auth tab; oauth.rs "get token"; secrets.rs secret crypto
@@ -43,7 +44,7 @@ crates/yuki-*     engine inherited from Voleeo (MIT), no gpui/tauri
   yuki-crypto AES-GCM/keychain · yuki-auth/oauth/cookies/ws/grpc/import/export/git
 ```
 
-**Invariants:** `crates/` never depends on gpui. The whole send pipeline goes through `ApiBackend::send_http` (`crates/yuki-mcp/src/api/request/send.rs`) — app and MCP share it; never reimplement env/folder/auth/cookies/history in the UI. Variable resolution: `yuki_mcp::resolve` (`load_env_vars_from`, `apply_folder_vars`, `resolve_str`, `is_identifier`).
+**Invariants:** `crates/` never depends on gpui. The whole send pipeline goes through `ApiBackend::send_http` (`crates/yuki-mcp/src/api/request/send.rs`) — app and MCP share it; never reimplement env/folder/auth/cookies/history in the UI. Variable resolution: `yuki_mcp::resolve` (`load_env_vars_from`, `apply_folder_vars`, `resolve_str`, `is_identifier`). `send_http` applies the workspace's DNS overrides and shell-env allowlist, but **not** workspace/folder headers or `inherit` auth (Voleeo's frontend resolved those) — a UI to edit them does nothing until the pipeline applies them.
 
 ## Localization
 
@@ -55,7 +56,7 @@ crates/yuki-*     engine inherited from Voleeo (MIT), no gpui/tauri
 
 ## Data
 
-- Directory: `~/Library/Application Support/dev.yuki` (override `YUKI_DATA_DIR`). Same layout as Voleeo (`workspaces/{id}/req_*.yaml`, `envs-local/{id}/`, `keys/{id}.key`, `responses-local/`).
+- Directory: `~/Library/Application Support/dev.yuki` (override `YUKI_DATA_DIR`). Same layout as Voleeo (`workspaces/{id}/req_*.yaml`, `envs-local/{id}/`, `keys/{id}.key`, `responses-local/`, machine-local `workspace-settings.yaml` — edit as a YAML tree, Voleeo keys ride along). App prefs: `settings.yaml`.
 - Import: `backend::import_voleeo` **copies** (never links) workspaces, local envs and key files; skips `.git` and existing ids.
 - Local-first: edits hit the disk 400 ms after the last keystroke (`editor::refresh_dirty` → `save`; one write at a time). ⌘S, send, closing a tab and quitting only bring it forward. Saving writes only if changed (`save_request_if_changed`); header ids are preserved by position (`draft::text_to_headers`) — fresh ids = phantom diff in the user's git.
 - Encrypted workspace: auth secrets and secret env variables are opened on load, sealed on save (`secrets.rs`). An unchanged secret reuses the stored ciphertext — re-encrypting draws a new nonce = phantom diff.
@@ -97,6 +98,7 @@ Details and patterns in the `yuki-gpui` skill. Summary of what cost the most:
 8. **Template chips:** `vars::content` on load and `chip_templates!` on every `InputEvent::Change`; saved text stays literal (`{{ BASE }}`). `EditorState` (code) rejects tokens: there the badge is `RangeDecoration` + `TextDecoration` (`code_vars.rs`); inside a JSON string the syntax color beats the name color.
 9. **Popup keys over `Input`:** `Input` consumes ↑↓↵⇥esc. To win, bind with context `"VarComplete > Input"` (same depth, registered later) and `key_context("VarComplete")` on the ancestor only while the popup is open. ⌘space belongs to Spotlight — it never reaches the app.
 10. **Single-line cells:** `InputState` strips line breaks; `draft::cell_value` returns the saved value if the cell wasn't touched (avoids corrupting multi-line values).
+11. **Theme-driven prefs:** mutate `Theme::global_mut(cx)` then `cx.refresh_windows()` (`prefs.rs`). Root sets the rem size from `theme.font_size` every frame, so text scales but `px(..)` row heights don't — the UI font is capped at 16. `mono_font_size` drives code editors and table cells.
 
 ## Delivery flow
 

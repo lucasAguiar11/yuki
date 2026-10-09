@@ -40,7 +40,9 @@ osascript -e 'tell application "System Events" to keystroke "p" using {command d
 /tmp/yk-mouse dragto $((X+90)) $((Y+200)) $((X+60)) $((Y+176))   # drag & drop (sidebar rows)
 ```
 
-- A click on an inactive window only activates it — set frontmost first.
+- A click on an inactive window only activates it — set frontmost first, **in the same command** as the keystrokes: focus drifts back to the terminal between tool calls and the keys silently go nowhere.
+- Option combos: `keystroke "e" using {command down, option down}` types a dead key and never matches `cmd-alt-e` — use `key code 14 using {…}`.
+- Elements move when font size or layout changes (e.g. after a `+` that grows text): re-capture before clicking the same spot again.
 - Clipboard checks: `pbpaste`.
 - Logs: the app prints `[send] …` lines; read the service output.
 

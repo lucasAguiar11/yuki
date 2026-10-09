@@ -1,18 +1,20 @@
 //! Window chrome: breadcrumb title bar, `:command` status line, welcome screen.
 
 use gpui_kit::component::{
-    button::Button, h_flex, select::Select, v_flex, ActiveTheme as _, Sizable as _, TitleBar,
+    button::Button, h_flex, select::Select, tooltip::Tooltip, v_flex, ActiveTheme as _, IconName,
+    Sizable as _, TitleBar,
 };
 use gpui_kit::{prelude::FluentBuilder as _, *};
 
 use crate::{
-    ui, workspace::Yuki, ImportVoleeo, OpenCommands, OpenEnvs, OpenRequests, OpenWorkspaces,
-    ToggleEditor, ToggleGit, ToggleSidebar, ToggleVars,
+    ui, workspace::Yuki, ImportVoleeo, OpenCommands, OpenEnvs, OpenRequests, OpenSettings,
+    OpenWorkspaces, ToggleEditor, ToggleGit, ToggleSidebar, ToggleVars,
 };
 
 /// `demo / JSONPlaceholder / photos                         env [Local ▾]`
 pub fn title_bar(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
     let theme = cx.theme();
+    let (fg, hover_bg) = (theme.foreground, theme.list_hover);
     let crumbs = yuki.breadcrumb(cx);
     let last = crumbs.len().saturating_sub(1);
     let mut trail = h_flex()
@@ -40,48 +42,73 @@ pub fn title_bar(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
             .pr_3()
             .justify_between()
             .child(trail)
-            .children(yuki.env.as_ref().map(|env| {
-                let fg = theme.foreground;
-                let color = yuki.active_env_color(cx);
+            .child(
                 h_flex()
-                    .gap_1()
-                    .text_xs()
-                    .text_color(theme.muted_foreground)
-                    .child(
-                        // `● Local ▾` — tinted with the env's color, so the
-                        // active environment reads at a glance.
+                    .gap_2()
+                    .children(yuki.env.as_ref().map(|env| {
+                        let fg = theme.foreground;
+                        let color = yuki.active_env_color(cx);
                         h_flex()
-                            .w(px(170.))
-                            .pl_2()
                             .gap_1()
-                            .rounded(theme.radius)
-                            .border_1()
-                            .border_color(color.map_or(transparent_black(), |c| c.opacity(0.5)))
-                            .when_some(color, |s, c| s.bg(c.opacity(0.12)))
-                            .child(match color {
-                                Some(c) => {
-                                    div().size(px(8.)).rounded_full().bg(c).into_any_element()
-                                }
-                                None => div().child("env").into_any_element(),
-                            })
+                            .text_xs()
+                            .text_color(theme.muted_foreground)
+                            .child(
+                                // `● Local ▾` — tinted with the env's color, so the
+                                // active environment reads at a glance.
+                                h_flex()
+                                    .w(px(170.))
+                                    .pl_2()
+                                    .gap_1()
+                                    .rounded(theme.radius)
+                                    .border_1()
+                                    .border_color(
+                                        color.map_or(transparent_black(), |c| c.opacity(0.5)),
+                                    )
+                                    .when_some(color, |s, c| s.bg(c.opacity(0.12)))
+                                    .child(match color {
+                                        Some(c) => div()
+                                            .size(px(8.))
+                                            .rounded_full()
+                                            .bg(c)
+                                            .into_any_element(),
+                                        None => div().child("env").into_any_element(),
+                                    })
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .child(Select::new(env).small().appearance(false)),
+                                    ),
+                            )
                             .child(
                                 div()
-                                    .flex_1()
-                                    .child(Select::new(env).small().appearance(false)),
-                            ),
-                    )
+                                    .id("env-edit")
+                                    .px_1()
+                                    .cursor_pointer()
+                                    .hover(move |s| s.text_color(fg))
+                                    .child(t!("edit"))
+                                    .on_click(|_, window, cx| {
+                                        window.dispatch_action(Box::new(OpenEnvs), cx)
+                                    }),
+                            )
+                    }))
                     .child(
+                        // Mouse path to ⌘,; the tooltip teaches the shortcut.
                         div()
-                            .id("env-edit")
-                            .px_1()
+                            .id("open-settings")
+                            .p_1()
+                            .rounded(theme.radius)
                             .cursor_pointer()
-                            .hover(move |s| s.text_color(fg))
-                            .child(t!("edit"))
+                            .text_color(theme.muted_foreground)
+                            .hover(move |s| s.text_color(fg).bg(hover_bg))
+                            .child(IconName::Settings)
+                            .tooltip(|window, cx| {
+                                Tooltip::new(t!("settings ⌘,").into_owned()).build(window, cx)
+                            })
                             .on_click(|_, window, cx| {
-                                window.dispatch_action(Box::new(OpenEnvs), cx)
+                                window.dispatch_action(Box::new(OpenSettings), cx)
                             }),
-                    )
-            })),
+                    ),
+            ),
     )
 }
 

@@ -6,8 +6,8 @@ use gpui_kit::component::{
 use gpui_kit::{prelude::FluentBuilder as _, *};
 
 use crate::{
-    ui, workspace::Yuki, ImportVoleeo, OpenCommands, OpenRequests, OpenWorkspaces, ToggleEditor,
-    ToggleGit, ToggleSidebar, ToggleVars,
+    ui, workspace::Yuki, ImportVoleeo, OpenCommands, OpenEnvs, OpenRequests, OpenWorkspaces,
+    ToggleEditor, ToggleGit, ToggleSidebar, ToggleVars,
 };
 
 /// `demo / JSONPlaceholder / photos                         env [Local ▾]`
@@ -41,6 +41,7 @@ pub fn title_bar(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
             .justify_between()
             .child(trail)
             .children(yuki.env.as_ref().map(|env| {
+                let fg = theme.foreground;
                 h_flex()
                     .gap_1()
                     .text_xs()
@@ -51,6 +52,17 @@ pub fn title_bar(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
                             .w(px(150.))
                             .child(Select::new(env).small().appearance(false)),
                     )
+                    .child(
+                        div()
+                            .id("env-edit")
+                            .px_1()
+                            .cursor_pointer()
+                            .hover(move |s| s.text_color(fg))
+                            .child("editar")
+                            .on_click(|_, window, cx| {
+                                window.dispatch_action(Box::new(OpenEnvs), cx)
+                            }),
+                    )
             })),
     )
 }
@@ -58,13 +70,14 @@ pub fn title_bar(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
 /// Vim-flavoured hints, each one clickable: `:requests ⌘P  :comandos ⌘⇧P …`
 pub fn status_line(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
     let theme = cx.theme();
-    let commands: [(&str, &str, Box<dyn Action>); 7] = [
+    let commands: [(&str, &str, Box<dyn Action>); 8] = [
         (":requests", "⌘P", Box::new(OpenRequests)),
         (":workspace", "⌘O", Box::new(OpenWorkspaces)),
         (":comandos", "⌘⇧P", Box::new(OpenCommands)),
         (":sidebar", "⌘B", Box::new(ToggleSidebar)),
         (":request", "⌘E", Box::new(ToggleEditor)),
         (":vars", "⌘⇧E", Box::new(ToggleVars)),
+        (":envs", "⌘⌥E", Box::new(OpenEnvs)),
         (":git", "⌘⇧G", Box::new(ToggleGit)),
     ];
     // `⎇ main · 3 ↑1` — branch, uncommitted changes, unpushed commits.

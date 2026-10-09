@@ -1,18 +1,17 @@
 use std::{collections::HashSet, sync::Arc};
 
 use gpui_kit::component::{
-    h_resizable, resizable_panel,
-    searchable_list::SearchableVec,
-    select::{SelectEvent, SelectState},
-    v_flex, ActiveTheme as _, IndexPath,
+    h_resizable, resizable_panel, searchable_list::SearchableVec, select::SelectState, v_flex,
+    ActiveTheme as _,
 };
 use gpui_kit::*;
-use yuki_core::{EnvironmentKind, Workspace};
+use yuki_core::Workspace;
 
 use crate::{
     backend::{self, Backend, WorkspaceData},
     chrome,
     editor::{EditorChanged, RequestEditor},
+    env_screen::EnvScreen,
     git::Git,
     git_panel,
     palette::{Kind, Palette},
@@ -20,7 +19,7 @@ use crate::{
     sidebar, tabs, tree, vars_panel, *,
 };
 
-type EnvSelect = SelectState<SearchableVec<SharedString>>;
+pub(crate) type EnvSelect = SelectState<SearchableVec<SharedString>>;
 
 pub struct Yuki {
     pub backend: Arc<Backend>,
@@ -39,7 +38,10 @@ pub struct Yuki {
     /// Show secret values in the variables panel.
     pub reveal: bool,
     pub env: Option<Entity<EnvSelect>>,
-    env_ids: Vec<Option<String>>,
+    pub(crate) env_ids: Vec<Option<String>>,
+    pub(crate) env_sub: Option<Subscription>,
+    /// The "Ambientes" screen, shown in place of the request while open.
+    pub(crate) env_screen: Option<(Entity<EnvScreen>, Subscription)>,
     pub(crate) palette: Option<Palette>,
     /// Sidebar row being renamed inline.
     pub renaming: Option<Rename>,
@@ -66,6 +68,8 @@ impl Yuki {
             reveal: false,
             env: None,
             env_ids: vec![],
+            env_sub: None,
+            env_screen: None,
             palette: None,
             renaming: None,
             status: "".into(),
@@ -117,7 +121,10 @@ impl Yuki {
                     }
                     this._subs.clear();
                     this.active = 0;
-                    this.set_envs(&data, window, cx);
+                    if let Some((screen, _)) = this.env_screen.take() {
+                        screen.update(cx, |s, cx| s.flush(cx));
+                    }
+                    this.set_envs(&data.environments, None, window, cx);
                     this.status = format!("{} requests", data.requests.len()).into();
                     this.data = Some(data);
                     this.ws = Some(ws);
@@ -133,46 +140,6 @@ impl Yuki {
             })
         })
         .detach();
-    }
-
-    fn set_envs(&mut self, data: &WorkspaceData, window: &mut Window, cx: &mut Context<Self>) {
-        let personal: Vec<_> = data
-            .environments
-            .iter()
-            .filter(|e| e.kind == EnvironmentKind::Personal)
-            .collect();
-        let mut names = vec![SharedString::from("Sem ambiente")];
-        names.extend(personal.iter().map(|e| SharedString::from(e.name.clone())));
-        self.env_ids = std::iter::once(None)
-            .chain(personal.iter().map(|e| Some(e.id.clone())))
-            .collect();
-        // Default to the first personal env: requests usually depend on one.
-        let ix = if personal.is_empty() { 0 } else { 1 };
-        let env = cx.new(|cx| {
-            SelectState::new(
-                SearchableVec::new(names),
-                Some(IndexPath::new(ix)),
-                window,
-                cx,
-            )
-        });
-        self._subs.push(cx.subscribe_in(
-            &env,
-            window,
-            |this, _, _: &SelectEvent<SearchableVec<SharedString>>, window, cx| {
-                // Every open request re-resolves its chips against the new env.
-                let env_id = this.env_id(cx);
-                for tab in &this.tabs {
-                    tab.update(cx, |e, cx| e.set_env(env_id.clone(), window, cx));
-                }
-            },
-        ));
-        self.env = Some(env);
-    }
-
-    pub(crate) fn env_id(&self, cx: &App) -> Option<String> {
-        let ix = self.env.as_ref()?.read(cx).selected_index(cx)?.row;
-        self.env_ids.get(ix).cloned().flatten()
     }
 
     pub fn refresh_rows(&mut self) {
@@ -230,6 +197,7 @@ impl Yuki {
     // the draft from ≤400 ms earlier; a per-request write sequence fixes it if
     // it ever shows up.
     fn flush_blocking(&self, cx: &App) {
+        self.flush_envs_blocking(cx);
         for tab in &self.tabs {
             let e = tab.read(cx);
             if e.dirty {
@@ -285,6 +253,9 @@ impl Yuki {
     }
 
     fn render_center(&self, cx: &mut Context<Self>) -> AnyElement {
+        if let Some((screen, _)) = &self.env_screen {
+            return screen.clone().into_any_element();
+        }
         match self.active_editor() {
             Some(editor) => v_flex()
                 .size_full()
@@ -379,6 +350,14 @@ impl Render for Yuki {
                 this.refresh_git(cx);
                 cx.notify();
             }))
+            .on_action(cx.listener(|this, _: &OpenEnvs, window, cx| {
+                if this.env_screen.is_some() {
+                    this.close_envs(window, cx)
+                } else {
+                    this.open_envs(None, window, cx)
+                }
+            }))
+            .on_action(cx.listener(|this, _: &CloseEnvs, window, cx| this.close_envs(window, cx)))
             .on_action(cx.listener(|this, _: &ToggleSidebar, _, cx| {
                 this.sidebar = !this.sidebar;
                 cx.notify();

@@ -72,11 +72,22 @@ pub fn render(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
     if !missing.is_empty() {
         list = list
             .child(group_header("faltando", missing.len(), red, cx))
-            .children(
-                missing
-                    .iter()
-                    .map(|name| row(name, "sem valor".into(), true, red, muted)),
-            );
+            .children(missing.iter().map(|name| {
+                let key = name.clone();
+                let fg = theme.foreground;
+                row(name, "sem valor".into(), true, red, muted).child(
+                    div()
+                        .id(SharedString::from(format!("create-{name}")))
+                        .flex_none()
+                        .cursor_pointer()
+                        .text_color(muted)
+                        .hover(move |s| s.text_color(fg))
+                        .child("+ criar")
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.open_envs(Some(key.clone()), window, cx)
+                        })),
+                )
+            }));
     }
     for (source, vars) in groups {
         list = list.child(group_header(&source.label(), vars.len(), muted, cx));

@@ -8,6 +8,9 @@ mod complete;
 mod document;
 mod draft;
 mod editor;
+mod env_screen;
+mod env_view;
+mod envs;
 mod git;
 mod git_ops;
 mod git_panel;
@@ -50,6 +53,8 @@ actions!(
         ToggleEditor,
         ToggleVars,
         ToggleGit,
+        OpenEnvs,
+        CloseEnvs,
         Quit,
         FocusNext,
         FocusPrev,
@@ -88,6 +93,8 @@ fn bind_keys(cx: &mut App) {
         KeyBinding::new("cmd-e", ToggleEditor, None),
         KeyBinding::new("cmd-shift-e", ToggleVars, None),
         KeyBinding::new("cmd-shift-g", ToggleGit, None),
+        KeyBinding::new("cmd-alt-e", OpenEnvs, None),
+        KeyBinding::new("escape", CloseEnvs, Some("EnvScreen")),
         KeyBinding::new("cmd-s", Save, None),
         KeyBinding::new("cmd-enter", Send, None),
         // Inputs bind cmd-enter themselves (newline + PressEnter); same-context

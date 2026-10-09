@@ -1,9 +1,10 @@
-//! Auth secrets at rest. Encrypted workspaces store `enc:v1:` ciphertext; the
-//! editor works on plaintext — opened on load, sealed on save.
+//! Secrets at rest (auth fields, secret env variables). Encrypted workspaces
+//! store `enc:v1:` ciphertext; the editors work on plaintext — opened on
+//! load, sealed on save.
 
 use std::mem::discriminant;
 
-use yuki_core::{AuthConfig, YukiError};
+use yuki_core::{AuthConfig, EnvironmentVariable, YukiError};
 use yuki_mcp::api::ApiBackend;
 
 /// The workspace key when the workspace is encrypted, `Ok(None)` when it isn't.
@@ -51,23 +52,56 @@ pub fn seal(
     let mut out = auth.clone();
     out.mark_secrets_encrypted();
     for (ix, (secret, _)) in out.secret_fields_mut().into_iter().enumerate() {
-        if yuki_crypto::is_encrypted(secret) {
-            continue;
-        }
-        match old.get(ix) {
-            Some(c) if yuki_crypto::decrypt(c, key).ok().as_deref() == Some(secret.as_str()) => {
-                *secret = c.clone()
-            }
-            _ => *secret = yuki_crypto::encrypt(secret, key)?,
-        }
+        seal_one(secret, old.get(ix).map(String::as_str), key)?;
     }
     Ok(out)
 }
 
+/// Encrypt `plain` in place, reusing `old` when it already decrypts to the
+/// same text: re-encrypting draws a fresh nonce, which would rewrite the file
+/// (and the user's git history) on every save.
+fn seal_one(plain: &mut String, old: Option<&str>, key: &[u8; 32]) -> Result<(), YukiError> {
+    if yuki_crypto::is_encrypted(plain) {
+        return Ok(());
+    }
+    *plain = match old {
+        Some(c) if yuki_crypto::decrypt(c, key).ok().as_deref() == Some(plain.as_str()) => {
+            c.to_string()
+        }
+        _ => yuki_crypto::encrypt(plain, key)?,
+    };
+    Ok(())
+}
+
+/// Decrypt secret variables in place; one that fails stays as stored.
+pub fn open_vars(vars: &mut [EnvironmentVariable], key: &[u8; 32]) {
+    for v in vars.iter_mut().filter(|v| v.encrypted) {
+        if yuki_crypto::is_encrypted(&v.value) {
+            if let Ok(plain) = yuki_crypto::decrypt(&v.value, key) {
+                v.value = plain;
+            }
+        }
+    }
+}
+
+/// Encrypt secret variables for disk; an unchanged one keeps the stored
+/// ciphertext of the same-named variable.
+pub fn seal_vars(
+    vars: &mut [EnvironmentVariable],
+    stored: &[EnvironmentVariable],
+    key: &[u8; 32],
+) -> Result<(), YukiError> {
+    for v in vars.iter_mut().filter(|v| v.encrypted) {
+        let old = stored.iter().find(|s| s.key == v.key && s.encrypted);
+        seal_one(&mut v.value, old.map(|s| s.value.as_str()), key)?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{open, seal};
-    use yuki_core::AuthConfig;
+    use super::{open, open_vars, seal, seal_vars};
+    use yuki_core::{AuthConfig, EnvironmentVariable};
 
     fn basic(user: &str, pass: &str) -> AuthConfig {
         AuthConfig::Basic {
@@ -110,5 +144,32 @@ mod tests {
             unreachable!()
         };
         assert_eq!(password, "new");
+    }
+
+    #[test]
+    fn seal_vars_keeps_ciphertext_of_unchanged_secrets_and_skips_plain_vars() {
+        let key = [7u8; 32];
+        let var = |k: &str, v: &str, secret: bool| EnvironmentVariable {
+            key: k.into(),
+            value: v.into(),
+            encrypted: secret,
+            enabled: true,
+        };
+        let mut stored = vec![var("TOKEN", "t0k", true), var("BASE", "http://x", false)];
+        seal_vars(&mut stored, &[], &key).unwrap();
+        assert!(yuki_crypto::is_encrypted(&stored[0].value));
+        assert_eq!(stored[1].value, "http://x");
+
+        // Same secret, another var edited → identical ciphertext (no git diff).
+        let mut edited = vec![var("TOKEN", "t0k", true), var("BASE", "http://y", false)];
+        seal_vars(&mut edited, &stored, &key).unwrap();
+        assert_eq!(edited[0].value, stored[0].value);
+
+        // Changed secret → new ciphertext that opens to the new value.
+        let mut changed = vec![var("TOKEN", "novo", true)];
+        seal_vars(&mut changed, &stored, &key).unwrap();
+        assert_ne!(changed[0].value, stored[0].value);
+        open_vars(&mut changed, &key);
+        assert_eq!(changed[0].value, "novo");
     }
 }

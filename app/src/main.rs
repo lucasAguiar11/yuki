@@ -197,33 +197,4 @@ fn main() {
 }
 
 #[cfg(test)]
-mod tests {
-    /// Every literal `t!(…)` key needs a pt-BR line (even if identical); otherwise it silently shows English.
-    /// Keys passed as variables (`t!(label)`) can't be found this way — keep those tables in sync by hand.
-    #[test]
-    fn pt_br_covers_every_literal_key() {
-        let mut missing = vec![];
-        for entry in std::fs::read_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/src")).unwrap() {
-            let src = std::fs::read_to_string(entry.unwrap().path()).unwrap();
-            for (at, _) in src.match_indices("t!(\"") {
-                // skip `format!(`, `print!(`…
-                if src[..at].ends_with(|c: char| c.is_alphanumeric() || c == '_') {
-                    continue;
-                }
-                let mut key = String::new();
-                let mut chars = src[at + 4..].chars();
-                while let Some(c) = chars.next() {
-                    match c {
-                        '"' => break,
-                        '\\' => key.push(chars.next().unwrap()),
-                        c => key.push(c),
-                    }
-                }
-                if crate::_rust_i18n_try_translate("pt-BR", &key).is_none() {
-                    missing.push(key);
-                }
-            }
-        }
-        assert!(missing.is_empty(), "missing in locales/pt-BR.yml: {missing:#?}");
-    }
-}
+mod locales_test;

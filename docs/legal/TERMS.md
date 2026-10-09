@@ -1,101 +1,101 @@
-# Termos de Uso — Yuki (binários oficiais)
+# Terms of Use — Yuki (official binaries)
 
-> **RASCUNHO.** Não publicar sem revisão jurídica. Campos entre colchetes são pendências.
-> Modelo: código MIT aberto; estes termos valem só para os instaladores e atualizações
-> oficiais. Revisar CDC (art. 49 — arrependimento em 7 dias), LGPD e regras de
-> exportação/cobrança antes de vender.
+> **DRAFT.** Do not publish without legal review. Bracketed fields are pending.
+> Model: open MIT code; these terms apply only to the official installers and updates.
+> Review the Brazilian Consumer Code (CDC art. 49 — 7-day withdrawal right), LGPD and
+> export/billing rules before selling. Brazilian consumers must also be offered the
+> Portuguese version (`TERMS.pt-BR.md`); counsel decides which version prevails.
 
-Última atualização: [DATA]
+Last updated: [DATE]
 
-O Yuki é um aplicativo desktop desenvolvido por [RAZÃO SOCIAL], inscrita no CNPJ
-[CNPJ], com sede em [CIDADE/UF] ("nós"). Ao baixar, instalar ou usar os **binários
-oficiais** do Yuki — instaladores distribuídos em [SITE] e as atualizações entregues a
-essas instalações (o "Software") — você concorda com estes Termos.
+Yuki is a desktop application developed by [COMPANY NAME], registered under CNPJ
+[CNPJ], headquartered in [CITY/STATE] ("we"). By downloading, installing or using the
+**official binaries** of Yuki — installers distributed at [SITE] and the updates
+delivered to those installations (the "Software") — you agree to these Terms.
 
-## 1. Código aberto e escopo destes Termos
+## 1. Open source and scope of these Terms
 
-O código-fonte do Yuki está disponível sob a Licença MIT em [URL DO REPOSITÓRIO],
-e partes dele derivam do projeto Voleeo, também sob a Licença MIT (ver `LICENSE` e
-`NOTICE`). **O uso do código-fonte é regido exclusivamente pela Licença MIT**, inclusive
-para fins comerciais. Estes Termos se aplicam apenas aos binários oficiais.
+Yuki's source code is available under the MIT License at [REPOSITORY URL], and parts
+of it derive from the Voleeo project, also under the MIT License (see `LICENSE` and
+`NOTICE`). **Use of the source code is governed exclusively by the MIT License**,
+including for commercial purposes. These Terms apply only to the official binaries.
 
-## 2. Uso pessoal e uso comercial
+## 2. Personal and commercial use
 
-- **Uso pessoal:** gratuito, com todas as funcionalidades — estudo, projetos pessoais,
-  hobby, código aberto não remunerado.
-- **Uso comercial:** uso em atividade profissional, remunerada ou dentro de empresa,
-  órgão ou outra organização (inclusive sem fins lucrativos) exige licença comercial
-  válida após um período de avaliação de [30] dias, contado da primeira execução.
-- Todas as funcionalidades são iguais com ou sem licença. O Software não é bloqueado ao
-  fim da avaliação; o cumprimento destes Termos é de sua responsabilidade.
+- **Personal use:** free, with every feature — study, personal projects, hobby, unpaid
+  open source.
+- **Commercial use:** use in professional or paid activity, or within a company,
+  government body or other organization (including non-profits) requires a valid
+  commercial license after an evaluation period of [30] days, counted from first launch.
+- Every feature is the same with or without a license. The Software is not locked at
+  the end of the evaluation; complying with these Terms is your responsibility.
 
-## 3. Licenças comerciais
+## 3. Commercial licenses
 
-- **Individual:** vinculada a uma pessoa e um e-mail; intransferível; até [3]
-  dispositivos da mesma pessoa.
-- **Empresa:** vinculada a uma organização; assentos podem ser reatribuídos dentro dela.
-- **Licença de continuidade:** se a assinatura terminar, você pode continuar usando para
-  fins comerciais a última versão lançada enquanto a licença estava ativa, sem novas
-  atualizações nem suporte.
-- **Vitalícia** (se oferecida): uso comercial permanente, incluindo atualizações futuras.
-- Preços, descontos regionais e formas de pagamento estão em [SITE]/pricing.
-- Reembolso: [7 dias por lei para compras online / prazo maior, se oferecido].
+- **Individual:** tied to one person and one email; non-transferable; up to [3]
+  devices of the same person.
+- **Company:** tied to an organization; seats can be reassigned within it.
+- **Perpetual fallback license:** if the subscription ends, you may keep using, for
+  commercial purposes, the last version released while the license was active, without
+  new updates or support.
+- **Lifetime** (if offered): permanent commercial use, including future updates.
+- Prices, regional discounts and payment methods are at [SITE]/pricing.
+- Refunds: [7 days by law for online purchases / longer period, if offered].
 
-## 4. Restrições
+## 4. Restrictions
 
-Você concorda em não:
+You agree not to:
 
-- usar os binários oficiais comercialmente sem licença válida após a avaliação;
-- compartilhar, revender ou sublicenciar sua licença (exceto reatribuição de assentos de
-  Empresa dentro da mesma organização);
-- remover ou ocultar avisos de direitos autorais, licenças ou marcas do Software.
+- use the official binaries commercially without a valid license after the evaluation;
+- share, resell or sublicense your license (except reassigning Company seats within the
+  same organization);
+- remove or hide copyright, license or trademark notices from the Software.
 
-Nada nesta seção limita direitos que a Licença MIT concede sobre o código-fonte.
+Nothing in this section limits the rights the MIT License grants over the source code.
 
-## 5. Marca
+## 5. Trademark
 
-"Yuki" e seus logotipos são marcas de [RAZÃO SOCIAL] [registro: PENDENTE]. A Licença MIT
-não concede direito de uso da marca: versões compiladas por terceiros devem usar outro
-nome e identidade visual.
+"Yuki" and its logos are trademarks of [COMPANY NAME] [registration: PENDING]. The MIT
+License grants no right to use the trademark: builds compiled by third parties must use
+a different name and visual identity.
 
-## 6. Atualizações e suporte
+## 6. Updates and support
 
-Podemos publicar atualizações a qualquer momento; a atualização automática pode ser
-desativada nas configurações. Licenças pagas incluem suporte por e-mail
-([E-MAIL DE SUPORTE]) nos níveis descritos na página de preços.
+We may publish updates at any time; automatic updates can be turned off in the
+settings. Paid licenses include email support ([SUPPORT EMAIL]) at the levels described
+on the pricing page.
 
-## 7. Privacidade e dados
+## 7. Privacy and data
 
-O Yuki funciona localmente: requisições, respostas, variáveis de ambiente e segredos
-**não** são enviados a nós. Para operar licenças e atualizações podemos tratar dados
-mínimos — e-mail e nome do titular, identificador de dispositivo/ativação, versão do app
-e status da licença — conforme a Política de Privacidade ([URL]) e a LGPD
-(Lei 13.709/2018). Contato do encarregado: [E-MAIL DPO].
+Yuki works locally: requests, responses, environment variables and secrets are **not**
+sent to us. To operate licenses and updates we may process minimal data — the holder's
+email and name, device/activation identifier, app version and license status — under
+the Privacy Policy ([URL]) and the LGPD (Brazilian Law 13.709/2018). Data protection
+officer contact: [DPO EMAIL].
 
-## 8. Garantias e responsabilidade
+## 8. Warranties and liability
 
-O Software é fornecido "no estado em que se encontra", sem garantias além das
-exigidas por lei. Na máxima extensão permitida pela legislação aplicável, não nos
-responsabilizamos por danos indiretos ou lucros cessantes, e nossa responsabilidade
-total limita-se ao valor pago por você nos 12 meses anteriores ao evento. Nada nestes
-Termos afasta direitos irrenunciáveis do consumidor.
+The Software is provided "as is", without warranties beyond those required by law. To
+the maximum extent permitted by applicable law, we are not liable for indirect damages
+or lost profits, and our total liability is limited to the amount you paid in the 12
+months before the event. Nothing in these Terms waives non-waivable consumer rights.
 
-## 9. Encerramento
+## 9. Termination
 
-Você pode encerrar estes Termos desinstalando o Software. Podemos encerrar uma licença
-em caso de violação destes Termos; a licença de continuidade permanece válida quando
-aplicável.
+You may terminate these Terms by uninstalling the Software. We may terminate a license
+if these Terms are violated; the perpetual fallback license remains valid where
+applicable.
 
-## 10. Alterações
+## 10. Changes
 
-Podemos atualizar estes Termos; a versão vigente fica em [SITE]/terms. Mudanças
-relevantes serão comunicadas com antecedência razoável.
+We may update these Terms; the current version is at [SITE]/terms. Material changes
+will be announced with reasonable notice.
 
-## 11. Lei aplicável e foro
+## 11. Governing law and venue
 
-Estes Termos são regidos pelas leis da República Federativa do Brasil. Fica eleito o
-foro de [CIDADE/UF], ressalvado o foro do domicílio do consumidor quando aplicável.
+These Terms are governed by the laws of the Federative Republic of Brazil. The courts of
+[CITY/STATE] are chosen as venue, except for the consumer's domicile where applicable.
 
-## 12. Contato
+## 12. Contact
 
-[E-MAIL JURÍDICO]
+[LEGAL EMAIL]

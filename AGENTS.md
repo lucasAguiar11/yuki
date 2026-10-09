@@ -1,95 +1,105 @@
 # AGENTS.md — Yuki
 
-Guia para agentes neste repositório. **Mantenha abaixo de 200 linhas**: ao adicionar regra, enxugue outra.
+Guide for agents in this repository. **Keep it under 200 lines**: when you add a rule, trim another.
 
-## Produto
+## Product
 
-Yuki é um **console de APIs nativo** (Rust + GPUI via `gpui-kit`), inspirado no Voleeo e no Zed — não uma cópia de nenhum dos dois. Direção visual "Console": documento por request (linha de prompt `GET ▸ url`), monoespaçado onde há dado, cor só onde carrega significado, keyboard-first. Cópia da UI em **pt-BR**, minúscula e curta (`sem resposta`, `▸ request ⌘E`).
+Yuki is a **native API console** (Rust + GPUI via `gpui-kit`), inspired by Voleeo and Zed — a copy of neither. "Console" visual direction: one document per request (prompt line `GET ▸ url`), monospace wherever there is data, color only where it carries meaning, keyboard-first. UI copy is **English**, lowercase and short (`no response`, `▸ request ⌘E`), translated through `app/locales/` (see Localization).
 
-Pré-lançamento: sem shims de migração para formatos internos. **Exceção:** dados em disco (YAML de workspace/request/env) são do usuário — mantenha legíveis (serde `default`/`rename`), nunca corrompa.
+Pre-release: no migration shims for internal formats. **Exception:** on-disk data (workspace/request/env YAML) belongs to the user — keep it readable (serde `default`/`rename`), never corrupt it.
 
-## Licença e modelo de negócio (decidido — não mudar sem pedido)
+## License and business model (decided — don't change without being asked)
 
-- **Código: MIT, 100% aberto.** Mesmo modelo do Yaak: o que se cobra é o *uso comercial dos binários oficiais* (termos em `docs/legal/TERMS.md`), nunca funcionalidades. Proibido: paywall de feature, módulo fechado, trocar a licença do código, bloquear o app quando o trial acabar.
-- `LICENSE` traz o copyright do Voleeo (obrigatório: `crates/yuki-*` derivam dele) e o do Yuki; proveniência em `NOTICE`. Nunca remova a linha do Voleeo.
-- Strings visíveis dizem **Yuki** (UI, User-Agent padrão, `serverInfo` do MCP, páginas OAuth, mensagens de import). "Voleeo" só para origem/import e o formato `VoleeoBundle`.
-- Dependência nova: nada GPL/LGPL/AGPL (confira com `cargo metadata`). Binário distribuído precisa levar as licenças de terceiros (`cargo about generate`).
+- **Code: MIT, 100% open.** Same model as Yaak: what's charged is *commercial use of the official binaries* (terms in `docs/legal/TERMS.md`, Portuguese in `TERMS.pt-BR.md`), never features. Forbidden: feature paywalls, closed modules, changing the code license, locking the app when the trial ends.
+- `LICENSE` carries Voleeo's copyright (required: `crates/yuki-*` derive from it) and Yuki's; provenance in `NOTICE`. Never remove the Voleeo line.
+- Visible strings say **Yuki** (UI, default User-Agent, MCP `serverInfo`, OAuth pages, import messages). "Voleeo" only for origin/import and the `VoleeoBundle` format.
+- New dependency: nothing GPL/LGPL/AGPL (check with `cargo metadata`). Distributed binaries must ship third-party licenses (`cargo about generate`).
 
 ## Layout
 
 ```
-app/              binário `yuki` (GPUI) — única camada que conhece gpui
-  themes/yuki-console.json   paleta + syntax (única fonte de cor)
-  src/main.rs     actions!, keybindings, tema, janela
-  src/workspace.rs  root view `Yuki`: workspaces, abas, painéis, paletas, ações
-  src/editor.rs   `RequestEditor` (estado/lógica de uma aba)
-  src/document.rs Render do RequestEditor: prompt, meta line, editor de request
-  src/body.rs     painel body: select de tipo + input por tipo (raw, form/multipart, binary, graphql)
-  src/table.rs    tabela nome/valor (headers e campos form/multipart); última linha sempre em branco
-  src/complete.rs autocomplete de `{{ VAR }}` (ao digitar `{{` ou ⌃space) em URL, células e editores de código
-  src/code_vars.rs "badge" de `{{ VAR }}` nos editores de código (decorations; `EditorState` não aceita tokens)
-  src/response.rs faixa de status (tempo, hora local), body/headers, histórico (●●●)
-  src/sent.rs     aba timeline: request resolvido como enviado + log de eventos do motor (credenciais mascaradas)
-  src/var_view.rs chips `{{ VAR }}` + tooltip; src/vars.rs modelo/tokenização (puro)
-  src/vars_panel.rs painel ⌘⇧E;  src/sidebar.rs, tabs.rs, chrome.rs, palette.rs
-  src/env_screen.rs tela "Ambientes" ⌘⌥E (estado, autosave, criar/renomear/excluir); env_view.rs render; envs.rs select `env` do título
-  src/items.rs    CRUD da árvore (criar/duplicar/excluir); moving.rs drag & drop + "mover para…"; rename.rs renomear inline
-  src/backend.rs  ponte para o motor: tokio runtime, load/save/send, import Voleeo
-  src/auth.rs     esquemas de auth como dados (campos por tipo) + AuthConfig⇄form via serde; auth_form.rs aba auth; oauth.rs "obter token"; secrets.rs cripto dos segredos
-  src/draft.rs, tree.rs, ui.rs  helpers puros
-crates/yuki-*     motor herdado do Voleeo (MIT), sem gpui/tauri
-  yuki-core tipos+erros · yuki-storage YAML · yuki-http executor · yuki-mcp ApiBackend+resolve
+app/              `yuki` binary (GPUI) — the only layer that knows gpui
+  themes/yuki-console.json   palette + syntax (single source of color)
+  locales/pt-BR.yml          translations (English source text → pt-BR)
+  src/main.rs     i18n!, actions!, keybindings, theme, window
+  src/workspace.rs  root view `Yuki`: workspaces, tabs, panels, palettes, actions
+  src/editor.rs   `RequestEditor` (state/logic of one tab)
+  src/document.rs RequestEditor render: prompt, meta line, request editor
+  src/body.rs     body panel: type select + per-type input (raw, form/multipart, binary, graphql)
+  src/table.rs    name/value table (headers and form/multipart fields); last row always blank
+  src/complete.rs `{{ VAR }}` autocomplete (on typing `{{` or ⌃space) in URL, cells and code editors
+  src/code_vars.rs `{{ VAR }}` "badge" in code editors (decorations; `EditorState` doesn't take tokens)
+  src/response.rs status strip (time, local clock), body/headers, history (●●●)
+  src/sent.rs     timeline tab: resolved request as sent + engine event log (credentials masked)
+  src/var_view.rs `{{ VAR }}` chips + tooltip; src/vars.rs model/tokenization (pure)
+  src/vars_panel.rs ⌘⇧E panel;  src/sidebar.rs, tabs.rs, chrome.rs, palette.rs
+  src/env_screen.rs "environments" screen ⌘⌥E (state, autosave, create/rename/delete); env_view.rs render; envs.rs title-bar `env` select
+  src/items.rs    tree CRUD (create/duplicate/delete); moving.rs drag & drop + "move to…"; rename.rs inline rename
+  src/backend.rs  bridge to the engine: tokio runtime, load/save/send, Voleeo import
+  src/auth.rs     auth schemes as data (fields per type) + AuthConfig⇄form via serde; auth_form.rs auth tab; oauth.rs "get token"; secrets.rs secret crypto
+  src/draft.rs, tree.rs, ui.rs  pure helpers
+crates/yuki-*     engine inherited from Voleeo (MIT), no gpui/tauri
+  yuki-core types+errors · yuki-storage YAML · yuki-http executor · yuki-mcp ApiBackend+resolve
   yuki-crypto AES-GCM/keychain · yuki-auth/oauth/cookies/ws/grpc/import/export/git
 ```
 
-**Invariantes:** `crates/` nunca depende de gpui. Toda a pipeline de envio passa por `ApiBackend::send_http` (`crates/yuki-mcp/src/api/request/send.rs`) — app e MCP usam a mesma; nunca reimplemente env/pasta/auth/cookies/histórico na UI. Resolução de variáveis: `yuki_mcp::resolve` (`load_env_vars_from`, `apply_folder_vars`, `resolve_str`, `is_identifier`).
+**Invariants:** `crates/` never depends on gpui. The whole send pipeline goes through `ApiBackend::send_http` (`crates/yuki-mcp/src/api/request/send.rs`) — app and MCP share it; never reimplement env/folder/auth/cookies/history in the UI. Variable resolution: `yuki_mcp::resolve` (`load_env_vars_from`, `apply_folder_vars`, `resolve_str`, `is_identifier`).
 
-## Dados
+## Localization
 
-- Diretório: `~/Library/Application Support/dev.yuki` (override `YUKI_DATA_DIR`). Mesmo layout do Voleeo (`workspaces/{id}/req_*.yaml`, `envs-local/{id}/`, `keys/{id}.key`, `responses-local/`).
-- Import: `backend::import_voleeo` **copia** (nunca link) workspaces, envs locais e key files; pula `.git` e ids existentes.
-- Local-first: edição vai para o disco 400 ms depois da última tecla (`editor::refresh_dirty` → `save`; uma escrita por vez). ⌘S, enviar, fechar aba e sair só adiantam. Salvar só escreve se mudou (`save_request_if_changed`); ids de headers são preservados por posição (`draft::text_to_headers`) — fresh ids = diff fantasma no git do usuário.
-- Workspace criptografado: segredos de auth e variáveis secretas de ambiente abertos ao carregar, selados ao salvar (`secrets.rs`). Segredo inalterado reaproveita o ciphertext guardado — recriptografar sorteia nonce novo = diff fantasma.
-- Ambientes: `shared: false` fica em `envs-local/` (nunca no git); `shared: true` vai para a pasta do workspace (entra nos commits). Na tela, nunca salve linhas que não foram carregadas do ambiente atual (`EnvScreen::show` vs `select`) — sobrescreve as variáveis dele.
-- Keychain service: `yuki`. Chave de arquivo é o fallback (e o que o import traz).
-- Git: cada `workspaces/{id}` é um repositório próprio (modelo Voleeo), via `yuki-git` (libgit2, sem git instalado). Painel ⌘⇧G (`git.rs` estado/ops em background, `git_ops.rs` ações, `git_panel.rs` UI). Conflito de pull: escolhe-se o arquivo inteiro de um lado; o disco nunca fica com `<<<<<<<`.
+- Code, comments, docs and commits are English. UI copy is written in English inside `t!("...")` (rust-i18n, gettext style): the English text **is** the key; a locale without the key shows the English text.
+- Translations: `app/locales/<lang>.yml`, one line per string, `"English": "translation"`, both quoted. New UI string → add its pt-BR line (even if identical; `cargo test -p yuki` fails on literal keys missing from pt-BR). Changed English text → update its key in every locale file. Keys passed as variables (`t!(label)` over a table) aren't checked — keep them in sync by hand.
+- Placeholders: `t!("%{n} min ago", n = mins)` — never `format!` around copy (translators need to reorder words). No plurals: separate keys.
+- Not copy (never `t!`): methods, header names, `{{ VAR }}`, scheme names, serde values, element ids, eprintln/expect messages.
+- Language: system locale (`sys-locale`); `YUKI_LANG=en` / `YUKI_LANG=pt-BR` overrides. New language = new `app/locales/<lang>.yml`; `app/build.rs` rebuilds on locale changes.
 
-## Comandos
+## Data
+
+- Directory: `~/Library/Application Support/dev.yuki` (override `YUKI_DATA_DIR`). Same layout as Voleeo (`workspaces/{id}/req_*.yaml`, `envs-local/{id}/`, `keys/{id}.key`, `responses-local/`).
+- Import: `backend::import_voleeo` **copies** (never links) workspaces, local envs and key files; skips `.git` and existing ids.
+- Local-first: edits hit the disk 400 ms after the last keystroke (`editor::refresh_dirty` → `save`; one write at a time). ⌘S, send, closing a tab and quitting only bring it forward. Saving writes only if changed (`save_request_if_changed`); header ids are preserved by position (`draft::text_to_headers`) — fresh ids = phantom diff in the user's git.
+- Encrypted workspace: auth secrets and secret env variables are opened on load, sealed on save (`secrets.rs`). An unchanged secret reuses the stored ciphertext — re-encrypting draws a new nonce = phantom diff.
+- Environments: `shared: false` lives in `envs-local/` (never in git); `shared: true` goes to the workspace folder (gets committed). On the screen, never save rows that weren't loaded from the current environment (`EnvScreen::show` vs `select`) — it overwrites its variables.
+- Keychain service: `yuki`. The key file is the fallback (and what import brings).
+- Git: each `workspaces/{id}` is its own repository (Voleeo model), via `yuki-git` (libgit2, no git install needed). Panel ⌘⇧G (`git.rs` state/background ops, `git_ops.rs` actions, `git_panel.rs` UI). Pull conflict: pick one side's whole file; the disk never holds `<<<<<<<`.
+
+## Commands
 
 ```bash
-cargo run -p yuki                       # dev (deps em opt-level 3, app em 0)
-YUKI_DATA_DIR=/tmp/yk cargo run -p yuki # dados isolados p/ testes
+cargo run -p yuki                       # dev (deps at opt-level 3, app at 0)
+YUKI_DATA_DIR=/tmp/yk cargo run -p yuki # isolated data for testing
+YUKI_LANG=pt-BR cargo run -p yuki       # force a UI language
 cargo build --release -p yuki
-cargo test -p yuki -p yuki-mcp          # unitários (app: draft, vars)
+cargo test -p yuki -p yuki-mcp          # unit tests (app: draft, vars)
 cargo clippy -p yuki && cargo fmt --all
 ```
 
-Não há `.app` empacotado nem CI ainda.
+No packaged `.app` or CI yet.
 
-## Código
+## Code
 
-- KISS/YAGNI; menor diff que resolve a causa. Comentário só para o não-óbvio (o *porquê*).
-- `.rs` em `app/src`: alvo ≤ 250 linhas; dividir por responsabilidade (`workspace.rs` já passou — divida ao tocar).
-- Cores **só** via `cx.theme()` (tokens do JSON) e `ui::{status_color, method_color, faint}`. Nunca hex no código. Dado (URL, headers, métodos, JSON, rodapé) usa `theme.mono_font_family`.
-- Testes: só lógica pura com risco real (`draft.rs`, `vars.rs`). UI se verifica rodando (skill `yuki-visual-smoke`).
+- KISS/YAGNI; smallest diff that fixes the cause. Comment only the non-obvious (the *why*).
+- `.rs` in `app/src`: target ≤ 250 lines; split by responsibility (`workspace.rs` is already over — split it when you touch it).
+- Colors **only** via `cx.theme()` (JSON tokens) and `ui::{status_color, method_color, faint}`. Never hex in code. Data (URL, headers, methods, JSON, footer) uses `theme.mono_font_family`.
+- Tests: only pure logic with real risk (`draft.rs`, `vars.rs`). UI is verified by running it (skill `yuki-visual-smoke`).
 
-## GPUI / gpui-kit — armadilhas já pagas
+## GPUI / gpui-kit — traps already paid for
 
-Detalhes e padrões na skill `yuki-gpui`. Resumo do que custou caro:
+Details and patterns in the `yuki-gpui` skill. Summary of what cost the most:
 
-1. **Borrow de `cx`:** `let theme = cx.theme()` empresta `cx`; copie as cores (`Hsla` é `Copy`) antes de qualquer `cx.listener`/`&mut cx`, ou construa os filhos mutáveis antes de pegar `theme`.
-2. **I/O fora da UI:** YAML via `cx.background_spawn`; rede via `Backend::save_and_send` (runtime tokio próprio). A task tokio nunca captura o `Backend` (dropar runtime dentro dele panica) — só `Arc<ApiBackend>`.
-3. **Foco:** sem elemento focado nenhum keybinding dispara. Depois de trocar workspace/fechar aba, chame `focus_active`.
-4. **⌘↵ em inputs:** o `Input` consome `secondary-enter`; existe binding extra `cmd-enter` com contexto `"Input"` registrado depois (vence). Mantenha.
-5. **Resizable:** nunca `.visible(false)` em painel de `h_resizable` — painel oculto deixa tamanho velho e a borda "pula" ao arrastar. Omita o painel e use id de grupo por combinação (`main-{sidebar}-{vars}`). Painéis com tamanho: `.flex_none()` + `size_range`.
-6. **Hover em tokens de input:** não guarde hover em estado da view (o re-render reseta o tracking e o hover morre). Use `.tooltip(...)` no elemento do chip.
-7. **Paleta (`Command`):** a lista ocupa `max_h` inteiro; a altura é calculada por `matched_count` (`palette::list_height`) e a view só re-renderiza quando a contagem muda (observer com guarda — notify incondicional = loop).
-8. **Template chips:** `vars::content` ao carregar e `chip_templates!` em cada `InputEvent::Change`; o texto salvo continua literal (`{{ BASE }}`). `EditorState` (código) recusa tokens: lá o badge é `RangeDecoration` + `TextDecoration` (`code_vars.rs`); dentro de string JSON a cor da sintaxe vence a do nome.
-9. **Teclas de popup sobre `Input`:** o `Input` consome ↑↓↵⇥esc. Para vencer, binding com contexto `"VarComplete > Input"` (mesma profundidade, registrado depois) e `key_context("VarComplete")` no ancestral só enquanto o popup está aberto. ⌘space é do Spotlight — nunca chega ao app.
-10. **Células single-line:** `InputState` remove quebras de linha; `draft::cell_value` devolve o valor salvo se a célula não foi tocada (evita corromper valor multi-linha).
+1. **`cx` borrow:** `let theme = cx.theme()` borrows `cx`; copy the colors (`Hsla` is `Copy`) before any `cx.listener`/`&mut cx`, or build mutable children before taking `theme`.
+2. **I/O off the UI:** YAML via `cx.background_spawn`; network via `Backend::save_and_send` (its own tokio runtime). The tokio task never captures the `Backend` (dropping the runtime inside it panics) — only `Arc<ApiBackend>`.
+3. **Focus:** with no focused element no keybinding fires. After switching workspace/closing a tab, call `focus_active`.
+4. **⌘↵ in inputs:** `Input` consumes `secondary-enter`; there's an extra `cmd-enter` binding with context `"Input"` registered later (it wins). Keep it.
+5. **Resizable:** never `.visible(false)` on an `h_resizable` panel — a hidden panel keeps a stale size and the border "jumps" on drag. Omit the panel and use a group id per combination (`main-{sidebar}-{vars}`). Sized panels: `.flex_none()` + `size_range`.
+6. **Hover on input tokens:** don't keep hover in view state (re-render resets tracking and hover dies). Use `.tooltip(...)` on the chip element.
+7. **Palette (`Command`):** the list takes the whole `max_h`; height is computed from `matched_count` (`palette::list_height`) and the view only re-renders when the count changes (guarded observer — unconditional notify = loop).
+8. **Template chips:** `vars::content` on load and `chip_templates!` on every `InputEvent::Change`; saved text stays literal (`{{ BASE }}`). `EditorState` (code) rejects tokens: there the badge is `RangeDecoration` + `TextDecoration` (`code_vars.rs`); inside a JSON string the syntax color beats the name color.
+9. **Popup keys over `Input`:** `Input` consumes ↑↓↵⇥esc. To win, bind with context `"VarComplete > Input"` (same depth, registered later) and `key_context("VarComplete")` on the ancestor only while the popup is open. ⌘space belongs to Spotlight — it never reaches the app.
+10. **Single-line cells:** `InputState` strips line breaks; `draft::cell_value` returns the saved value if the cell wasn't touched (avoids corrupting multi-line values).
 
-## Fluxo de entrega
+## Delivery flow
 
-1. Ler a área + skill relevante. 2. Implementar no menor diff. 3. `cargo build -p yuki`, `clippy`, testes. 4. **Rodar o app** e verificar a superfície alterada (skill `yuki-visual-smoke`) — compilar não é prova. 5. Limpar fixtures/scripts temporários.
+1. Read the area + relevant skill. 2. Implement with the smallest diff. 3. `cargo build -p yuki`, `clippy`, tests. 4. **Run the app** and check the changed surface (skill `yuki-visual-smoke`) — compiling is not proof. 5. Clean up temporary fixtures/scripts.
 
-Commits: Conventional Commits, mensagens em português, sem co-autoria de IA. Nunca commitar/pushar sem pedido.
+Commits: Conventional Commits, in English, no AI co-authorship. Never commit/push without being asked.

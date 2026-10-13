@@ -35,6 +35,10 @@ cargo build --release -p yuki
 
 Tudo fica em `~/Library/Application Support/dev.yuki` (troque com `YUKI_DATA_DIR`) como YAML legível: uma pasta por workspace, cada uma um repositório git próprio. Workspaces do Voleeo podem ser importados (copiados, nunca linkados) pela paleta de comandos.
 
+## Contribuindo
+
+Issues e pull requests são bem-vindos: veja o [CONTRIBUTING.md](CONTRIBUTING.md) (em inglês). Problemas de segurança vão pelo [SECURITY.md](SECURITY.md), nunca numa issue pública.
+
 ## Licença
 
 MIT — veja [LICENSE](LICENSE) e [NOTICE](NOTICE). Os crates do motor (`crates/yuki-*`) derivam do Voleeo. O código é totalmente aberto; o uso comercial dos binários oficiais segue os [termos](docs/legal/TERMS.pt-BR.md).

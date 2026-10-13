@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use subtle::ConstantTimeEq;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
-use tokio::sync::RwLock;
+use tokio::sync::{watch, RwLock};
 
 /// Per-line cap on the bridge socket: a newline-less line would otherwise buffer
 /// unbounded. Requests (tokens, JSON-RPC) are tiny; 16 MiB is a generous ceiling.
@@ -47,18 +47,22 @@ pub const WINDOWS_PIPE_NAME: &str = r"\\.\pipe\dev.yuki.mcp";
 /// The server runs even when MCP is disabled — `enabled` is checked per-request
 /// so connected clients receive a clear error instead of a connection-refused
 /// that would cause infinite retry loops in the bridge.
+///
+/// `clients` counts authenticated connections. It is dropped when the server
+/// stops (e.g. the socket couldn't bind), so a receiver sees `changed()` fail.
 pub async fn run(
     socket_path: std::path::PathBuf,
     backend: Arc<ApiBackend>,
     token: Arc<RwLock<Option<String>>>,
     enabled: Arc<RwLock<bool>>,
+    clients: watch::Sender<usize>,
 ) {
     #[cfg(unix)]
-    run_unix(socket_path, backend, token, enabled).await;
+    run_unix(socket_path, backend, token, enabled, clients).await;
     #[cfg(windows)]
     {
         let _ = socket_path; // Windows addresses the pipe by name, not a path.
-        run_windows(backend, token, enabled).await;
+        run_windows(backend, token, enabled, clients).await;
     }
 }
 
@@ -68,6 +72,7 @@ async fn run_unix(
     backend: Arc<ApiBackend>,
     token: Arc<RwLock<Option<String>>>,
     enabled: Arc<RwLock<bool>>,
+    clients: watch::Sender<usize>,
 ) {
     use tokio::net::UnixListener;
 
@@ -96,8 +101,9 @@ async fn run_unix(
                 let backend = backend.clone();
                 let token = token.clone();
                 let enabled = enabled.clone();
+                let clients = clients.clone();
                 tokio::spawn(async move {
-                    handle_connection(stream, backend, token, enabled).await;
+                    handle_connection(stream, backend, token, enabled, clients).await;
                 });
             }
             Err(e) => eprintln!("[mcp] accept error: {e}"),
@@ -110,6 +116,7 @@ async fn run_windows(
     backend: Arc<ApiBackend>,
     token: Arc<RwLock<Option<String>>>,
     enabled: Arc<RwLock<bool>>,
+    clients: watch::Sender<usize>,
 ) {
     use tokio::net::windows::named_pipe::ServerOptions;
 
@@ -144,8 +151,9 @@ async fn run_windows(
         let backend = backend.clone();
         let token = token.clone();
         let enabled = enabled.clone();
+        let clients = clients.clone();
         tokio::spawn(async move {
-            handle_connection(connected, backend, token, enabled).await;
+            handle_connection(connected, backend, token, enabled, clients).await;
         });
     }
 }
@@ -155,6 +163,7 @@ async fn handle_connection<S>(
     backend: Arc<ApiBackend>,
     token: Arc<RwLock<Option<String>>>,
     enabled: Arc<RwLock<bool>>,
+    clients: watch::Sender<usize>,
 ) where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
@@ -190,6 +199,7 @@ async fn handle_connection<S>(
         return;
     }
     let _ = writer.write_all(b"OK\n").await;
+    clients.send_modify(|n| *n += 1);
 
     // ── JSON-RPC message loop ──────────────────────────────────────────────
     // Each request is dispatched on its own task so a slow tool call (e.g. a 30s
@@ -233,6 +243,7 @@ async fn handle_connection<S>(
             }
         });
     }
+    clients.send_modify(|n| *n -= 1);
 
     // Drop our sender so the writer task ends once in-flight dispatches finish.
     drop(tx);

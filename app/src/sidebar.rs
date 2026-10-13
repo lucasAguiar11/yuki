@@ -2,7 +2,8 @@ use gpui_kit::component::{
     h_flex,
     input::Input,
     menu::{ContextMenuExt as _, PopupMenu, PopupMenuItem},
-    v_flex, ActiveTheme as _, IconName, Sizable as _,
+    tooltip::Tooltip,
+    v_flex, ActiveTheme as _, Icon, IconName, Sizable as _,
 };
 use gpui_kit::{prelude::FluentBuilder as _, *};
 
@@ -159,46 +160,72 @@ pub fn render(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
         .size_full()
         .bg(theme.sidebar)
         .child(
-            // Workspace switcher: the obvious place to look for "which project am I in".
             h_flex()
-                .id("ws-switcher")
-                .h(px(32.))
                 .mx_1p5()
                 .mt_1()
-                .px_1p5()
-                .gap_1p5()
-                .rounded(theme.radius)
-                .cursor_pointer()
-                .hover(|s| s.bg(theme.list_hover))
+                .gap_0p5()
                 .child(
-                    div()
+                    // Workspace switcher: the obvious place to look for "which project am I in".
+                    h_flex()
+                        .id("ws-switcher")
                         .flex_1()
-                        .truncate()
-                        .text_sm()
-                        .font_weight(FontWeight::MEDIUM)
+                        .min_w_0()
+                        .h(px(32.))
+                        .px_1p5()
+                        .gap_1p5()
+                        .rounded(theme.radius)
+                        .cursor_pointer()
+                        .hover(|s| s.bg(theme.list_hover))
                         .child(
-                            yuki.ws
-                                .as_ref()
-                                .map_or("workspace".into(), |w| w.name.clone()),
-                        ),
+                            div()
+                                .flex_1()
+                                .truncate()
+                                .text_sm()
+                                .font_weight(FontWeight::MEDIUM)
+                                .child(
+                                    yuki.ws
+                                        .as_ref()
+                                        .map_or("workspace".into(), |w| w.name.clone()),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(theme.muted_foreground)
+                                .child(count.to_string()),
+                        )
+                        .child(
+                            div()
+                                .text_color(theme.muted_foreground)
+                                .child(IconName::ChevronsUpDown),
+                        )
+                        .on_click(|_, window, cx| {
+                            window.dispatch_action(Box::new(OpenWorkspaces), cx)
+                        }),
                 )
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(theme.muted_foreground)
-                        .child(count.to_string()),
-                )
-                .child(
-                    div()
-                        .text_color(theme.muted_foreground)
-                        .child(IconName::ChevronsUpDown),
-                )
-                .on_click(|_, window, cx| window.dispatch_action(Box::new(OpenWorkspaces), cx)),
+                .when(active_id.is_some(), |s| {
+                    s.child(
+                        div()
+                            .id("locate-request")
+                            .p_1()
+                            .rounded(theme.radius)
+                            .cursor_pointer()
+                            .text_color(theme.muted_foreground)
+                            .hover(|s| s.text_color(theme.foreground).bg(theme.list_hover))
+                            .child(Icon::new(assets::IconName::LocateFixed))
+                            .tooltip(|window, cx| {
+                                Tooltip::new(t!("locate current request").into_owned())
+                                    .build(window, cx)
+                            })
+                            .on_click(cx.listener(|this, _, _, cx| this.reveal_active(cx))),
+                    )
+                }),
         )
         .child(
             v_flex()
                 .id("tree")
                 .flex_1()
+                .track_scroll(&yuki.tree_scroll)
                 .overflow_y_scroll()
                 .children(rows.collect::<Vec<_>>())
                 // Free space below the rows: drop here = move to the root;
@@ -231,6 +258,34 @@ pub fn render(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
                     .child(t!("no workspace — use :commands → Import")),
             )
         })
+}
+
+impl Yuki {
+    /// Target button: open the active request's folders and scroll its row in.
+    fn reveal_active(&mut self, cx: &mut Context<Self>) {
+        let Some(tab) = self.tabs.get(self.active) else {
+            return;
+        };
+        let saved = &tab.read(cx).saved;
+        let (id, mut folder) = (saved.id.clone(), saved.folder_id.clone());
+        if let Some(d) = &self.data {
+            // Bounded by the folder count so a parent cycle can't hang the UI.
+            for _ in 0..d.folders.len() {
+                let Some(f) = folder.take() else { break };
+                folder = d
+                    .folders
+                    .iter()
+                    .find(|x| x.id == f)
+                    .and_then(|x| x.folder_id.clone());
+                self.collapsed.remove(&f);
+            }
+        }
+        self.refresh_rows();
+        if let Some(ix) = self.rows.iter().position(|r| r.id.as_ref() == id) {
+            self.tree_scroll.scroll_to_item(ix);
+        }
+        cx.notify();
+    }
 }
 
 /// Right-click menu of a row (`id`) or of the empty area below the rows (`None`).

@@ -98,6 +98,7 @@ Details and patterns in the `yuki-gpui` skill. Summary of what cost the most:
 9. **Popup keys over `Input`:** `Input` consumes ↑↓↵⇥esc. To win, bind with context `"VarComplete > Input"` (same depth, registered later) and `key_context("VarComplete")` on the ancestor only while the popup is open. ⌘space belongs to Spotlight — it never reaches the app.
 10. **Single-line cells:** `InputState` strips line breaks; `draft::cell_value` returns the saved value if the cell wasn't touched (avoids corrupting multi-line values).
 11. **Theme-driven prefs:** mutate `Theme::global_mut(cx)` then `cx.refresh_windows()` (`prefs.rs`). Root sets the rem size from `theme.font_size` every frame, so text scales but `px(..)` row heights don't — the UI font is capped at 16. `mono_font_size` drives code editors and table cells.
+12. **Icons:** `component::IconName` covers only gpui-kit's default bundle. Any other Lucide icon (`assets::IconName::X` via `Icon::new`) renders **blank, no error**, until it's added to `icon_assets!(ExtraIcons, [...])` in `main.rs`. Never `AllAssets` (embeds the 7 MB catalog).
 
 ## Delivery flow
 

@@ -100,6 +100,7 @@
 "its variable will be deleted from disk.": "a variável dele será apagada do disco."
 "language": "idioma"
 "loading…": "carregando…"
+"locate current request": "localizar o request atual"
 "markdown notes: what it's for, quirks, example values…": "notas em markdown: pra que serve, pegadinhas, valores de exemplo…"
 "merge done · %{id}": "merge concluído · %{id}"
 "mine": "meu"

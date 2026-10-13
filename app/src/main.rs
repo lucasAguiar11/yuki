@@ -163,6 +163,27 @@ fn register_graphql() {
     }
 }
 
+gpui_kit::assets::icon_assets!(ExtraIcons, [LocateFixed]);
+
+/// The kit's default icon bundle plus the few catalog icons Yuki uses beyond
+/// it (`AllAssets` would embed the whole 7 MB catalog).
+struct Assets;
+
+impl AssetSource for Assets {
+    fn load(&self, path: &str) -> Result<Option<std::borrow::Cow<'static, [u8]>>> {
+        match ExtraIcons.load(path)? {
+            Some(svg) => Ok(Some(svg)),
+            None => gpui_kit::assets::Assets.load(path),
+        }
+    }
+
+    fn list(&self, path: &str) -> Result<Vec<SharedString>> {
+        let mut all = gpui_kit::assets::Assets.list(path)?;
+        all.extend(ExtraIcons.list(path)?);
+        Ok(all)
+    }
+}
+
 fn main() {
     let backend = match backend::Backend::open() {
         Ok(b) => b,
@@ -174,24 +195,22 @@ fn main() {
             std::process::exit(1);
         }
     };
-    gpui_kit::application()
-        .with_assets(gpui_kit::assets::Assets)
-        .run(move |cx| {
-            gpui_kit::init(cx);
-            apply_theme(cx);
-            prefs::Prefs::init(cx);
-            bind_keys(cx);
-            register_graphql();
-            let options = WindowOptions {
-                window_bounds: Some(WindowBounds::centered(size(px(1280.), px(800.)), cx)),
-                ..TitleBar::window_options()
-            };
-            gpui_kit::open_window(options, cx, |window, cx| {
-                cx.new(|cx| workspace::Yuki::new(backend, window, cx))
-            })
-            .expect("failed to open window");
-            cx.activate(true);
-        });
+    gpui_kit::application().with_assets(Assets).run(move |cx| {
+        gpui_kit::init(cx);
+        apply_theme(cx);
+        prefs::Prefs::init(cx);
+        bind_keys(cx);
+        register_graphql();
+        let options = WindowOptions {
+            window_bounds: Some(WindowBounds::centered(size(px(1280.), px(800.)), cx)),
+            ..TitleBar::window_options()
+        };
+        gpui_kit::open_window(options, cx, |window, cx| {
+            cx.new(|cx| workspace::Yuki::new(backend, window, cx))
+        })
+        .expect("failed to open window");
+        cx.activate(true);
+    });
 }
 
 #[cfg(test)]

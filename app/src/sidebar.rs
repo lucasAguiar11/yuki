@@ -253,7 +253,7 @@ fn menu(
     if folder {
         m = m.separator();
     }
-    let (a, b, c, d) = (id.clone(), id.clone(), id.clone(), id);
+    let (a, b, c, d, e) = (id.clone(), id.clone(), id.clone(), id.clone(), id);
     m.item(item(this, "rename", move |y, w, cx| {
         y.start_rename(a.clone(), w, cx)
     }))
@@ -263,6 +263,11 @@ fn menu(
     .item(item(this, "move to…", move |y, w, cx| {
         y.open_palette(Kind::Move(c.clone()), w, cx)
     }))
+    .when(!folder, |m| {
+        m.item(item(this, "copy as cURL", move |y, _, cx| {
+            y.copy_as_curl(e.clone(), cx)
+        }))
+    })
     .separator()
     .item(item(this, "delete", move |y, w, cx| {
         y.confirm_delete(d.clone(), w, cx)

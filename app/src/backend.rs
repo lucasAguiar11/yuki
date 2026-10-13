@@ -107,6 +107,19 @@ impl Backend {
             .map_err(|e| e.to_string())?
     }
 
+    /// `req` (draft) resolved as `save_and_send` would put it on the wire.
+    pub async fn resolve(
+        &self,
+        req: HttpRequest,
+        env_id: Option<String>,
+    ) -> Result<HttpRequest, String> {
+        let api = self.api.clone();
+        self.rt
+            .spawn(async move { api.resolve_http(req, env_id).await })
+            .await
+            .map_err(|e| e.to_string())?
+    }
+
     pub fn cancel(&self, req_id: &str) {
         self.api.executor.cancel(req_id);
     }

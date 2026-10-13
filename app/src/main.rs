@@ -12,6 +12,7 @@ mod body;
 mod chrome;
 mod code_vars;
 mod complete;
+mod curl;
 mod document;
 mod draft;
 mod editor;
@@ -81,6 +82,7 @@ actions!(
         DuplicateItem,
         MoveItem,
         DeleteItem,
+        CopyAsCurl,
         CancelRename
     ]
 );
@@ -112,6 +114,7 @@ fn bind_keys(cx: &mut App) {
         KeyBinding::new("escape", CloseSettings, Some("SettingsScreen")),
         KeyBinding::new("cmd-s", Save, None),
         KeyBinding::new("cmd-enter", Send, None),
+        KeyBinding::new("cmd-shift-c", CopyAsCurl, None),
         // Inputs bind cmd-enter themselves (newline + PressEnter); same-context
         // bindings registered later win, so this makes ⌘↵ send from any field.
         KeyBinding::new("cmd-enter", Send, Some("Input")),

@@ -1,0 +1,168 @@
+//! MCP: the engine's tool server listens on `mcp.sock` in the data dir while the
+//! app runs; `yuki mcp` is the stdio bridge an MCP client launches; agent edits
+//! to the open workspace refresh the tree and the env list.
+
+use std::{fs, io, path::PathBuf, sync::Arc};
+
+use gpui_kit::*;
+use tokio::sync::{mpsc, watch, RwLock};
+use yuki_mcp::api::NotifyFn;
+
+use crate::{backend, backend::Backend, workspace::Yuki};
+
+fn socket() -> PathBuf {
+    backend::data_dir().join("mcp.sock")
+}
+
+fn token_path() -> PathBuf {
+    backend::data_dir().join("mcp-token")
+}
+
+/// Made on first launch and read by the bridge, so client configs carry no
+/// secret. Owner-only, like the socket.
+fn token() -> io::Result<String> {
+    if let Ok(t) = fs::read_to_string(token_path()) {
+        if !t.trim().is_empty() {
+            return Ok(t.trim().to_owned());
+        }
+    }
+    let token: String = yuki_crypto::generate_key()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    #[cfg(unix)]
+    {
+        use std::{io::Write as _, os::unix::fs::OpenOptionsExt as _};
+        fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(token_path())?
+            .write_all(token.as_bytes())?;
+    }
+    #[cfg(not(unix))]
+    fs::write(token_path(), &token)?;
+    Ok(token)
+}
+
+/// What the window listens to: agent edits and how many agents are connected.
+pub struct Link {
+    pub edits: mpsc::UnboundedReceiver<String>,
+    pub clients: watch::Receiver<usize>,
+}
+
+/// The returned receiver's `changed()` fails once the server is down.
+pub fn start(backend: &Backend) -> watch::Receiver<usize> {
+    let (clients, rx) = watch::channel(0);
+    let token = match token() {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("[mcp] no token at {}: {e}", token_path().display());
+            return rx;
+        }
+    };
+    backend.rt.spawn(yuki_mcp::server::run(
+        socket(),
+        backend.api.clone(),
+        Arc::new(RwLock::new(Some(token))),
+        Arc::new(RwLock::new(true)),
+        clients,
+    ));
+    rx
+}
+
+/// `yuki mcp`: pipe stdio to the running app.
+#[cfg(unix)]
+pub fn bridge() -> io::Result<()> {
+    let token = fs::read_to_string(token_path()).map_err(|e| {
+        let path = token_path();
+        io::Error::new(
+            e.kind(),
+            format!("{}: {e} — open Yuki once", path.display()),
+        )
+    })?;
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let result = rt.block_on(yuki_mcp::bridge::run(&socket(), token.trim()));
+    // The stdin reader sits on a blocking thread; don't wait for it.
+    rt.shutdown_background();
+    result
+}
+
+/// The engine's notify hook, narrowed to "an agent changed this workspace's
+/// requests, folders or envs" (only MCP tools fire these).
+pub fn changes() -> (NotifyFn, mpsc::UnboundedReceiver<String>) {
+    let (tx, rx) = mpsc::unbounded_channel();
+    let notify: NotifyFn = Arc::new(move |event, payload| {
+        if matches!(event, "mcp:requests:changed" | "mcp:envs:changed") {
+            if let Some(ws) = payload["workspaceId"].as_str() {
+                let _ = tx.send(ws.to_owned());
+            }
+        }
+    });
+    (notify, rx)
+}
+
+impl Yuki {
+    pub(crate) fn watch_mcp(&self, link: Link, window: &mut Window, cx: &mut Context<Self>) {
+        let Link { edits, mut clients } = link;
+        cx.spawn(async move |this, cx| loop {
+            let up = clients.changed().await.is_ok();
+            let n = up.then(|| *clients.borrow_and_update());
+            let alive = this.update(cx, |this, cx| {
+                this.mcp = n;
+                cx.notify();
+            });
+            if !up || alive.is_err() {
+                break;
+            }
+        })
+        .detach();
+        self.watch_agent_edits(edits, window, cx);
+    }
+
+    /// Open tabs keep their own copy; only the tree, envs and count reload.
+    fn watch_agent_edits(
+        &self,
+        mut changes: mpsc::UnboundedReceiver<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        cx.spawn_in(window, async move |this, cx| {
+            while let Some(ws_id) = changes.recv().await {
+                let backend = match this.update(cx, |this, _| {
+                    let open = this.ws.as_ref().is_some_and(|w| w.id == ws_id);
+                    open.then(|| this.backend.clone())
+                }) {
+                    Ok(Some(b)) => b,
+                    Ok(None) => continue,
+                    Err(_) => break,
+                };
+                let load = cx
+                    .background_executor()
+                    .spawn(async move { backend.load(&ws_id).map(|d| (ws_id, d)) });
+                let Ok((ws_id, data)) = load.await else {
+                    continue;
+                };
+                let alive = this.update_in(cx, |this, window, cx| {
+                    if !this.ws.as_ref().is_some_and(|w| w.id == ws_id) {
+                        return;
+                    }
+                    this.set_envs(&data.environments, None, window, cx);
+                    this.status = t!("%{n} requests", n = data.requests.len())
+                        .into_owned()
+                        .into();
+                    this.data = Some(data);
+                    this.refresh_rows();
+                    cx.notify();
+                });
+                if alive.is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+}

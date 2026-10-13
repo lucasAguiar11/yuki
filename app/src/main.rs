@@ -23,6 +23,7 @@ mod git;
 mod git_ops;
 mod git_panel;
 mod items;
+mod mcp;
 mod moving;
 mod notes;
 mod oauth;
@@ -209,7 +210,17 @@ fn set_dock_icon() {
 }
 
 fn main() {
-    let backend = match backend::Backend::open() {
+    // `yuki mcp`: the stdio bridge an MCP client launches; no window.
+    #[cfg(unix)]
+    if std::env::args().nth(1).as_deref() == Some("mcp") {
+        if let Err(e) = mcp::bridge() {
+            eprintln!("yuki mcp: {e}");
+            std::process::exit(1);
+        }
+        return;
+    }
+    let (notify, agent_edits) = mcp::changes();
+    let backend = match backend::Backend::open(notify) {
         Ok(b) => b,
         Err(e) => {
             eprintln!(
@@ -218,6 +229,10 @@ fn main() {
             );
             std::process::exit(1);
         }
+    };
+    let mcp = mcp::Link {
+        edits: agent_edits,
+        clients: mcp::start(&backend),
     };
     gpui_kit::application().with_assets(Assets).run(move |cx| {
         gpui_kit::init(cx);
@@ -232,7 +247,7 @@ fn main() {
             ..TitleBar::window_options()
         };
         gpui_kit::open_window(options, cx, |window, cx| {
-            cx.new(|cx| workspace::Yuki::new(backend, window, cx))
+            cx.new(|cx| workspace::Yuki::new(backend, mcp, window, cx))
         })
         .expect("failed to open window");
         cx.activate(true);

@@ -145,6 +145,22 @@ pub fn status_line(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
             .child(chip)
             .on_click(|_, window, cx| window.dispatch_action(Box::new(ToggleGit), cx))
     });
+    // `● mcp 1` — server up (green) or down (red), agents connected.
+    let (dot, tip) = match yuki.mcp {
+        Some(0) => (theme.green, t!("MCP ready · no agent connected")),
+        Some(n) => (theme.green, t!("MCP · agents connected: %{n}", n = n)),
+        None => (theme.red, t!("MCP is off — the socket didn't open")),
+    };
+    let tip = SharedString::from(tip.into_owned());
+    let mcp = h_flex()
+        .id("mcp-chip")
+        .gap_1()
+        .child(div().text_color(dot).child("●"))
+        .child(match yuki.mcp {
+            Some(n) if n > 0 => format!("mcp {n}"),
+            _ => "mcp".into(),
+        })
+        .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx));
     h_flex()
         .h(px(24.))
         .px_3()
@@ -175,6 +191,7 @@ pub fn status_line(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
         .child(div().flex_1())
         .child(yuki.status.clone())
         .children(git)
+        .child(mcp)
 }
 
 /// Empty center: the logo and the workspaces, one click to switch.

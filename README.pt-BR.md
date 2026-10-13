@@ -37,6 +37,16 @@ cargo build --release -p yuki
 
 Tudo fica em `~/Library/Application Support/dev.yuki` (troque com `YUKI_DATA_DIR`) como YAML legível: uma pasta por workspace, cada uma um repositório git próprio. Workspaces do Voleeo podem ser importados (copiados, nunca linkados) pela paleta de comandos.
 
+## MCP
+
+Com o Yuki aberto, agentes de IA podem listar, criar, editar e enviar seus requests por MCP. Aponte o cliente para o binário `yuki` com o argumento `mcp` — ele liga o stdio ao app aberto (sem token para copiar):
+
+```json
+{ "mcpServers": { "yuki": { "command": "/path/to/target/release/yuki", "args": ["mcp"] } } }
+```
+
+`● mcp` na barra de status fica verde com o servidor no ar (com o número de agentes conectados) e vermelho se ele não subiu. Edições do agente aparecem na barra lateral na hora; um request já aberto numa aba mantém o que tinha até você reabri-lo.
+
 ## Contribuindo
 
 Issues e pull requests são bem-vindos: veja o [CONTRIBUTING.md](CONTRIBUTING.md) (em inglês). Problemas de segurança vão pelo [SECURITY.md](SECURITY.md), nunca numa issue pública.

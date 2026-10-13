@@ -8,7 +8,10 @@ use yuki_core::{
     ApiFolder, Environment, EnvironmentKind, EnvironmentVariable, HttpRequest, HttpResponse,
     Workspace, YukiError,
 };
-use yuki_mcp::{api::ApiBackend, resolve};
+use yuki_mcp::{
+    api::{ApiBackend, NotifyFn},
+    resolve,
+};
 use yuki_storage::StoredHttpResponseSummary;
 
 use crate::secrets;
@@ -39,7 +42,7 @@ fn platform_data_dir() -> PathBuf {
 }
 
 impl Backend {
-    pub fn open() -> Result<Arc<Self>, YukiError> {
+    pub fn open(notify: NotifyFn) -> Result<Arc<Self>, YukiError> {
         let dir = data_dir();
         fs::create_dir_all(&dir).map_err(|e| YukiError::Storage(e.to_string()))?;
         let rt = tokio::runtime::Builder::new_multi_thread()
@@ -49,7 +52,7 @@ impl Backend {
         // ApiBackend::open builds the reqwest client, which wants a runtime context.
         let api = {
             let _guard = rt.enter();
-            ApiBackend::open(dir, Arc::new(|_, _| {}))?
+            ApiBackend::open(dir, notify)?
         };
         Ok(Arc::new(Self {
             api: Arc::new(api),

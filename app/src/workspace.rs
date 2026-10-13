@@ -50,11 +50,18 @@ pub struct Yuki {
     /// Sidebar row being renamed inline.
     pub renaming: Option<Rename>,
     pub status: SharedString,
+    /// Agents connected over MCP; `None` once the server is down.
+    pub mcp: Option<usize>,
     _subs: Vec<Subscription>,
 }
 
 impl Yuki {
-    pub fn new(backend: Arc<Backend>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        backend: Arc<Backend>,
+        mcp: crate::mcp::Link,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let mut this = Self {
             backend,
             focus: cx.focus_handle(),
@@ -79,11 +86,13 @@ impl Yuki {
             palette: None,
             renaming: None,
             status: "".into(),
+            mcp: Some(0),
             _subs: vec![],
         };
         this.focus.focus(window, cx);
         this.init_git_inputs(window, cx);
         this.reload_workspaces(window, cx);
+        this.watch_mcp(mcp, window, cx);
         let weak = cx.entity().downgrade();
         window.on_window_should_close(cx, move |_, cx| {
             if let Some(this) = weak.upgrade() {

@@ -83,6 +83,14 @@ impl Backend {
         save(&self.api, req)
     }
 
+    pub fn notes(&self, ws_id: &str, req_id: &str) -> Result<String, YukiError> {
+        self.api.requests.get_notes(ws_id, req_id)
+    }
+
+    pub fn save_notes(&self, ws_id: &str, req_id: &str, notes: &str) -> Result<(), YukiError> {
+        self.api.requests.save_notes(ws_id, req_id, notes)
+    }
+
     /// Save, then send through the shared engine pipeline (env/folder vars,
     /// auth, cookie jar, history).
     pub async fn save_and_send(

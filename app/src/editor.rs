@@ -38,6 +38,7 @@ pub enum ReqTab {
     Headers,
     Body,
     Auth,
+    Notes,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -62,6 +63,10 @@ pub struct RequestEditor {
     pub headers: Table,
     pub body: BodyInputs,
     pub auth: AuthForm,
+    /// Markdown notes (`req_{id}.md`); `notes_saved` is what's on disk.
+    pub notes: Entity<EditorState>,
+    pub notes_saved: String,
+    pub notes_preview: bool,
     pub req_tab: ReqTab,
     pub editor_open: bool,
     pub sending: bool,
@@ -124,6 +129,11 @@ impl RequestEditor {
         );
         let (body, body_subs) = BodyInputs::new(req.body.as_ref(), window, cx);
         let (auth, auth_sub) = AuthForm::new(&req.auth, window, cx);
+        let notes = cx.new(|cx| {
+            EditorState::new(window, cx)
+                .language("markdown")
+                .placeholder(t!("markdown notes: what it's for, quirks, example values…"))
+        });
         let response_body = cx.new(|cx| EditorState::new(window, cx).language("json"));
 
         let mut _subs = vec![
@@ -144,6 +154,7 @@ impl RequestEditor {
         ];
         _subs.extend(body_subs);
         _subs.push(auth_sub);
+        _subs.push(cx.subscribe_in(&notes, window, Self::on_input));
         let has_body = req.body.as_ref().is_some_and(|b| b.kind != BodyKind::None);
         let mut this = Self {
             backend,
@@ -152,6 +163,9 @@ impl RequestEditor {
             method,
             url,
             auth,
+            notes,
+            notes_saved: String::new(),
+            notes_preview: false,
             headers,
             body,
             req_tab: if has_body {
@@ -177,6 +191,7 @@ impl RequestEditor {
         };
         this.refresh_history(true, window, cx);
         this.load_vars(window, cx);
+        this.load_notes(window, cx);
         this
     }
 
@@ -217,7 +232,7 @@ impl RequestEditor {
     }
 
     pub(crate) fn refresh_dirty(&mut self, cx: &mut Context<Self>) {
-        let dirty = self.draft(cx) != self.saved;
+        let dirty = self.draft(cx) != self.saved || self.notes_text(cx) != self.notes_saved;
         if dirty != self.dirty {
             self.dirty = dirty;
             cx.emit(EditorChanged);
@@ -250,17 +265,21 @@ impl RequestEditor {
         }
         self.saving = true;
         let req = self.draft(cx);
+        let notes = self.notes_text(cx);
         let backend = self.backend.clone();
         let task = cx.background_spawn({
-            let req = req.clone();
-            async move { backend.save(&req) }
+            let (req, notes) = (req.clone(), notes.clone());
+            async move {
+                backend.save(&req)?;
+                backend.save_notes(&req.workspace_id, &req.id, &notes)
+            }
         });
         cx.spawn(async move |this, cx| {
             let result = task.await;
             this.update(cx, |this, cx| {
                 this.saving = false;
                 match result {
-                    Ok(()) => this.mark_saved(req, cx),
+                    Ok(()) => this.mark_saved(req, notes, cx),
                     Err(e) => {
                         this.response =
                             Some(Err(t!("failed to save: %{error}", error = e).into_owned()))
@@ -271,8 +290,9 @@ impl RequestEditor {
         .detach();
     }
 
-    fn mark_saved(&mut self, req: HttpRequest, cx: &mut Context<Self>) {
+    fn mark_saved(&mut self, req: HttpRequest, notes: String, cx: &mut Context<Self>) {
         self.saved = req;
+        self.notes_saved = notes;
         self.refresh_dirty(cx);
         cx.emit(EditorChanged);
     }
@@ -305,7 +325,8 @@ impl RequestEditor {
             let result = backend.save_and_send(req.clone(), env_id).await;
             this.update_in(cx, |this, window, cx| {
                 this.sending = false;
-                this.mark_saved(req, cx);
+                let notes = this.notes_saved.clone();
+                this.mark_saved(req, notes, cx);
                 let resp_id = result.as_ref().map(|r| r.response_id.clone()).ok();
                 this.sent = None;
                 this.show_response(result, window, cx);

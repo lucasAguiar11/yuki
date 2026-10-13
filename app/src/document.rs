@@ -164,6 +164,7 @@ impl RequestEditor {
             ReqTab::Auth,
             cx,
         );
+        let notes = segment("meta-notes", self.notes_label(cx).into(), ReqTab::Notes, cx);
         let vars_segment = self.render_vars_segment(cx);
         let theme = cx.theme();
         let dot = || div().text_color(theme.muted_foreground).child("·");
@@ -181,6 +182,8 @@ impl RequestEditor {
             .child(body)
             .child(dot())
             .child(auth)
+            .child(dot())
+            .child(notes)
             .child(dot())
             .child(vars_segment)
             .child(div().flex_1())
@@ -203,6 +206,7 @@ impl RequestEditor {
             ReqTab::Headers => self.render_table(Which::Headers, false, cx),
             ReqTab::Body => self.render_body(cx),
             ReqTab::Auth => self.render_auth(cx),
+            ReqTab::Notes => self.render_notes(cx),
         };
         div()
             .size_full()

@@ -24,6 +24,7 @@ mod git_ops;
 mod git_panel;
 mod items;
 mod moving;
+mod notes;
 mod oauth;
 mod palette;
 mod prefs;

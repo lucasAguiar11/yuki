@@ -122,9 +122,88 @@ pub fn hosts_rows(text: &str, prev: &[DnsOverride]) -> Vec<DnsOverride> {
         .collect()
 }
 
+/// Re-indents JSON (2 spaces) token by token instead of parsing it, so key
+/// order, number spelling and unquoted `{{ VAR }}` survive; only whitespace
+/// outside strings changes. `None` when brackets or strings don't balance.
+pub fn pretty_json(text: &str) -> Option<String> {
+    fn newline(out: &mut String, depth: usize) {
+        out.push('\n');
+        out.push_str(&"  ".repeat(depth));
+    }
+    let mut out = String::with_capacity(text.len() * 2);
+    let mut open: Vec<char> = vec![];
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '"' => {
+                out.push(c);
+                loop {
+                    let c = chars.next()?;
+                    out.push(c);
+                    match c {
+                        '\\' => out.push(chars.next()?),
+                        '"' => break,
+                        _ => {}
+                    }
+                }
+            }
+            // `{{` can't open an object (keys are strings): it's a template.
+            '{' if chars.peek() == Some(&'{') => {
+                out.push(c);
+                loop {
+                    let c = chars.next()?;
+                    out.push(c);
+                    if c == '}' && chars.next_if_eq(&'}').is_some() {
+                        out.push('}');
+                        break;
+                    }
+                }
+            }
+            '{' | '[' => {
+                let close = if c == '{' { '}' } else { ']' };
+                out.push(c);
+                while chars.next_if(|c| c.is_whitespace()).is_some() {}
+                if chars.next_if_eq(&close).is_some() {
+                    out.push(close);
+                } else {
+                    open.push(close);
+                    newline(&mut out, open.len());
+                }
+            }
+            '}' | ']' => {
+                if open.pop()? != c {
+                    return None;
+                }
+                newline(&mut out, open.len());
+                out.push(c);
+            }
+            ',' => {
+                out.push(c);
+                newline(&mut out, open.len());
+            }
+            ':' => out.push_str(": "),
+            c if c.is_whitespace() => {}
+            c => out.push(c),
+        }
+    }
+    open.is_empty().then_some(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pretty_json_keeps_content_and_templates() {
+        let src = r#"{"b":1.50,"a":[ ],"t":{{ ID }},"s":"x, {y}: \"z\"","o":{"n":[1,{}]}}"#;
+        let want = "{\n  \"b\": 1.50,\n  \"a\": [],\n  \"t\": {{ ID }},\n  \"s\": \"x, {y}: \\\"z\\\"\",\n  \"o\": {\n    \"n\": [\n      1,\n      {}\n    ]\n  }\n}";
+        assert_eq!(pretty_json(src).as_deref(), Some(want));
+        // Already formatted: no-op.
+        assert_eq!(pretty_json(want).as_deref(), Some(want));
+        for bad in [r#"{"a":1"#, r#"{"a":"1}"#, r#"{"a":[1}"#, "]"] {
+            assert_eq!(pretty_json(bad), None, "{bad}");
+        }
+    }
 
     #[test]
     fn untouched_multiline_cell_keeps_stored_value() {

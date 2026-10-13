@@ -226,6 +226,14 @@ impl RequestEditor {
                 .child(label)
                 .on_click(cx.listener(|this, _, window, cx| this.pick_files(window, cx)))
         });
+        let format = (kind == BodyKind::Json).then(|| {
+            div()
+                .id("body-format")
+                .cursor_pointer()
+                .hover(|s| s.text_color(cx.theme().foreground))
+                .child(t!("format"))
+                .on_click(cx.listener(|this, _, window, cx| this.format_body(window, cx)))
+        });
         let theme = cx.theme();
         v_flex()
             .size_full()
@@ -240,10 +248,24 @@ impl RequestEditor {
                             .w(px(150.))
                             .child(Select::new(&b.kind).appearance(false).xsmall()),
                     )
-                    .children(pick),
+                    .children(pick)
+                    .children(format),
             )
             .child(div().flex_1().min_h_0().child(content))
             .into_any_element()
+    }
+
+    /// Re-indents the JSON body as one undoable edit (⌘Z restores it); left
+    /// as typed when it doesn't balance.
+    fn format_body(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.body.text.update(cx, |s, cx| {
+            let value = s.value();
+            let Some(pretty) = draft::pretty_json(&value).filter(|p| *p != value) else {
+                return;
+            };
+            s.set_selected_range(0..value.len(), cx);
+            s.replace(pretty, window, cx);
+        });
     }
 
     /// Binary takes one file as its path; multipart adds one `file` row each.

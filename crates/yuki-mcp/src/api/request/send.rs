@@ -1,12 +1,13 @@
 use super::super::{redact, ApiBackend};
 use crate::{protocol::ToolResult, resolve};
 use serde_json::Value;
+use std::collections::HashMap;
 use std::path::Path;
 use yuki_core::{
-    AuthConfig, BodyField, BodyKind, EnvironmentKind, HttpResponse, RequestBody, RequestParameter,
-    StoredCookie, YukiError,
+    AuthConfig, BodyField, BodyKind, Environment, EnvironmentKind, HttpRequest, HttpResponse,
+    RequestBody, RequestParameter, StoredCookie, YukiError,
 };
-use yuki_storage::{CookieJarStore, SelectionStore, WorkspaceStore};
+use yuki_storage::{CookieJarStore, RequestStore, SelectionStore, WorkspaceStore};
 
 /// Resolve + decrypt the active cookie jar for a workspace, off-runtime.
 /// Mirrors Tauri's `load_active_jar_for_send` so MCP sends (and pair replays)
@@ -266,37 +267,13 @@ impl ApiBackend {
                 }
             }
 
-            // File-only key (the keychain can block 60s headless). Shared by
-            // folder-var and cookie decryption below.
-            let var_key = yuki_crypto::load_key_from_file(&ws_id2, &app_data_dir).ok();
-
-            // Folder vars layer over env vars (nearest folder wins).
-            let mut vars =
-                resolve::load_env_vars_from(&envs, &ws_id2, env_id2.as_deref(), &app_data_dir);
-            let folders = requests.list_folders(&ws_id2).unwrap_or_default();
-            resolve::apply_folder_vars(
-                &mut vars,
-                req.folder_id.as_deref(),
-                &folders,
-                var_key.as_ref(),
+            let (vars, var_key, stored_auth) = resolve_request(
+                &requests,
+                &envs,
+                &app_data_dir,
+                env_id2.as_deref(),
+                &mut req,
             );
-            // Auth secrets are stored as `enc:v1:` ciphertext; the store hands
-            // them back raw. Decrypt in place so static schemes inject plaintext
-            // and dynamic schemes (SigV4) sign with the real key.
-            if let Some(k) = var_key.as_ref() {
-                for (secret, encrypted) in req.auth.secret_fields_mut() {
-                    if encrypted && yuki_crypto::is_encrypted(secret) {
-                        if let Ok(plain) = yuki_crypto::decrypt(secret, k) {
-                            *secret = plain;
-                        }
-                    }
-                }
-            }
-            // Original (resolved, secrets-decrypted) auth, captured before
-            // `apply_to_request` folds static schemes into a header and clears
-            // `req.auth` — kept for the snapshot's AUTH tab (see below).
-            let stored_auth = req.auth.clone();
-            resolve::apply_to_request(&mut req, &vars);
 
             if let Some(url) = url_override {
                 req.url = url;
@@ -323,33 +300,7 @@ impl ApiBackend {
             Err(e) => return Err(format!("Internal error: {e}")),
         };
 
-        // OAuth 2.0 resolves to a Bearer from the shared token cache: the
-        // non-interactive grants fetch/refresh as needed; authorization_code
-        // reuses a token previously acquired via the UI (it can't open a browser
-        // here). `apply_to_request` already expanded its `{{ }}` fields. Always
-        // `Bearer` — non-Bearer types (MAC/DPoP) need real protocol support, not
-        // a scheme swap, so the cached `token_type` is inspector-only.
-        if matches!(req.auth, AuthConfig::OAuth2 { .. }) {
-            if req.auth.is_active() {
-                if let Some(config) = yuki_oauth::OAuth2Config::from_auth(&req.auth) {
-                    let encrypted = self
-                        .workspaces
-                        .get(&ws_id)
-                        .map(|w| w.encrypted)
-                        .unwrap_or(false);
-                    match yuki_oauth::ensure_token(&self.app_data_dir, &ws_id, encrypted, &config)
-                        .await
-                    {
-                        Ok(token) => req.headers.push(resolve::auth_header(
-                            "Authorization",
-                            format!("Bearer {token}"),
-                        )),
-                        Err(e) => return Err(format!("OAuth 2.0: {e}")),
-                    }
-                }
-            }
-            req.auth = AuthConfig::None;
-        }
+        self.apply_oauth2(&mut req).await?;
 
         // `req` is now fully resolved (literal URL/headers/body, no `{{ }}`) —
         // the authoritative "as sent" record. Cloned here, before the executor
@@ -450,5 +401,104 @@ impl ApiBackend {
             Err(e) => eprintln!("[send] history task panicked: {e}"),
         }
         Ok(resp)
+    }
+}
+
+/// The blocking half of resolution: env + folder vars, decrypted auth secrets,
+/// `{{ }}` applied (static auth folded into a header). Returns the vars and the
+/// workspace key (cookies reuse both) and the pre-fold auth.
+fn resolve_request(
+    requests: &RequestStore,
+    envs: &[Environment],
+    app_data_dir: &Path,
+    env_id: Option<&str>,
+    req: &mut HttpRequest,
+) -> (HashMap<String, String>, Option<[u8; 32]>, AuthConfig) {
+    let ws_id = req.workspace_id.clone();
+    // File-only key (the keychain can block 60s headless). Shared by
+    // folder-var and cookie decryption.
+    let var_key = yuki_crypto::load_key_from_file(&ws_id, app_data_dir).ok();
+
+    // Folder vars layer over env vars (nearest folder wins).
+    let mut vars = resolve::load_env_vars_from(envs, &ws_id, env_id, app_data_dir);
+    let folders = requests.list_folders(&ws_id).unwrap_or_default();
+    resolve::apply_folder_vars(
+        &mut vars,
+        req.folder_id.as_deref(),
+        &folders,
+        var_key.as_ref(),
+    );
+    // Auth secrets are stored as `enc:v1:` ciphertext; the store hands them
+    // back raw. Decrypt in place so static schemes inject plaintext and
+    // dynamic schemes (SigV4) sign with the real key.
+    if let Some(k) = var_key.as_ref() {
+        for (secret, encrypted) in req.auth.secret_fields_mut() {
+            if encrypted && yuki_crypto::is_encrypted(secret) {
+                if let Ok(plain) = yuki_crypto::decrypt(secret, k) {
+                    *secret = plain;
+                }
+            }
+        }
+    }
+    // Original (resolved, secrets-decrypted) auth, captured before
+    // `apply_to_request` folds static schemes into a header and clears
+    // `req.auth` — kept for the snapshot's AUTH tab.
+    let stored_auth = req.auth.clone();
+    resolve::apply_to_request(req, &vars);
+    (vars, var_key, stored_auth)
+}
+
+impl ApiBackend {
+    /// OAuth 2.0 resolves to a Bearer from the shared token cache: the
+    /// non-interactive grants fetch/refresh as needed; authorization_code
+    /// reuses a token previously acquired via the UI (it can't open a browser
+    /// here). `apply_to_request` already expanded its `{{ }}` fields. Always
+    /// `Bearer` — non-Bearer types (MAC/DPoP) need real protocol support, not
+    /// a scheme swap, so the cached `token_type` is inspector-only.
+    async fn apply_oauth2(&self, req: &mut HttpRequest) -> Result<(), String> {
+        if !matches!(req.auth, AuthConfig::OAuth2 { .. }) {
+            return Ok(());
+        }
+        if req.auth.is_active() {
+            if let Some(config) = yuki_oauth::OAuth2Config::from_auth(&req.auth) {
+                let ws_id = &req.workspace_id;
+                let encrypted = self
+                    .workspaces
+                    .get(ws_id)
+                    .map(|w| w.encrypted)
+                    .unwrap_or(false);
+                let token = yuki_oauth::ensure_token(&self.app_data_dir, ws_id, encrypted, &config)
+                    .await
+                    .map_err(|e| format!("OAuth 2.0: {e}"))?;
+                req.headers.push(resolve::auth_header(
+                    "Authorization",
+                    format!("Bearer {token}"),
+                ));
+            }
+        }
+        req.auth = AuthConfig::None;
+        Ok(())
+    }
+
+    /// `req` (a draft, need not be saved) as `send_http` would put it on the
+    /// wire, without sending: literal URL/headers/body. Dynamic auth (SigV4,
+    /// Digest…) stays on `req.auth` — only the executor can apply it. The
+    /// cookie jar isn't attached.
+    pub async fn resolve_http(
+        &self,
+        mut req: HttpRequest,
+        env_id: Option<String>,
+    ) -> Result<HttpRequest, String> {
+        let (requests, environments) = (self.requests.clone(), self.environments.clone());
+        let app_data_dir = self.app_data_dir.clone();
+        req = tokio::task::spawn_blocking(move || {
+            let envs = environments.list(&req.workspace_id).unwrap_or_default();
+            resolve_request(&requests, &envs, &app_data_dir, env_id.as_deref(), &mut req);
+            req
+        })
+        .await
+        .map_err(|e| format!("Internal error: {e}"))?;
+        self.apply_oauth2(&mut req).await?;
+        Ok(req)
     }
 }

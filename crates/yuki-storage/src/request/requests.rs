@@ -1,4 +1,5 @@
-//! Request CRUD: the `req_*.yaml` half of `RequestStore`.
+//! Request CRUD: the `req_*.yaml` half of `RequestStore`, plus each request's
+//! markdown notes in a sidecar `req_*.md`.
 
 use super::{save_request_if_changed, RequestStore};
 use chrono::Utc;
@@ -13,6 +14,37 @@ impl RequestStore {
             .workspaces_dir
             .join(workspace_id)
             .join(format!("req_{id}.yaml")))
+    }
+
+    /// Notes sit beside the YAML so editors and GitHub render them as markdown.
+    fn notes_path(&self, workspace_id: &str, id: &str) -> Result<PathBuf, YukiError> {
+        Ok(self.req_path(workspace_id, id)?.with_extension("md"))
+    }
+
+    /// The request's markdown notes; `""` when it has none.
+    pub fn get_notes(&self, workspace_id: &str, id: &str) -> Result<String, YukiError> {
+        match std::fs::read_to_string(self.notes_path(workspace_id, id)?) {
+            Ok(s) => Ok(s),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+            Err(e) => Err(YukiError::Storage(e.to_string())),
+        }
+    }
+
+    /// Writes only on change; blank notes remove the file (no empty files in git).
+    pub fn save_notes(&self, workspace_id: &str, id: &str, notes: &str) -> Result<(), YukiError> {
+        let path = self.notes_path(workspace_id, id)?;
+        if notes.trim().is_empty() {
+            return match std::fs::remove_file(&path) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                    Err(YukiError::Storage(e.to_string()))
+                }
+                _ => Ok(()),
+            };
+        }
+        if self.get_notes(workspace_id, id)? == notes {
+            return Ok(());
+        }
+        crate::write_atomic(path, notes)
     }
 
     pub fn get_request(&self, workspace_id: &str, id: &str) -> Result<HttpRequest, YukiError> {
@@ -124,6 +156,8 @@ impl RequestStore {
         };
         let content = serde_yaml::to_string(&req).map_err(|e| YukiError::Storage(e.to_string()))?;
         crate::write_atomic(self.req_path(&req.workspace_id, &id)?, content)?;
+        let notes = self.get_notes(&src.workspace_id, &src.id)?;
+        self.save_notes(&req.workspace_id, &id, &notes)?;
         Ok(req)
     }
 
@@ -189,6 +223,7 @@ impl RequestStore {
     }
 
     pub fn delete_request(&self, workspace_id: &str, id: &str) -> Result<(), YukiError> {
+        self.save_notes(workspace_id, id, "")?;
         let path = self.req_path(workspace_id, id)?;
         if path.exists() {
             std::fs::remove_file(path).map_err(|e| YukiError::Storage(e.to_string()))?;

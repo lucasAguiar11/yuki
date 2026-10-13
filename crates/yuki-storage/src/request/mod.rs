@@ -259,6 +259,58 @@ mod tests {
     }
 
     #[test]
+    fn notes_lifecycle_follows_the_request() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = store(&dir);
+        let folder = s.create_folder("ws1".into(), None, "F".into()).unwrap();
+        let req = mk_req(&s, "ws1");
+        s.update_request_position("ws1", &req.id, Some(folder.id.clone()), 1.0)
+            .unwrap();
+        let md = dir.path().join(format!("workspaces/ws1/req_{}.md", req.id));
+        let yaml = dir
+            .path()
+            .join(format!("workspaces/ws1/req_{}.yaml", req.id));
+        let yaml_before = std::fs::read_to_string(&yaml).unwrap();
+
+        assert_eq!(s.get_notes("ws1", &req.id).unwrap(), "");
+        s.save_notes("ws1", &req.id, "# Login\n\nneeds `TOKEN`\n")
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&md).unwrap(),
+            "# Login\n\nneeds `TOKEN`\n"
+        );
+        assert_eq!(std::fs::read_to_string(&yaml).unwrap(), yaml_before);
+        // The sidecar never shows up as a request.
+        assert_eq!(s.list_requests("ws1").unwrap().len(), 1);
+
+        let dup = s.duplicate_request("ws1", &req.id).unwrap();
+        assert_eq!(
+            s.get_notes("ws1", &dup.id).unwrap(),
+            "# Login\n\nneeds `TOKEN`\n"
+        );
+        let fcopy = s.duplicate_folder("ws1", &folder.id).unwrap();
+        let copied = s
+            .list_requests("ws1")
+            .unwrap()
+            .into_iter()
+            .find(|r| r.folder_id.as_deref() == Some(fcopy.id.as_str()))
+            .unwrap();
+        assert_eq!(
+            s.get_notes("ws1", &copied.id).unwrap(),
+            "# Login\n\nneeds `TOKEN`\n"
+        );
+
+        s.save_notes("ws1", &dup.id, "  \n").unwrap();
+        assert!(!dir
+            .path()
+            .join(format!("workspaces/ws1/req_{}.md", dup.id))
+            .exists());
+
+        s.delete_folder_cascade("ws1", &folder.id).unwrap();
+        assert!(!md.exists());
+    }
+
+    #[test]
     fn update_request_fields() {
         let dir = tempfile::tempdir().unwrap();
         let s = store(&dir);

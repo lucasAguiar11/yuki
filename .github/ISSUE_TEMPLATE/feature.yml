@@ -1,0 +1,14 @@
+name: Feature request
+description: Suggest something Yuki should do
+labels: [enhancement]
+body:
+  - type: textarea
+    attributes:
+      label: Problem
+      description: What are you trying to do, and what gets in the way today?
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Proposal
+      description: How you'd like it to work. Mention other API clients that do it well, if any.

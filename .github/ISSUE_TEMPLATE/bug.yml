@@ -1,0 +1,30 @@
+name: Bug report
+description: Something in Yuki doesn't work as it should
+labels: [bug]
+body:
+  - type: textarea
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you got. Screenshots help.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. open a request with a JSON body
+        2. press ⌘↵
+        3. …
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: Yuki commit
+      description: "`git rev-parse --short HEAD` in your checkout"
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: macOS version
+    validations:
+      required: true

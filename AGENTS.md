@@ -74,7 +74,7 @@ cargo test -p yuki -p yuki-mcp          # unit tests (app: draft, vars, locales)
 cargo clippy -p yuki && cargo fmt --all
 ```
 
-No packaged `.app` or CI yet.
+No packaged `.app` yet. CI (`.github/workflows/ci.yml`, macOS) runs fmt `--check`, clippy `--workspace --all-targets -D warnings` and `cargo test --workspace`.
 
 ## Code
 

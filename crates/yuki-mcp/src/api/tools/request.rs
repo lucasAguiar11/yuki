@@ -16,7 +16,7 @@ pub(super) fn request_tools() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "request.get".into(),
-            description: "Get a single request by ID.".into(),
+            description: "Get a single request by ID, including its markdown `notes` (\"\" when none).".into(),
             input_schema: obj_schema(
                 &[
                     ("workspaceId", "Workspace ID", str_schema()),
@@ -40,12 +40,13 @@ pub(super) fn request_tools() -> Vec<ToolDef> {
                     ("headers", "Request headers as an object map {\"Header-Name\":\"value\"} (or an array of {name,value,enabled?} for duplicate/disabled rows).", map_schema()),
                     ("queryParams", "Query params as an object map {\"key\":\"value\"} (or an array of {name,value,enabled?}).", map_schema()),
                     ("body", "Request body: {\"kind\":\"json|xml|text|html|none\",\"text\":\"…\"} for raw bodies, or {\"kind\":\"form_url_encoded\",\"fields\":{\"k\":\"v\"}} for forms. Use graphqlQuery (on request.update) for GraphQL; multipart/binary uploads aren't supported.", body_schema()),
+                    ("notes", "Markdown notes for the request (what it's for, quirks, example values). Shown in the app's notes tab.", str_schema()),
                 ],
             ),
         },
         ToolDef {
             name: "request.update".into(),
-            description: "Update an existing request's method, URL, name, headers, query params, body, or auth (any subset; omitted fields are left unchanged). Setting `graphqlQuery` turns it into a GraphQL request — a plain HTTP POST with a `{ query, variables }` JSON body; send it with request.send.".into(),
+            description: "Update an existing request's method, URL, name, headers, query params, body, auth, or markdown notes (any subset; omitted fields are left unchanged). Setting `graphqlQuery` turns it into a GraphQL request — a plain HTTP POST with a `{ query, variables }` JSON body; send it with request.send.".into(),
             input_schema: obj_schema(
                 &[
                     ("workspaceId", "Workspace ID", str_schema()),
@@ -55,6 +56,7 @@ pub(super) fn request_tools() -> Vec<ToolDef> {
                     ("method", "New HTTP method", str_schema()),
                     ("url", "New URL", str_schema()),
                     ("name", "New name", str_schema()),
+                    ("notes", "Replace the markdown notes; \"\" removes them. Omit to leave unchanged.", str_schema()),
                     ("headers", "Replace headers. Object map {\"Header-Name\":\"value\"} (or array of {name,value,enabled?}). Omit to leave unchanged.", map_schema()),
                     ("queryParams", "Replace query params. Object map {\"key\":\"value\"} (or array of {name,value,enabled?}). Omit to leave unchanged.", map_schema()),
                     ("body", "Replace the body: {\"kind\":\"json|xml|text|html|none\",\"text\":\"…\"} or {\"kind\":\"form_url_encoded\",\"fields\":{\"k\":\"v\"}}. Omit to leave unchanged.", body_schema()),

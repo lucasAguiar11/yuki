@@ -2,7 +2,15 @@ use super::super::{redact, ApiBackend};
 use super::send::{parse_body, parse_params};
 use crate::protocol::ToolResult;
 use serde_json::Value;
-use yuki_core::{AuthConfig, YukiError};
+use yuki_core::{AuthConfig, HttpRequest, YukiError};
+
+/// A request as the agent sees it: the YAML fields plus its markdown notes
+/// (`req_{id}.md`, `""` when none).
+fn with_notes(req: &HttpRequest, notes: String) -> Value {
+    let mut v = serde_json::to_value(req).unwrap_or_default();
+    v["notes"] = Value::String(notes);
+    v
+}
 
 impl ApiBackend {
     pub(in crate::api) async fn request_list(&self, args: &Value) -> ToolResult {
@@ -32,14 +40,19 @@ impl ApiBackend {
         let req_id = require!(args, "requestId");
         let reveal = redact::reveal(args);
         let requests = self.requests.clone();
-        super::super::run_blocking(move || match requests.get_request(&ws_id, &req_id) {
-            Ok(mut req) => {
-                if !reveal {
-                    redact::mask_auth(&mut req.auth);
+        super::super::run_blocking(move || {
+            let result = requests
+                .get_request(&ws_id, &req_id)
+                .and_then(|req| Ok((requests.get_notes(&ws_id, &req_id)?, req)));
+            match result {
+                Ok((notes, mut req)) => {
+                    if !reveal {
+                        redact::mask_auth(&mut req.auth);
+                    }
+                    ToolResult::json(&with_notes(&req, notes))
                 }
-                ToolResult::json(&req)
+                Err(e) => ToolResult::error(e.to_string()),
             }
-            Err(e) => ToolResult::error(e.to_string()),
         })
         .await
     }
@@ -50,6 +63,7 @@ impl ApiBackend {
         let method = require!(args, "method");
         let url = require!(args, "url");
         let folder_id = args["folderId"].as_str().map(str::to_string);
+        let notes = args["notes"].as_str().unwrap_or_default().to_string();
         let headers = parse_params(&args["headers"]);
         let query_params = parse_params(&args["queryParams"]);
         let body = match parse_body(&args["body"]) {
@@ -58,35 +72,35 @@ impl ApiBackend {
         };
         let requests = self.requests.clone();
         let ws = ws_id.clone();
-        let result =
-            super::super::blocking(move || -> Result<yuki_core::HttpRequest, YukiError> {
-                let mut req = requests.create_request(ws.clone(), folder_id, name, method, url)?;
-                // create_request only sets name/method/url; persist any extras in a
-                // follow-up update so an AI can author a full request in one call.
-                if !headers.is_empty() || !query_params.is_empty() || body.is_some() {
-                    if !headers.is_empty() {
-                        req.headers = headers;
-                    }
-                    if !query_params.is_empty() {
-                        req.parameters = query_params;
-                    }
-                    if body.is_some() {
-                        req.body = body;
-                    }
-                    requests.update_request(
-                        &ws,
-                        &req.id,
-                        req.method.clone(),
-                        req.url.clone(),
-                        req.parameters.clone(),
-                        req.headers.clone(),
-                        req.body.clone(),
-                        req.auth.clone(),
-                    )?;
+        let result = super::super::blocking(move || -> Result<Value, YukiError> {
+            let mut req = requests.create_request(ws.clone(), folder_id, name, method, url)?;
+            requests.save_notes(&ws, &req.id, &notes)?;
+            // create_request only sets name/method/url; persist any extras in a
+            // follow-up update so an AI can author a full request in one call.
+            if !headers.is_empty() || !query_params.is_empty() || body.is_some() {
+                if !headers.is_empty() {
+                    req.headers = headers;
                 }
-                Ok(req)
-            })
-            .await;
+                if !query_params.is_empty() {
+                    req.parameters = query_params;
+                }
+                if body.is_some() {
+                    req.body = body;
+                }
+                requests.update_request(
+                    &ws,
+                    &req.id,
+                    req.method.clone(),
+                    req.url.clone(),
+                    req.parameters.clone(),
+                    req.headers.clone(),
+                    req.body.clone(),
+                    req.auth.clone(),
+                )?;
+            }
+            Ok(with_notes(&req, notes))
+        })
+        .await;
         match result {
             Ok(req) => {
                 self.notify_requests(&ws_id);
@@ -114,6 +128,8 @@ impl ApiBackend {
         let name = args["name"].as_str().map(str::to_string);
         let method = args["method"].as_str().map(str::to_string);
         let url = args["url"].as_str().map(str::to_string);
+        // Absent = keep; `""` clears (removes the .md).
+        let notes = args["notes"].as_str().map(str::to_string);
         let graphql_query = args["graphqlQuery"].as_str().map(str::to_string);
         let graphql_vars = args["graphqlVariables"].as_str().map(str::to_string);
         // None = arg absent (preserve existing); Some(..) replaces wholesale.
@@ -129,76 +145,78 @@ impl ApiBackend {
         let workspaces = self.workspaces.clone();
         let app_data_dir = self.app_data_dir.clone();
         let ws = ws_id.clone();
-        let result =
-            super::super::blocking(move || -> Result<yuki_core::HttpRequest, YukiError> {
-                let mut req = requests.get_request(&ws, &req_id)?;
-                // Rename is separate: the filename stays `req_{id}.yaml`.
-                if let Some(n) = name {
-                    requests.rename_request(&ws, &req_id, n.clone())?;
-                    req.name = n;
+        let result = super::super::blocking(move || -> Result<Value, YukiError> {
+            let mut req = requests.get_request(&ws, &req_id)?;
+            // Rename is separate: the filename stays `req_{id}.yaml`.
+            if let Some(n) = name {
+                requests.rename_request(&ws, &req_id, n.clone())?;
+                req.name = n;
+            }
+            if let Some(m) = method {
+                req.method = m;
+            }
+            if let Some(u) = url {
+                req.url = u;
+            }
+            if let Some(q) = graphql_query {
+                req.body = Some(yuki_core::RequestBody {
+                    kind: yuki_core::BodyKind::Graphql,
+                    text: q,
+                    graphql_variables: graphql_vars,
+                    ..Default::default()
+                });
+                if req.method.eq_ignore_ascii_case("GET") {
+                    req.method = "POST".to_string();
                 }
-                if let Some(m) = method {
-                    req.method = m;
+            } else if let (Some(v), Some(body)) = (graphql_vars, req.body.as_mut()) {
+                if matches!(body.kind, yuki_core::BodyKind::Graphql) {
+                    body.graphql_variables = Some(v);
                 }
-                if let Some(u) = url {
-                    req.url = u;
-                }
-                if let Some(q) = graphql_query {
-                    req.body = Some(yuki_core::RequestBody {
-                        kind: yuki_core::BodyKind::Graphql,
-                        text: q,
-                        graphql_variables: graphql_vars,
-                        ..Default::default()
-                    });
-                    if req.method.eq_ignore_ascii_case("GET") {
-                        req.method = "POST".to_string();
-                    }
-                } else if let (Some(v), Some(body)) = (graphql_vars, req.body.as_mut()) {
-                    if matches!(body.kind, yuki_core::BodyKind::Graphql) {
-                        body.graphql_variables = Some(v);
-                    }
-                }
-                if let Some(h) = headers {
-                    req.headers = h;
-                }
-                if let Some(p) = query_params {
-                    req.parameters = p;
-                }
-                if let Some(b) = body {
-                    req.body = Some(b);
-                }
-                if let Some(mut auth) = new_auth {
-                    // A masked read (request.get without reveal) echoed back here must
-                    // not overwrite the stored secret with the placeholder.
-                    redact::restore_masked(&mut auth, &mut req.auth);
+            }
+            if let Some(h) = headers {
+                req.headers = h;
+            }
+            if let Some(p) = query_params {
+                req.parameters = p;
+            }
+            if let Some(b) = body {
+                req.body = Some(b);
+            }
+            if let Some(mut auth) = new_auth {
+                // A masked read (request.get without reveal) echoed back here must
+                // not overwrite the stored secret with the placeholder.
+                redact::restore_masked(&mut auth, &mut req.auth);
 
-                    let ws_encrypted = workspaces.get(&ws).map(|w| w.encrypted).unwrap_or(false);
-                    if ws_encrypted {
-                        auth.mark_secrets_encrypted();
-                        if auth.secret_fields_mut().iter().any(|(_, enc)| *enc) {
-                            let key = yuki_crypto::load_key(&ws, &app_data_dir)?;
-                            for (secret, enc) in auth.secret_fields_mut() {
-                                if enc && !yuki_crypto::is_encrypted(secret) {
-                                    *secret = yuki_crypto::encrypt(secret, &key)?;
-                                }
+                let ws_encrypted = workspaces.get(&ws).map(|w| w.encrypted).unwrap_or(false);
+                if ws_encrypted {
+                    auth.mark_secrets_encrypted();
+                    if auth.secret_fields_mut().iter().any(|(_, enc)| *enc) {
+                        let key = yuki_crypto::load_key(&ws, &app_data_dir)?;
+                        for (secret, enc) in auth.secret_fields_mut() {
+                            if enc && !yuki_crypto::is_encrypted(secret) {
+                                *secret = yuki_crypto::encrypt(secret, &key)?;
                             }
                         }
                     }
-                    req.auth = auth;
                 }
-                requests.update_request(
-                    &ws,
-                    &req_id,
-                    req.method.clone(),
-                    req.url.clone(),
-                    req.parameters.clone(),
-                    req.headers.clone(),
-                    req.body.clone(),
-                    req.auth.clone(),
-                )?;
-                Ok(req)
-            })
-            .await;
+                req.auth = auth;
+            }
+            requests.update_request(
+                &ws,
+                &req_id,
+                req.method.clone(),
+                req.url.clone(),
+                req.parameters.clone(),
+                req.headers.clone(),
+                req.body.clone(),
+                req.auth.clone(),
+            )?;
+            if let Some(n) = &notes {
+                requests.save_notes(&ws, &req_id, n)?;
+            }
+            Ok(with_notes(&req, requests.get_notes(&ws, &req_id)?))
+        })
+        .await;
 
         match result {
             Ok(req) => {

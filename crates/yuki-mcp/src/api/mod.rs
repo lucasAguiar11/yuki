@@ -584,6 +584,73 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn request_notes_round_trip() {
+        let dir = tempfile::tempdir().unwrap();
+        let b = make_backend(&dir);
+        let ws_id = ws(&b).await;
+        let call = |tool: &'static str, a: Vec<(&'static str, Value)>| {
+            let b = &b;
+            async move {
+                let r = b.call_tool(tool, args(&a)).await;
+                assert!(r.is_error.is_none(), "{}", r.content[0].text);
+                serde_json::from_str::<Value>(&r.content[0].text).unwrap()
+            }
+        };
+        let created = call(
+            "request.create",
+            vec![
+                ("workspaceId", Value::String(ws_id.clone())),
+                ("name", Value::String("Login".into())),
+                ("method", Value::String("POST".into())),
+                ("url", Value::String("https://api.example.com/login".into())),
+                ("notes", Value::String("# Login\nneeds `TOKEN`\n".into())),
+            ],
+        )
+        .await;
+        let id = created["id"].as_str().unwrap().to_string();
+        let get = || {
+            call(
+                "request.get",
+                vec![
+                    ("workspaceId", Value::String(ws_id.clone())),
+                    ("requestId", Value::String(id.clone())),
+                ],
+            )
+        };
+        assert_eq!(get().await["notes"], "# Login\nneeds `TOKEN`\n");
+
+        // An update without `notes` keeps them.
+        call(
+            "request.update",
+            vec![
+                ("workspaceId", Value::String(ws_id.clone())),
+                ("requestId", Value::String(id.clone())),
+                (
+                    "url",
+                    Value::String("https://api.example.com/v2/login".into()),
+                ),
+            ],
+        )
+        .await;
+        assert_eq!(get().await["notes"], "# Login\nneeds `TOKEN`\n");
+
+        let cleared = call(
+            "request.update",
+            vec![
+                ("workspaceId", Value::String(ws_id.clone())),
+                ("requestId", Value::String(id.clone())),
+                ("notes", Value::String(String::new())),
+            ],
+        )
+        .await;
+        assert_eq!(cleared["notes"], "");
+        assert!(!dir
+            .path()
+            .join(format!("workspaces/{ws_id}/req_{id}.md"))
+            .exists());
+    }
+
+    #[tokio::test]
     async fn request_duplicate_creates_copy() {
         let dir = tempfile::tempdir().unwrap();
         let b = make_backend(&dir);

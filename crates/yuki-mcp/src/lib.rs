@@ -1,4 +1,6 @@
 pub mod api;
+#[cfg(unix)]
+pub mod bridge;
 pub mod protocol;
 pub mod resolve;
 pub mod server;

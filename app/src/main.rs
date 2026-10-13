@@ -171,8 +171,13 @@ struct Assets;
 
 impl AssetSource for Assets {
     fn load(&self, path: &str) -> Result<Option<std::borrow::Cow<'static, [u8]>>> {
-        if path == "logo.svg" {
-            return Ok(Some(include_bytes!("../assets/logo.svg").as_slice().into()));
+        let own: &'static [u8] = match path {
+            "logo.svg" => include_bytes!("../assets/logo.svg"),
+            "sleep.svg" => include_bytes!("../assets/sleep.svg"),
+            _ => &[],
+        };
+        if !own.is_empty() {
+            return Ok(Some(own.into()));
         }
         match ExtraIcons.load(path)? {
             Some(svg) => Ok(Some(svg)),

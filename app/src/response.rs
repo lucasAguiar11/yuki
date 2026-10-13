@@ -287,6 +287,10 @@ fn empty(editor: &RequestEditor, cx: &App) -> AnyElement {
         .justify_center()
         .gap_1()
         .text_sm()
+        // Intrinsic size 48 in sleep.svg: gpui rasterizes SVGs at ×2 of it.
+        .when(!editor.sending, |s| {
+            s.child(img("sleep.svg").size(px(48.)).mb_2())
+        })
         .child(div().text_color(theme.foreground).child(title))
         .child(
             div()

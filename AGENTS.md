@@ -20,7 +20,7 @@ Pre-release: no migration shims for internal formats. **Exception:** on-disk dat
 ```
 app/              `yuki` binary (GPUI) — the only layer that knows gpui
   themes/yuki-console.json   palette + syntax (single source of color)
-  assets/logo.svg  logo (README, welcome; intrinsic 72 = render size) · icon.png dock icon (1024, Apple grid)
+  assets/        logo.svg (README, welcome) · sleep.svg (empty response) · icon.png dock (1024, Apple grid); SVG intrinsic size = render size
   locales/pt-BR.yml          translations (English source text → pt-BR)
   src/main.rs     i18n!, actions!, keybindings, theme, window
   src/workspace.rs  root view `Yuki`: workspaces, tabs, panels, palettes, actions

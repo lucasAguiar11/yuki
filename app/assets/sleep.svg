@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="76 36 400 400">
+  <!-- Yuki asleep: the response panel's empty state. Same shapes and theme tokens as logo.svg. -->
+  <defs>
+    <mask id="fur" maskUnits="userSpaceOnUse">
+      <path d="M140 86 C130 150 116 206 118 258 C120 338 184 400 256 404 C328 400 392 338 394 258 C396 206 382 150 372 86 C344 110 320 134 302 154 Q256 142 210 154 C192 134 168 110 140 86 Z" fill="#fff"/>
+      <path d="M40 40 L236 40 C236 130 230 200 222 240 C214 282 190 300 160 312 C130 322 90 322 40 316 Z M472 40 L276 40 C278 130 284 200 292 236 C300 266 322 282 352 284 C380 286 420 280 472 272 Z" fill="#000"/>
+    </mask>
+  </defs>
+  <rect x="76" y="36" width="400" height="400" fill="#2a2c32" mask="url(#fur)"/>
+  <path d="M140 86 C130 150 116 206 118 258 C120 338 184 400 256 404 C328 400 392 338 394 258 C396 206 382 150 372 86 C344 110 320 134 302 154 Q256 142 210 154 C192 134 168 110 140 86 Z" fill="none" stroke="#9a9ea6" stroke-width="24" stroke-linejoin="round"/>
+  <g fill="none" stroke="#9a9ea6" stroke-width="16" stroke-linecap="round">
+    <path d="M172 264 Q194 282 216 264"/>
+    <path d="M296 264 Q318 282 340 264"/>
+  </g>
+  <path d="M246 312 L266 312 L256 324 Z" fill="#f08a8a" stroke="#f08a8a" stroke-width="12" stroke-linejoin="round"/>
+  <path d="M404 68 H436 L404 104 H436" fill="none" stroke="#9a9ea6" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

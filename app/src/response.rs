@@ -276,7 +276,10 @@ fn empty(editor: &RequestEditor, cx: &App) -> AnyElement {
             t!("⌘↵ cancels"),
         )
     } else {
-        (t!("no response yet").into_owned(), t!("⌘↵ sends the request"))
+        (
+            t!("no response yet").into_owned(),
+            t!("⌘↵ sends the request"),
+        )
     };
     v_flex()
         .size_full()

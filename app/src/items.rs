@@ -143,7 +143,8 @@ impl Yuki {
         }
         let op: Op = Box::new(move |s, ws| {
             Ok(Some(if folder {
-                s.create_folder(ws.into(), parent, t!("new folder").into_owned())?.id
+                s.create_folder(ws.into(), parent, t!("new folder").into_owned())?
+                    .id
             } else {
                 s.create_request(
                     ws.into(),
@@ -195,7 +196,9 @@ impl Yuki {
                 .filter(|r| tree::within(&data.folders, r.folder_id.as_deref(), &id))
                 .count();
             match n {
-                0 => t!("the empty folder will be deleted from disk.").to_string().into(),
+                0 => t!("the empty folder will be deleted from disk.")
+                    .to_string()
+                    .into(),
                 1 => t!("the folder and the request inside it will be deleted from disk.")
                     .to_string()
                     .into(),
@@ -207,7 +210,9 @@ impl Yuki {
                 .into(),
             }
         } else {
-            t!("the request and its file will be deleted from disk.").to_string().into()
+            t!("the request and its file will be deleted from disk.")
+                .to_string()
+                .into()
         };
         let title: SharedString = t!("delete “%{name}”?", name = name).to_string().into();
         let this = cx.entity().downgrade();

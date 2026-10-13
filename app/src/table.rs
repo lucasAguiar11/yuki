@@ -337,7 +337,9 @@ impl RequestEditor {
                                 this.update_row(which, &id, window, cx, |r, window, cx| {
                                     r.field.is_file = !r.field.is_file;
                                     let p = value_placeholder(r.field.is_file);
-                                    r.value.update(cx, |s, cx| s.set_placeholder(t!(p).to_string(), window, cx));
+                                    r.value.update(cx, |s, cx| {
+                                        s.set_placeholder(t!(p).to_string(), window, cx)
+                                    });
                                 })
                             }
                         }))

@@ -142,11 +142,7 @@ pub const SCHEMES: &[Scheme] = &[
                     "plain_text",
                 ]),
             ),
-            f(
-                "params_location",
-                "params in",
-                Choice(&["header", "query"]),
-            ),
+            f("params_location", "params in", Choice(&["header", "query"])),
             f("realm", "realm", Text),
         ],
     },

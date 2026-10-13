@@ -203,7 +203,11 @@ fn composer(yuki: &Yuki, view: &GitView, cx: &mut Context<Yuki>) -> impl IntoEle
         }
     }
     let first = view.log.is_empty();
-    let label = if first { t!("initial commit") } else { "commit".into() };
+    let label = if first {
+        t!("initial commit")
+    } else {
+        "commit".into()
+    };
     let blocked = yuki.git.busy.is_some() || !view.conflicts.is_empty();
     v_flex().child(section(summary.join(" · "), cx)).child(
         v_flex()
@@ -264,10 +268,15 @@ fn branches(yuki: &Yuki, view: &GitView, cx: &mut Context<Yuki>) -> impl IntoEle
         .child(section("branches".into(), cx))
         .children(rows.collect::<Vec<_>>())
         .when(unborn, |s| {
-            s.child(div().px_3().text_color(ui::faint(cx)).child(t!(
-                "%{branch} · created on the first commit",
-                branch = view.info.branch.as_deref().unwrap_or("main")
-            ).into_owned()))
+            s.child(
+                div().px_3().text_color(ui::faint(cx)).child(
+                    t!(
+                        "%{branch} · created on the first commit",
+                        branch = view.info.branch.as_deref().unwrap_or("main")
+                    )
+                    .into_owned(),
+                ),
+            )
         })
         .when(!unborn, |s| {
             s.child(
@@ -315,7 +324,10 @@ fn changes(yuki: &Yuki, view: &GitView, cx: &mut Context<Yuki>) -> impl IntoElem
         .collect::<Vec<_>>();
     v_flex()
         .when(!rows.is_empty(), |s| {
-            s.child(section(t!("changes %{n}", n = view.changes.len()).into_owned(), cx))
+            s.child(section(
+                t!("changes %{n}", n = view.changes.len()).into_owned(),
+                cx,
+            ))
         })
         .children(rows)
 }
@@ -384,7 +396,10 @@ fn conflicts(yuki: &Yuki, view: &GitView, cx: &mut Context<Yuki>) -> impl IntoEl
             )))
     });
     v_flex()
-        .child(section(t!("conflicts %{n}", n = view.conflicts.len()).into_owned(), cx))
+        .child(section(
+            t!("conflicts %{n}", n = view.conflicts.len()).into_owned(),
+            cx,
+        ))
         .children(rows.collect::<Vec<_>>())
 }
 

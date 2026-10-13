@@ -228,7 +228,11 @@ impl EnvScreen {
                     d.cursor_pointer()
                         .text_color(if row.secret { yellow } else { faint })
                         .hover(move |s| s.text_color(fg))
-                        .child(if row.secret { t!("● yes") } else { t!("○ no") })
+                        .child(if row.secret {
+                            t!("● yes")
+                        } else {
+                            t!("○ no")
+                        })
                         .on_click(cx.listener(move |this, _, window, cx| {
                             this.toggle_secret(ix, window, cx)
                         }))
@@ -321,7 +325,9 @@ impl EnvScreen {
         let n = env.variables.len();
         let detail: SharedString = match n {
             0 => t!("the environment is empty.").into_owned().into(),
-            1 => t!("its variable will be deleted from disk.").into_owned().into(),
+            1 => t!("its variable will be deleted from disk.")
+                .into_owned()
+                .into(),
             n => t!("its %{n} variables will be deleted from disk.", n = n)
                 .into_owned()
                 .into(),

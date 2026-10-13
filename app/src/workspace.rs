@@ -12,11 +12,11 @@ use crate::{
     chrome,
     editor::{EditorChanged, RequestEditor},
     env_screen::EnvScreen,
-    settings::SettingsScreen,
     git::Git,
     git_panel,
     palette::{Kind, Palette},
     rename::Rename,
+    settings::SettingsScreen,
     sidebar, tabs, tree, vars_panel, *,
 };
 
@@ -132,7 +132,9 @@ impl Yuki {
                         screen.update(cx, |s, cx| s.flush(cx));
                     }
                     this.set_envs(&data.environments, None, window, cx);
-                    this.status = t!("%{n} requests", n = data.requests.len()).into_owned().into();
+                    this.status = t!("%{n} requests", n = data.requests.len())
+                        .into_owned()
+                        .into();
                     this.data = Some(data);
                     this.ws = Some(ws);
                     this.git.view = None;
@@ -144,7 +146,9 @@ impl Yuki {
                     cx.notify();
                 }
                 Err(e) => {
-                    this.status = t!("Failed to open workspace: %{error}", error = e).into_owned().into()
+                    this.status = t!("Failed to open workspace: %{error}", error = e)
+                        .into_owned()
+                        .into()
                 }
             })
         })
@@ -255,8 +259,12 @@ impl Yuki {
             let result = task.await;
             this.update_in(cx, |this, window, cx| {
                 this.status = match result {
-                    Ok(n) => t!("%{n} workspace(s) imported from Voleeo", n = n).into_owned().into(),
-                    Err(e) => t!("Voleeo import failed: %{error}", error = e).into_owned().into(),
+                    Ok(n) => t!("%{n} workspace(s) imported from Voleeo", n = n)
+                        .into_owned()
+                        .into(),
+                    Err(e) => t!("Voleeo import failed: %{error}", error = e)
+                        .into_owned()
+                        .into(),
                 };
                 this.reload_workspaces(window, cx);
             })

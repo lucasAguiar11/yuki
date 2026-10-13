@@ -135,7 +135,9 @@ fn card(expr: &str, kind: Kind, var: Option<&Var>, cx: &App) -> impl IntoElement
     };
     let mut lines = v_flex().gap_1();
     match (kind, var) {
-        (Kind::Function, _) => lines = lines.child(muted(t!("evaluated at send time").into_owned())),
+        (Kind::Function, _) => {
+            lines = lines.child(muted(t!("evaluated at send time").into_owned()))
+        }
         (_, Some(v)) => {
             let shown = if v.secret {
                 MASK.to_string()
@@ -147,18 +149,16 @@ fn card(expr: &str, kind: Kind, var: Option<&Var>, cx: &App) -> impl IntoElement
                 lines = lines.child(muted(format!("= {}", v.raw)));
             }
         }
-        (_, None) => {
-            lines = lines
-                .child(
-                    div()
-                        .text_color(theme.red)
-                        .child(t!("no value in the current environment")),
-                )
-                .child(muted(
-                    t!("define it in the environment, in global or in a folder · ⌘⇧E lists everything")
-                        .into_owned(),
-                ))
-        }
+        (_, None) => lines = lines
+            .child(
+                div()
+                    .text_color(theme.red)
+                    .child(t!("no value in the current environment")),
+            )
+            .child(muted(
+                t!("define it in the environment, in global or in a folder · ⌘⇧E lists everything")
+                    .into_owned(),
+            )),
     }
     v_flex()
         .max_w(px(360.))

@@ -35,7 +35,7 @@ cargo build --release -p yuki
 
 ## Data
 
-Everything lives in `~/Library/Application Support/dev.yuki` (override with `YUKI_DATA_DIR`) as plain YAML: one folder per workspace, each its own git repository. Voleeo workspaces can be imported (copied, never linked) from the command palette.
+Everything lives in `~/Library/Application Support/dev.yuki` (override with `YUKI_DATA_DIR`) as plain YAML: one folder per workspace, each its own git repository. A workspace can also live in a folder of yours (a repo, a project folder): ⌘O → **+ open folder…** creates a new workspace in an empty folder or opens the one already there (a clone, say); Yuki only keeps a link to it. Settings → workspace shows where it lives and **move…** takes it, `.git` included, to another empty folder. Voleeo workspaces can be imported (copied, never linked) from the command palette.
 
 ## MCP
 

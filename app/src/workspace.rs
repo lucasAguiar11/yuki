@@ -420,6 +420,7 @@ impl Render for Yuki {
             .on_action(
                 cx.listener(|this, _: &ImportVoleeo, window, cx| this.import_voleeo(window, cx)),
             )
+            .on_action(cx.listener(|this, _: &OpenFolder, window, cx| this.open_folder(window, cx)))
             .on_action(
                 cx.listener(|this, _: &CloseTab, window, cx| {
                     this.close_tab(this.active, window, cx)

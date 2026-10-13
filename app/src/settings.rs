@@ -3,7 +3,7 @@
 //! updates). Workspace edits go to disk 400 ms after typing stops; appearance
 //! applies and saves on click.
 
-use std::{sync::Arc, time::Duration};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
 use gpui_kit::*;
@@ -30,10 +30,12 @@ pub enum Section {
 pub struct WorkspaceSaved(pub Workspace);
 
 pub struct SettingsScreen {
-    backend: Arc<Backend>,
+    pub(crate) backend: Arc<Backend>,
     /// As last written.
-    ws: Workspace,
+    pub(crate) ws: Workspace,
     allow: Vec<String>,
+    /// Where the workspace's files (and its git repo) live, links resolved.
+    pub folder: PathBuf,
     pub section: Section,
     pub name: Entity<InputState>,
     pub dns: Entity<TextareaState>,
@@ -84,6 +86,7 @@ impl SettingsScreen {
         backend: Arc<Backend>,
         ws: Workspace,
         allow: Vec<String>,
+        folder: PathBuf,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -108,6 +111,7 @@ impl SettingsScreen {
             backend,
             ws,
             allow,
+            folder,
             section: Section::Workspace,
             name,
             dns,
@@ -237,16 +241,16 @@ impl Yuki {
         let task = cx.background_spawn(async move {
             let ws = backend.api.workspaces.get(&id)?;
             let allow = resolve::system_env_allowlist(&id, &backend.api.app_data_dir);
-            Ok::<_, YukiError>((ws, allow))
+            Ok::<_, YukiError>((ws, allow, backend.ws_dir(&id)))
         });
         cx.spawn_in(window, async move |this, cx| {
             let loaded = task.await;
             _ = this.update_in(cx, |this, window, cx| {
                 match loaded {
-                    Ok((ws, allow)) => {
+                    Ok((ws, allow, folder)) => {
                         let backend = this.backend.clone();
                         let screen = cx.new(|cx| {
-                            let mut s = SettingsScreen::new(backend, ws, allow, window, cx);
+                            let mut s = SettingsScreen::new(backend, ws, allow, folder, window, cx);
                             s.section = section;
                             s
                         });

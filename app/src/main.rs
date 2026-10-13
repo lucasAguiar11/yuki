@@ -46,6 +46,7 @@ mod var_view;
 mod vars;
 mod vars_panel;
 mod workspace;
+mod ws_folder;
 
 use std::rc::Rc;
 
@@ -90,7 +91,8 @@ actions!(
         CancelRename,
         OpenAbout,
         CheckUpdates,
-        InstallUpdate
+        InstallUpdate,
+        OpenFolder
     ]
 );
 

@@ -169,11 +169,16 @@ impl Yuki {
                     action(&t!("About Yuki"), Box::new(OpenAbout)),
                     action(&t!("Go to request…"), Box::new(OpenRequests)),
                     action(&t!("Switch workspace…"), Box::new(OpenWorkspaces)),
+                    action(&t!("Open folder as workspace…"), Box::new(OpenFolder)),
                     action(&t!("Import workspaces from Voleeo"), Box::new(ImportVoleeo)),
                 ]
             }
             Kind::Workspaces => {
                 let current = self.ws.as_ref().map(|w| w.id.as_str());
+                let open = CommandItem::new()
+                    .label(t!("+ open folder…").into_owned())
+                    .icon(Icon::empty())
+                    .action(Box::new(OpenFolder));
                 self.workspaces
                     .iter()
                     .map(|w| {
@@ -187,6 +192,7 @@ impl Yuki {
                         let item = CommandItem::new().label(w.name.clone()).icon(icon);
                         (item, Target::Workspace(w.id.clone()))
                     })
+                    .chain([(open, Target::Action)])
                     .collect()
             }
             Kind::Move(item) => self.move_targets(item),

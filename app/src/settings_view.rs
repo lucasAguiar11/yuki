@@ -173,9 +173,31 @@ impl SettingsScreen {
     }
 
     fn render_workspace(&self, cx: &mut Context<Self>) -> AnyElement {
+        let (fg, blue) = (cx.theme().foreground, cx.theme().blue);
+        let folder = self.folder.clone();
+        let path = div()
+            .id("ws-folder")
+            .cursor_pointer()
+            .text_color(blue)
+            .hover(move |s| s.text_color(fg))
+            .child(self.folder.display().to_string())
+            .on_click(move |_, _, cx| cx.reveal_path(&folder));
+        let path = h_flex().gap_3().child(path).child(
+            Button::new("ws-move")
+                .xsmall()
+                .outline()
+                .label(t!("move…").into_owned())
+                .on_click(cx.listener(|this, _, window, cx| this.move_folder(window, cx))),
+        );
         v_flex()
             .gap_4()
             .child(field(t!("name").into_owned(), Input::new(&self.name).small(), None, cx))
+            .child(field(
+                t!("folder").into_owned(),
+                path,
+                Some(t!("where its files and git repo live · click to show in Finder · move takes everything, .git included").into_owned()),
+                cx,
+            ))
             .child(field(
                 "dns",
                 Textarea::new(&self.dns).small(),

@@ -5,7 +5,11 @@
 
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
-use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
+use gpui_kit::component::{
+    input::{InputEvent, InputState, TextareaState},
+    searchable_list::SearchableVec,
+    select::SelectEvent,
+};
 use gpui_kit::*;
 use yuki_core::{Workspace, YukiError};
 use yuki_mcp::resolve;
@@ -13,7 +17,7 @@ use yuki_mcp::resolve;
 use crate::{
     backend::Backend,
     draft,
-    prefs::{Font, Prefs},
+    prefs::{FamilySelect, Font, Prefs},
     workspace::Yuki,
 };
 
@@ -40,11 +44,13 @@ pub struct SettingsScreen {
     pub name: Entity<InputState>,
     pub dns: Entity<TextareaState>,
     pub env: Entity<InputState>,
+    pub ui_family: Entity<FamilySelect>,
+    pub code_family: Entity<FamilySelect>,
     pub focus: FocusHandle,
     pub error: SharedString,
     autosave: Option<Task<()>>,
     saving: bool,
-    _subs: [Subscription; 3],
+    _subs: [Subscription; 5],
 }
 
 impl EventEmitter<WorkspaceSaved> for SettingsScreen {}
@@ -102,10 +108,27 @@ impl SettingsScreen {
                 this.changed(cx);
             }
         };
+        let ui_family = Prefs::family_select(Font::Ui, window, cx);
+        let code_family = Prefs::family_select(Font::Code, window, cx);
+        // Picking the theme's own family stores nothing: the pref stays empty.
+        let on_family = |font: Font| {
+            move |this: &mut Self,
+                  _,
+                  ev: &SelectEvent<SearchableVec<SharedString>>,
+                  cx: &mut Context<Self>| {
+                if let SelectEvent::Confirm(Some(name)) = ev {
+                    let family = (*name != Prefs::default_family(font)).then(|| name.to_string());
+                    let prefs = Prefs::set_family(font, family, cx);
+                    this.save_prefs(prefs, cx);
+                }
+            }
+        };
         let _subs = [
             cx.subscribe(&name, move |this, _, ev, cx| on_change(this, ev, cx)),
             cx.subscribe(&dns, move |this, _, ev, cx| on_change(this, ev, cx)),
             cx.subscribe(&env, move |this, _, ev, cx| on_change(this, ev, cx)),
+            cx.subscribe(&ui_family, on_family(Font::Ui)),
+            cx.subscribe(&code_family, on_family(Font::Code)),
         ];
         Self {
             backend,
@@ -116,6 +139,8 @@ impl SettingsScreen {
             name,
             dns,
             env,
+            ui_family,
+            code_family,
             focus: cx.focus_handle(),
             error: "".into(),
             autosave: None,
@@ -210,6 +235,16 @@ impl SettingsScreen {
 
     pub fn set_language(&mut self, lang: Option<&str>, cx: &mut Context<Self>) {
         let prefs = Prefs::set_language(lang, cx);
+        self.save_prefs(prefs, cx);
+    }
+
+    /// Fonts back to the theme's; the pickers show which family that is.
+    pub fn reset_fonts(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let prefs = Prefs::reset_fonts(cx);
+        for (select, font) in [(&self.ui_family, Font::Ui), (&self.code_family, Font::Code)] {
+            let family = Prefs::default_family(font);
+            select.update(cx, |s, cx| s.set_selected_value(&family, window, cx));
+        }
         self.save_prefs(prefs, cx);
     }
 

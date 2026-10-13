@@ -5,12 +5,13 @@ use gpui_kit::component::{
     button::Button,
     h_flex,
     input::{Input, Textarea},
+    select::Select,
     v_flex, ActiveTheme as _, Sizable as _,
 };
 use gpui_kit::{prelude::FluentBuilder as _, *};
 
 use crate::{
-    prefs::{Font, Prefs},
+    prefs::{FamilySelect, Font, Prefs},
     settings::{Section, SettingsScreen},
     ui, CloseSettings, FocusNext, FocusPrev,
 };
@@ -229,8 +230,16 @@ impl SettingsScreen {
                 .child(div().w(px(36.)).text_center().child(format!("{size}")))
                 .child(step("+", 1., cx))
         };
-        let ui_font = stepper("font-ui", Font::Ui, cx);
-        let code_font = stepper("font-code", Font::Code, cx);
+        let family =
+            |select: &Entity<FamilySelect>| div().w(px(240.)).child(Select::new(select).small());
+        let ui_font = h_flex()
+            .gap_4()
+            .child(stepper("font-ui", Font::Ui, cx))
+            .child(family(&self.ui_family));
+        let code_font = h_flex()
+            .gap_4()
+            .child(stepper("font-code", Font::Code, cx))
+            .child(family(&self.code_family));
         // Language names stay in their own language: readable whatever is active.
         let current = cx.global::<Prefs>().language.clone();
         let theme = cx.theme();
@@ -266,6 +275,21 @@ impl SettingsScreen {
             .gap_4()
             .child(field(t!("interface font").into_owned(), ui_font, None, cx))
             .child(field(t!("code font").into_owned(), code_font, None, cx))
+            .child(field(
+                "",
+                h_flex().child(
+                    div()
+                        .id("fonts-reset")
+                        .text_xs()
+                        .cursor_pointer()
+                        .text_color(muted)
+                        .hover(move |s| s.text_color(fg))
+                        .child(t!("restore default fonts").into_owned())
+                        .on_click(cx.listener(|this, _, window, cx| this.reset_fonts(window, cx))),
+                ),
+                None,
+                cx,
+            ))
             .child(field(
                 t!("language").into_owned(),
                 h_flex().gap_2().children(langs),

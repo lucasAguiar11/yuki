@@ -1,0 +1,63 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    # GPUI renders through Metal: macOS is the only target we ship.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check tag matches app version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 \
+            | python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"]=="yuki"))')
+          [ "v$version" = "${GITHUB_REF_NAME}" ] \
+            || { echo "tag ${GITHUB_REF_NAME} != app/Cargo.toml $version"; exit 1; }
+
+      - run: cargo build --release -p yuki --target aarch64-apple-darwin
+      - run: cargo build --release -p yuki --target x86_64-apple-darwin
+
+      - name: Third-party licenses
+        run: |
+          cargo install cargo-about --locked
+          cargo about generate about.hbs -o THIRD-PARTY.html
+
+      - name: Bundle Yuki.app
+        run: |
+          app=Yuki.app
+          mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" icon.iconset
+          lipo -create -output "$app/Contents/MacOS/yuki" \
+            target/aarch64-apple-darwin/release/yuki \
+            target/x86_64-apple-darwin/release/yuki
+          for s in 16 32 128 256 512; do
+            sips -z $s $s app/assets/icon.png --out "icon.iconset/icon_${s}x${s}.png"
+            sips -z $((s*2)) $((s*2)) app/assets/icon.png --out "icon.iconset/icon_${s}x${s}@2x.png"
+          done
+          iconutil -c icns icon.iconset -o "$app/Contents/Resources/yuki.icns"
+          cp .github/Info.plist "$app/Contents/Info.plist"
+          cp LICENSE NOTICE THIRD-PARTY.html "$app/Contents/Resources/"
+          # lipo drops the per-slice signature; arm64 refuses to launch unsigned.
+          codesign --force --deep --sign - "$app"
+          ditto -c -k --keepParent "$app" Yuki-macos-universal.zip
+
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          draft: true
+          generate_release_notes: true
+          files: |
+            Yuki-macos-universal.zip
+            THIRD-PARTY.html

@@ -287,7 +287,7 @@ impl Yuki {
                 .child(tabs::render(self, cx))
                 .child(div().flex_1().min_h_0().child(editor.clone()))
                 .into_any_element(),
-            None => chrome::welcome(!self.workspaces.is_empty(), cx).into_any_element(),
+            None => chrome::welcome(self, cx).into_any_element(),
         }
     }
 

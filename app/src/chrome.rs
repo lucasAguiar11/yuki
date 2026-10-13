@@ -1,8 +1,8 @@
 //! Window chrome: breadcrumb title bar, `:command` status line, welcome screen.
 
 use gpui_kit::component::{
-    button::Button, h_flex, select::Select, tooltip::Tooltip, v_flex, ActiveTheme as _, IconName,
-    Sizable as _, TitleBar,
+    button::Button, h_flex, select::Select, tooltip::Tooltip, v_flex, ActiveTheme as _, Icon,
+    IconName, Sizable as _, TitleBar,
 };
 use gpui_kit::{prelude::FluentBuilder as _, *};
 
@@ -177,16 +177,47 @@ pub fn status_line(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
         .children(git)
 }
 
-/// Empty center: the app name and the handful of commands that matter.
-pub fn welcome(has_workspaces: bool, cx: &App) -> impl IntoElement {
+/// Empty center: the logo and the workspaces, one click to switch.
+pub fn welcome(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
     let theme = cx.theme();
-    let rows: [(&str, &str, &str); 5] = [
-        (":requests", "⌘P", "open a request"),
-        (":workspace", "⌘O", "switch workspace"),
-        (":commands", "⌘⇧P", "all actions"),
-        (":send", "⌘↵", "send the active request"),
-        (":sidebar", "⌘B", "show/hide the tree"),
-    ];
+    let (fg, muted, hover_bg, mark, radius) = (
+        theme.foreground,
+        theme.muted_foreground,
+        theme.list_hover,
+        theme.ring,
+        theme.radius,
+    );
+    let current = yuki.ws.as_ref().map(|w| w.id.as_str());
+    let rows: Vec<_> = yuki
+        .workspaces
+        .iter()
+        .map(|ws| {
+            let active = current == Some(ws.id.as_str());
+            let pick = ws.clone();
+            h_flex()
+                .id(SharedString::from(format!("welcome-ws-{}", ws.id)))
+                .h(px(28.))
+                .px_2()
+                .gap_2()
+                .rounded(radius)
+                .cursor_pointer()
+                .text_color(if active { fg } else { muted })
+                .hover(move |s| s.bg(hover_bg).text_color(fg))
+                .child(div().w(px(14.)).flex_none().when(active, |d| {
+                    d.child(
+                        Icon::new(assets::IconName::PawPrint)
+                            .small()
+                            .text_color(mark),
+                    )
+                }))
+                .child(div().flex_1().truncate().child(ws.name.clone()))
+                .when(!active, |row| {
+                    row.on_click(cx.listener(move |this, _, window, cx| {
+                        this.open_workspace(pick.clone(), window, cx)
+                    }))
+                })
+        })
+        .collect();
     v_flex()
         .size_full()
         .items_center()
@@ -205,31 +236,33 @@ pub fn welcome(has_workspaces: bool, cx: &App) -> impl IntoElement {
                         .font_weight(FontWeight::BOLD)
                         .child("yuki"),
                 )
-                .child(
-                    div()
-                        .text_sm()
-                        .text_color(theme.muted_foreground)
-                        .child(t!("API console")),
-                ),
+                .child(div().text_sm().text_color(muted).child(t!("API console"))),
         )
-        .child(
-            v_flex()
-                .gap_1p5()
-                .text_sm()
-                .children(rows.map(|(cmd, key, desc)| {
-                    h_flex()
-                        .gap_4()
-                        .child(div().w(px(110.)).child(t!(cmd)))
-                        .child(
-                            div()
-                                .w(px(48.))
-                                .text_color(theme.muted_foreground)
-                                .child(key),
-                        )
-                        .child(div().text_color(theme.muted_foreground).child(t!(desc)))
-                })),
-        )
-        .when(!has_workspaces, |s| {
+        .when(!rows.is_empty(), |s| {
+            s.child(
+                v_flex()
+                    .w(px(320.))
+                    .gap_1()
+                    .child(
+                        h_flex()
+                            .px_2()
+                            .justify_between()
+                            .text_xs()
+                            .text_color(muted)
+                            .child(t!("workspaces"))
+                            .child("⌘O"),
+                    )
+                    .child(
+                        v_flex()
+                            .id("welcome-workspaces")
+                            .max_h(px(280.))
+                            .overflow_y_scroll()
+                            .text_sm()
+                            .children(rows),
+                    ),
+            )
+        })
+        .when(yuki.workspaces.is_empty(), |s| {
             s.child(
                 Button::new("welcome-import")
                     .small()

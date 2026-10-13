@@ -486,7 +486,7 @@ mod tests {
             enabled: false,
         };
         assert!(!off.is_active(), "disabled scheme is not active");
-        assert!(off.is_enabled() == false);
+        assert!(!off.is_enabled());
         assert!(!AuthConfig::None.is_active());
         // None/Inherit report enabled (nothing to gate) but are never active.
         assert!(AuthConfig::None.is_enabled());

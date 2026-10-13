@@ -171,6 +171,9 @@ struct Assets;
 
 impl AssetSource for Assets {
     fn load(&self, path: &str) -> Result<Option<std::borrow::Cow<'static, [u8]>>> {
+        if path == "logo.svg" {
+            return Ok(Some(include_bytes!("../assets/logo.svg").as_slice().into()));
+        }
         match ExtraIcons.load(path)? {
             Some(svg) => Ok(Some(svg)),
             None => gpui_kit::assets::Assets.load(path),

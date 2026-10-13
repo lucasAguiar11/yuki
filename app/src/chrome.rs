@@ -196,6 +196,9 @@ pub fn welcome(has_workspaces: bool, cx: &App) -> impl IntoElement {
             v_flex()
                 .items_center()
                 .gap_1()
+                // gpui rasterizes an SVG at its intrinsic size ×2 (72 in logo.svg) and
+                // aliases when scaling a bigger raster down — keep the two in step.
+                .child(img("logo.svg").size(px(72.)).mb_2())
                 .child(
                     div()
                         .text_size(px(28.))

@@ -1,3 +1,5 @@
+<img src="app/assets/logo.svg" width="96" alt="Yuki">
+
 # Yuki
 
 **English** · [Português](README.pt-BR.md)

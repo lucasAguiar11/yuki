@@ -169,6 +169,7 @@ impl Yuki {
                     action(&t!("About Yuki"), Box::new(OpenAbout)),
                     action(&t!("Go to request…"), Box::new(OpenRequests)),
                     action(&t!("Switch workspace…"), Box::new(OpenWorkspaces)),
+                    action(&t!("Report a bug…"), Box::new(ReportBug)),
                     action(&t!("Open folder as workspace…"), Box::new(OpenFolder)),
                     action(&t!("Import workspaces from Voleeo"), Box::new(ImportVoleeo)),
                 ]

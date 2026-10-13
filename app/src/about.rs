@@ -1,4 +1,4 @@
-//! Settings → about: version, updates, where the data lives, license.
+//! Settings → about: version, updates, where the data lives, license, bugs.
 
 use gpui_kit::component::{
     button::Button, h_flex, v_flex, ActiveTheme as _, Disableable as _, Sizable as _,
@@ -10,11 +10,25 @@ use crate::{
     settings::SettingsScreen,
     settings_view::field,
     update::{State, Updater},
-    CheckUpdates, InstallUpdate,
+    CheckUpdates, InstallUpdate, ReportBug,
 };
 
 const REPO: &str = "https://github.com/lucasAguiar11/yuki";
 const TERMS: &str = "https://github.com/lucasAguiar11/yuki/blob/main/docs/legal/TERMS.md";
+
+/// A new issue on the bug form (`.github/ISSUE_TEMPLATE/bug.yml`), with the
+/// version and macOS fields already filled in.
+pub fn bug_url() -> String {
+    let macos = std::process::Command::new("sw_vers")
+        .arg("-productVersion")
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned())
+        .unwrap_or_default();
+    format!(
+        "{REPO}/issues/new?template=bug.yml&version={}&macos={macos}",
+        env!("CARGO_PKG_VERSION")
+    )
+}
 
 impl SettingsScreen {
     pub(crate) fn render_about(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -38,14 +52,14 @@ impl SettingsScreen {
             (State::Idle, None) => None,
         };
         let can_install = updater.release.is_some() && !busy;
-        let link = |id: &'static str, label: String, url: &'static str| {
+        let link = |id: &'static str, label: String, on_click: fn(&mut Window, &mut App)| {
             div()
                 .id(id)
                 .cursor_pointer()
                 .text_color(blue)
                 .hover(move |s| s.text_color(fg))
                 .child(label)
-                .on_click(move |_, _, cx| cx.open_url(url))
+                .on_click(move |_, window, cx| on_click(window, cx))
         };
         let updates = h_flex()
             .gap_2()
@@ -72,8 +86,21 @@ impl SettingsScreen {
         let license = h_flex()
             .gap_3()
             .child("MIT")
-            .child(link("about-source", t!("source code").into_owned(), REPO))
-            .child(link("about-terms", t!("terms of use").into_owned(), TERMS));
+            .child(link(
+                "about-source",
+                t!("source code").into_owned(),
+                |_, cx| cx.open_url(REPO),
+            ))
+            .child(link(
+                "about-terms",
+                t!("terms of use").into_owned(),
+                |_, cx| cx.open_url(TERMS),
+            ));
+        let bug = link(
+            "about-bug",
+            t!("report a bug").into_owned(),
+            |window, cx| window.dispatch_action(Box::new(ReportBug), cx),
+        );
         v_flex()
             .gap_4()
             .child(field(
@@ -97,6 +124,12 @@ impl SettingsScreen {
                 t!("license").into_owned(),
                 license,
                 Some(t!("the code is free; commercial use of the official binaries follows the terms.").into_owned()),
+                cx,
+            ))
+            .child(field(
+                t!("problems").into_owned(),
+                bug,
+                Some(t!("opens a GitHub issue with the version and macOS filled in.").into_owned()),
                 cx,
             ))
             .into_any_element()

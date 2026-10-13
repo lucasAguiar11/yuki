@@ -18,12 +18,14 @@ body:
     validations:
       required: true
   - type: input
+    id: version
     attributes:
-      label: Yuki commit
-      description: "`git rev-parse --short HEAD` in your checkout"
+      label: Yuki version
+      description: "settings → about (filled in when you report from the app). From source: `git rev-parse --short HEAD`"
     validations:
       required: true
   - type: input
+    id: macos
     attributes:
       label: macOS version
     validations:

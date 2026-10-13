@@ -92,7 +92,8 @@ actions!(
         OpenAbout,
         CheckUpdates,
         InstallUpdate,
-        OpenFolder
+        OpenFolder,
+        ReportBug
     ]
 );
 
@@ -153,6 +154,8 @@ fn bind_keys(cx: &mut App) {
     ]);
     // Fallback when nothing is focused; the root view handles Quit with a flush.
     cx.on_action(|_: &Quit, cx| cx.quit());
+    // `sw_vers` runs on click, not on every render of the about screen.
+    cx.on_action(|_: &ReportBug, cx| cx.open_url(&about::bug_url()));
     cx.on_window_closed(|cx, _| {
         if cx.windows().is_empty() {
             cx.quit();

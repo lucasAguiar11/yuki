@@ -187,6 +187,22 @@ impl AssetSource for Assets {
     }
 }
 
+/// Dock icon for `cargo run`, which has no bundle to take it from.
+#[cfg(target_os = "macos")]
+fn set_dock_icon() {
+    use objc2::AllocAnyThread as _;
+    use objc2_app_kit::{NSApplication, NSImage};
+    use objc2_foundation::{MainThreadMarker, NSData};
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    let data = NSData::with_bytes(include_bytes!("../assets/icon.png"));
+    if let Some(image) = NSImage::initWithData(NSImage::alloc(), &data) {
+        // SAFETY: main thread, valid image; AppKit retains it.
+        unsafe { NSApplication::sharedApplication(mtm).setApplicationIconImage(Some(&image)) };
+    }
+}
+
 fn main() {
     let backend = match backend::Backend::open() {
         Ok(b) => b,
@@ -204,6 +220,8 @@ fn main() {
         prefs::Prefs::init(cx);
         bind_keys(cx);
         register_graphql();
+        #[cfg(target_os = "macos")]
+        set_dock_icon();
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::centered(size(px(1280.), px(800.)), cx)),
             ..TitleBar::window_options()

@@ -142,6 +142,14 @@ pub fn render(
         .on_mouse_down(MouseButton::Left, move |_, window, cx| {
             focus_on_click.focus(window, cx)
         })
+        // `SelectableText` moves the selection on drag but never asks for a
+        // frame, so the highlight froze until mouse-up.
+        // ponytail: only while the pointer is over the timeline; the release repaints anyway.
+        .on_mouse_move(|e, window, _| {
+            if e.dragging() {
+                window.refresh()
+            }
+        })
         .size_full()
         .overflow_y_scroll()
         .px_4()

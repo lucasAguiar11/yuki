@@ -1,7 +1,7 @@
 use std::cell::Cell;
 
 use gpui_kit::component::command::{Command, CommandItem, CommandState};
-use gpui_kit::component::{ActiveTheme as _, IndexPath};
+use gpui_kit::component::{ActiveTheme as _, Icon, IndexPath};
 use gpui_kit::*;
 
 use crate::{moving::Dest, workspace::Yuki, *};
@@ -175,9 +175,14 @@ impl Yuki {
                 self.workspaces
                     .iter()
                     .map(|w| {
-                        let item = CommandItem::new()
-                            .label(w.name.clone())
-                            .checked(current == Some(w.id.as_str()));
+                        // The paw marks where you are (same as the welcome
+                        // list); others get an empty icon so labels line up.
+                        let icon = if current == Some(w.id.as_str()) {
+                            Icon::new(assets::IconName::PawPrint)
+                        } else {
+                            Icon::empty()
+                        };
+                        let item = CommandItem::new().label(w.name.clone()).icon(icon);
                         (item, Target::Workspace(w.id.clone()))
                     })
                     .collect()

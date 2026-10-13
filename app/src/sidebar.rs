@@ -93,6 +93,8 @@ pub fn render(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
         h_flex()
             .id(ix)
             .h(px(ROW_H))
+            // Fixed height even when the tree overflows (flex would squeeze rows).
+            .flex_none()
             .pl_2()
             .pr_2()
             .text_sm()

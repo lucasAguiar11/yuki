@@ -1,6 +1,7 @@
 //! "Configurações" screen (⌘,): the workspace (name, DNS overrides, shell env
-//! allowlist) and the app's appearance (font sizes, language). Workspace edits
-//! go to disk 400 ms after typing stops; appearance applies and saves on click.
+//! allowlist), the app's appearance (font sizes, language) and about (version,
+//! updates). Workspace edits go to disk 400 ms after typing stops; appearance
+//! applies and saves on click.
 
 use std::{sync::Arc, time::Duration};
 
@@ -22,6 +23,7 @@ const AUTOSAVE_DELAY: Duration = Duration::from_millis(400);
 pub enum Section {
     Workspace,
     Appearance,
+    About,
 }
 
 /// A workspace write landed: the app refreshes its copies (title, palette).
@@ -222,8 +224,9 @@ impl SettingsScreen {
 }
 
 impl Yuki {
-    pub fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.settings.is_some() {
+    pub fn open_settings(&mut self, section: Section, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some((screen, _)) = &self.settings {
+            screen.update(cx, |s, cx| s.select(section, cx));
             return;
         }
         let Some(id) = self.ws.as_ref().map(|w| w.id.clone()) else {
@@ -242,8 +245,11 @@ impl Yuki {
                 match loaded {
                     Ok((ws, allow)) => {
                         let backend = this.backend.clone();
-                        let screen =
-                            cx.new(|cx| SettingsScreen::new(backend, ws, allow, window, cx));
+                        let screen = cx.new(|cx| {
+                            let mut s = SettingsScreen::new(backend, ws, allow, window, cx);
+                            s.section = section;
+                            s
+                        });
                         let sub = cx.subscribe(&screen, |this, _, ev: &WorkspaceSaved, cx| {
                             let ws = &ev.0;
                             if let Some(w) = this.workspaces.iter_mut().find(|w| w.id == ws.id) {

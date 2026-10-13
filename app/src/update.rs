@@ -1,6 +1,7 @@
 //! Self-update from GitHub releases. A build running from `Yuki.app` asks for
-//! the latest release on launch; the status line offers it; one click swaps
-//! the bundle in place and relaunches.
+//! the latest release on launch; settings → about checks by hand. A newer
+//! release shows as a status-line chip; installing swaps the bundle in place
+//! and relaunches.
 
 use std::{
     fs,
@@ -10,16 +11,41 @@ use std::{
 
 use gpui_kit::*;
 
-use crate::workspace::Yuki;
+use crate::{settings::Section, workspace::Yuki, CheckUpdates, InstallUpdate, OpenAbout};
 
 const LATEST: &str = "https://api.github.com/repos/lucasAguiar11/yuki/releases/latest";
 /// What `.github/workflows/release.yml` uploads: `Yuki.app`, zipped by `ditto`.
 const ASSET: &str = "Yuki-macos-universal.zip";
 
-pub struct Update {
+/// What the status chip and settings → about show.
+#[derive(Default)]
+pub struct Updater {
+    /// Newer than this build, from the last check.
+    pub release: Option<Release>,
+    pub state: State,
+}
+
+impl Global for Updater {}
+
+pub struct Release {
     pub version: String,
     url: String,
-    pub installing: bool,
+}
+
+#[derive(Default, PartialEq)]
+pub enum State {
+    #[default]
+    Idle,
+    Checking,
+    Checked,
+    Installing,
+    Failed(SharedString),
+}
+
+/// Both views read the global; refresh so they repaint.
+fn set(cx: &mut App, f: impl FnOnce(&mut Updater)) {
+    f(cx.default_global::<Updater>());
+    cx.refresh_windows();
 }
 
 /// `…/Yuki.app` when running from a bundle; `None` under `cargo run`.
@@ -43,11 +69,14 @@ fn get(url: &str) -> reqwest::RequestBuilder {
 
 /// `/releases/latest` skips drafts and pre-releases: publishing the draft
 /// `release.yml` makes is what ships an update.
-async fn latest() -> Result<Option<Update>, String> {
-    let rel: serde_json::Value = get(LATEST)
-        .send()
-        .await
-        .and_then(|r| r.error_for_status())
+async fn latest() -> Result<Option<Release>, String> {
+    let res = get(LATEST).send().await.map_err(|e| e.to_string())?;
+    // 404 = nothing published yet.
+    if res.status() == reqwest::StatusCode::NOT_FOUND {
+        return Ok(None);
+    }
+    let rel: serde_json::Value = res
+        .error_for_status()
         .map_err(|e| e.to_string())?
         .json()
         .await
@@ -62,10 +91,9 @@ async fn latest() -> Result<Option<Update>, String> {
         .flatten()
         .find(|a| a["name"] == ASSET)
         .and_then(|a| a["browser_download_url"].as_str());
-    Ok(url.map(|url| Update {
+    Ok(url.map(|url| Release {
         version: tag.to_owned(),
         url: url.to_owned(),
-        installing: false,
     }))
 }
 
@@ -130,36 +158,68 @@ fn relaunch(app: &Path) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// The root view's handlers for the update actions.
+pub(crate) fn on_actions(el: Div, cx: &mut Context<Yuki>) -> Div {
+    el.on_action(
+        cx.listener(|this, _: &OpenAbout, window, cx| {
+            this.open_settings(Section::About, window, cx)
+        }),
+    )
+    .on_action(cx.listener(|this, _: &CheckUpdates, window, cx| {
+        this.open_settings(Section::About, window, cx);
+        this.check_update(cx);
+    }))
+    .on_action(cx.listener(|this, _: &InstallUpdate, _, cx| this.install_update(cx)))
+}
+
 impl Yuki {
+    /// Launch: only from a bundle, where an update can land.
+    pub(crate) fn check_update_on_launch(&self, cx: &mut Context<Self>) {
+        if bundle().is_some() {
+            self.check_update(cx);
+        }
+    }
+
     pub(crate) fn check_update(&self, cx: &mut Context<Self>) {
-        if bundle().is_none() {
+        if matches!(
+            cx.global::<Updater>().state,
+            State::Checking | State::Installing
+        ) {
             return;
         }
+        set(cx, |u| u.state = State::Checking);
         let task = self.backend.rt.spawn(latest());
-        cx.spawn(async move |this, cx| match task.await {
-            Ok(Ok(Some(update))) => {
-                let _ = this.update(cx, |this, cx| {
-                    this.release = Some(update);
-                    cx.notify();
-                });
-            }
-            Ok(Err(e)) => eprintln!("[update] {e}"),
-            _ => {}
+        cx.spawn(async move |_, cx| {
+            let result = task.await.map_err(|e| e.to_string()).and_then(|r| r);
+            cx.update(|cx| {
+                set(cx, |u| match result {
+                    Ok(release) => {
+                        u.release = release;
+                        u.state = State::Checked;
+                    }
+                    Err(e) => u.state = State::Failed(e.into()),
+                })
+            });
         })
         .detach();
     }
 
-    pub(crate) fn install_update(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (Some(update), Some(app)) = (self.release.as_mut(), bundle()) else {
-            return;
-        };
-        if update.installing {
+    pub(crate) fn install_update(&self, cx: &mut Context<Self>) {
+        let u = cx.global::<Updater>();
+        if u.state == State::Installing {
             return;
         }
-        update.installing = true;
-        cx.notify();
-        let dl = self.backend.rt.spawn(download(update.url.clone()));
-        cx.spawn_in(window, async move |this, cx| {
+        let Some(url) = u.release.as_ref().map(|r| r.url.clone()) else {
+            return;
+        };
+        let Some(app) = bundle() else {
+            let e = t!("updates install only into Yuki.app");
+            set(cx, |u| u.state = State::Failed(e.into_owned().into()));
+            return;
+        };
+        set(cx, |u| u.state = State::Installing);
+        let dl = self.backend.rt.spawn(download(url));
+        cx.spawn(async move |this, cx| {
             let result = match dl.await.map_err(|e| e.to_string()).and_then(|r| r) {
                 Ok(zip) => {
                     let app = app.clone();
@@ -169,19 +229,16 @@ impl Yuki {
                 Err(e) => Err(e),
             }
             .and_then(|()| relaunch(&app));
-            this.update(cx, |this, cx| match result {
+            let _ = this.update(cx, |this, cx| match result {
                 Ok(()) => {
                     this.flush_blocking(cx);
                     cx.quit();
                 }
                 Err(e) => {
-                    if let Some(u) = &mut this.release {
-                        u.installing = false;
-                    }
-                    this.status = t!("update failed: %{e}", e = e).into_owned().into();
-                    cx.notify();
+                    let e = t!("update failed: %{e}", e = e).into_owned();
+                    set(cx, |u| u.state = State::Failed(e.into()));
                 }
-            })
+            });
         })
         .detach();
     }

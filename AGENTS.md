@@ -35,11 +35,11 @@ app/              `yuki` binary (GPUI) — the only layer that knows gpui
   src/var_view.rs `{{ VAR }}` chips + tooltip; src/vars.rs model/tokenization (pure)
   src/vars_panel.rs ⌘⇧E panel;  src/sidebar.rs, tabs.rs, chrome.rs, palette.rs
   src/env_screen.rs "environments" screen ⌘⌥E (state, autosave, create/rename/delete); env_view.rs render; envs.rs title-bar `env` select
-  src/settings.rs "settings" screen ⌘, (workspace name, DNS overrides as hosts lines, shell-env allowlist); settings_view.rs render; prefs.rs font sizes + language
+  src/settings.rs "settings" screen ⌘, (workspace name, DNS overrides as hosts lines, shell-env allowlist); settings_view.rs render; prefs.rs font sizes + language; about.rs "about" section
   src/items.rs    tree CRUD (create/duplicate/delete); moving.rs drag & drop + "move to…"; rename.rs inline rename
   src/backend.rs  bridge to the engine: tokio runtime, load/save/send, Voleeo import
   src/mcp.rs      MCP: engine server on `mcp.sock` + `mcp-token` (data dir), `yuki mcp` stdio bridge, agent edits reload the tree (not open tabs)
-  src/update.rs   self-update (only from a `.app`): GitHub `releases/latest` on launch → `↑ vX` chip → swap bundle, relaunch
+  src/update.rs   self-update: `Updater` global; GitHub `releases/latest` on launch (only from a `.app`) or by hand (about) → `↑ vX` chip → swap bundle, relaunch
   src/auth.rs     auth schemes as data (fields per type) + AuthConfig⇄form via serde; auth_form.rs auth tab; oauth.rs "get token"; secrets.rs secret crypto
   src/draft.rs, tree.rs, ui.rs  pure helpers
 crates/yuki-*     engine inherited from Voleeo (MIT), no gpui/tauri

@@ -5,6 +5,7 @@ extern crate rust_i18n;
 // and falls back to the English text itself when there's no translation.
 i18n!("locales", fallback = "en");
 
+mod about;
 mod auth;
 mod auth_form;
 mod backend;
@@ -86,7 +87,10 @@ actions!(
         MoveItem,
         DeleteItem,
         CopyAsCurl,
-        CancelRename
+        CancelRename,
+        OpenAbout,
+        CheckUpdates,
+        InstallUpdate
     ]
 );
 
@@ -239,6 +243,7 @@ fn main() {
         gpui_kit::init(cx);
         apply_theme(cx);
         prefs::Prefs::init(cx);
+        cx.set_global(update::Updater::default());
         bind_keys(cx);
         register_graphql();
         #[cfg(target_os = "macos")]

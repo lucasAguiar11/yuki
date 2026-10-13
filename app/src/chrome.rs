@@ -7,7 +7,10 @@ use gpui_kit::component::{
 use gpui_kit::{prelude::FluentBuilder as _, *};
 
 use crate::{
-    ui, workspace::Yuki, ImportVoleeo, OpenCommands, OpenEnvs, OpenRequests, OpenSettings,
+    ui,
+    update::{State, Updater},
+    workspace::Yuki,
+    ImportVoleeo, InstallUpdate, OpenCommands, OpenEnvs, OpenRequests, OpenSettings,
     OpenWorkspaces, ToggleEditor, ToggleGit, ToggleSidebar, ToggleVars,
 };
 
@@ -114,7 +117,6 @@ pub fn title_bar(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
 
 /// Vim-flavoured hints, each one clickable: `:requests ⌘P  :commands ⌘⇧P …`
 pub fn status_line(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
-    let install = cx.listener(|this, _: &ClickEvent, window, cx| this.install_update(window, cx));
     let theme = cx.theme();
     let commands: [(&str, &str, Box<dyn Action>); 8] = [
         (":requests", "⌘P", Box::new(OpenRequests)),
@@ -163,27 +165,33 @@ pub fn status_line(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
         })
         .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx));
     // `↑ v0.2.0` — a newer release; click installs it and restarts.
-    let release = yuki.release.as_ref().map(|r| {
-        let tip = SharedString::from(
-            t!(
-                "Yuki %{v} is out — click to install and restart",
-                v = r.version
-            )
-            .into_owned(),
-        );
+    let updater = cx.global::<Updater>();
+    let release = updater.release.as_ref().map(|r| {
+        let (color, tip) = match &updater.state {
+            State::Failed(e) => (theme.red, e.clone()),
+            _ => (
+                theme.blue,
+                t!(
+                    "Yuki %{v} is out — click to install and restart",
+                    v = r.version
+                )
+                .into_owned()
+                .into(),
+            ),
+        };
         let fg = theme.foreground;
         div()
             .id("update-chip")
             .cursor_pointer()
-            .text_color(theme.blue)
+            .text_color(color)
             .hover(move |s| s.text_color(fg))
-            .child(if r.installing {
+            .child(if updater.state == State::Installing {
                 t!("updating…").into_owned()
             } else {
                 format!("↑ {}", r.version)
             })
             .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
-            .on_click(install)
+            .on_click(|_, window, cx| window.dispatch_action(Box::new(InstallUpdate), cx))
     });
     h_flex()
         .h(px(24.))

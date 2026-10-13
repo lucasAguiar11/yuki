@@ -32,7 +32,7 @@ impl Render for SettingsScreen {
 }
 
 /// `label  control` with an optional hint under the control.
-fn field(
+pub(crate) fn field(
     label: impl Into<SharedString>,
     control: impl IntoElement,
     hint: Option<String>,
@@ -73,7 +73,7 @@ impl SettingsScreen {
             theme.border,
             theme.sidebar,
         );
-        let rows = [Section::Workspace, Section::Appearance].map(|section| {
+        let rows = [Section::Workspace, Section::Appearance, Section::About].map(|section| {
             let selected = section == self.section;
             div()
                 .id(section.id())
@@ -112,6 +112,7 @@ impl SettingsScreen {
         let body = match self.section {
             Section::Workspace => self.render_workspace(cx),
             Section::Appearance => self.render_appearance(cx),
+            Section::About => self.render_about(cx),
         };
         let theme = cx.theme();
         let (fg, muted, border, red) = (
@@ -258,6 +259,7 @@ impl Section {
         match self {
             Section::Workspace => "section-workspace",
             Section::Appearance => "section-appearance",
+            Section::About => "section-about",
         }
     }
 
@@ -265,6 +267,7 @@ impl Section {
         match self {
             Section::Workspace => t!("workspace"),
             Section::Appearance => t!("appearance"),
+            Section::About => t!("about"),
         }
         .into_owned()
         .into()

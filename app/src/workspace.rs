@@ -4,7 +4,7 @@ use gpui_kit::component::{
     h_resizable, resizable_panel, searchable_list::SearchableVec, select::SelectState, v_flex,
     ActiveTheme as _,
 };
-use gpui_kit::*;
+use gpui_kit::{prelude::FluentBuilder as _, *};
 use yuki_core::Workspace;
 
 use crate::{
@@ -52,8 +52,6 @@ pub struct Yuki {
     pub status: SharedString,
     /// Agents connected over MCP; `None` once the server is down.
     pub mcp: Option<usize>,
-    /// A newer GitHub release, once the launch check finds one.
-    pub release: Option<crate::update::Update>,
     _subs: Vec<Subscription>,
 }
 
@@ -89,14 +87,13 @@ impl Yuki {
             renaming: None,
             status: "".into(),
             mcp: Some(0),
-            release: None,
             _subs: vec![],
         };
         this.focus.focus(window, cx);
         this.init_git_inputs(window, cx);
         this.reload_workspaces(window, cx);
         this.watch_mcp(mcp, window, cx);
-        this.check_update(cx);
+        this.check_update_on_launch(cx);
         let weak = cx.entity().downgrade();
         window.on_window_should_close(cx, move |_, cx| {
             if let Some(this) = weak.upgrade() {
@@ -368,6 +365,7 @@ impl Render for Yuki {
             .text_color(theme.foreground)
             .key_context("Yuki")
             .track_focus(&self.focus)
+            .map(|el| crate::update::on_actions(el, cx))
             .on_action(cx.listener(|this, _: &Quit, _, cx| {
                 this.flush_blocking(cx);
                 cx.quit();
@@ -400,7 +398,7 @@ impl Render for Yuki {
                 if this.settings.is_some() {
                     this.close_settings(window, cx)
                 } else {
-                    this.open_settings(window, cx)
+                    this.open_settings(crate::settings::Section::Workspace, window, cx)
                 }
             }))
             .on_action(

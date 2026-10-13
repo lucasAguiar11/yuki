@@ -299,7 +299,12 @@ impl Yuki {
         let data = self.data.as_ref();
         let id = node_id.unwrap_or("");
         if let Some(r) = data.and_then(|d| d.requests.iter().find(|r| r.id == id)) {
-            return format!("{} {}", r.method, r.name);
+            let request = format!("{} {}", r.method, r.name);
+            return if path.ends_with(".md") {
+                t!("%{request} · notes", request = request).into_owned()
+            } else {
+                request
+            };
         }
         if let Some(f) = data.and_then(|d| d.folders.iter().find(|f| f.id == id)) {
             return t!("folder %{name}", name = f.name).into_owned();

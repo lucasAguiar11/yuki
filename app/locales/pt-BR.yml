@@ -1,5 +1,6 @@
 "%{n} requests": "%{n} requests"
 "%{branch} · created on the first commit": "%{branch} · nasce no primeiro commit"
+"%{request} · notes": "%{request} · notas"
 "%{label} copied": "%{label} copiado"
 "%{name} copy": "%{name} cópia"
 "%{n} changes": "%{n} alterações"

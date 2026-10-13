@@ -27,6 +27,11 @@ fn classify_maps_filenames_to_nodes() {
         (GitNodeKind::Request, Some("ABC".into()))
     );
     assert_eq!(
+        classify_path("req_ABC.md"),
+        (GitNodeKind::Request, Some("ABC".into()))
+    );
+    assert_eq!(classify_path("folder_XY.md"), (GitNodeKind::Other, None));
+    assert_eq!(
         classify_path("folder_XY.yaml"),
         (GitNodeKind::Folder, Some("XY".into()))
     );

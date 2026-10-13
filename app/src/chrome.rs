@@ -114,6 +114,7 @@ pub fn title_bar(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
 
 /// Vim-flavoured hints, each one clickable: `:requests ⌘P  :commands ⌘⇧P …`
 pub fn status_line(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
+    let install = cx.listener(|this, _: &ClickEvent, window, cx| this.install_update(window, cx));
     let theme = cx.theme();
     let commands: [(&str, &str, Box<dyn Action>); 8] = [
         (":requests", "⌘P", Box::new(OpenRequests)),
@@ -161,6 +162,29 @@ pub fn status_line(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
             _ => "mcp".into(),
         })
         .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx));
+    // `↑ v0.2.0` — a newer release; click installs it and restarts.
+    let release = yuki.release.as_ref().map(|r| {
+        let tip = SharedString::from(
+            t!(
+                "Yuki %{v} is out — click to install and restart",
+                v = r.version
+            )
+            .into_owned(),
+        );
+        let fg = theme.foreground;
+        div()
+            .id("update-chip")
+            .cursor_pointer()
+            .text_color(theme.blue)
+            .hover(move |s| s.text_color(fg))
+            .child(if r.installing {
+                t!("updating…").into_owned()
+            } else {
+                format!("↑ {}", r.version)
+            })
+            .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
+            .on_click(install)
+    });
     h_flex()
         .h(px(24.))
         .px_3()
@@ -192,6 +216,7 @@ pub fn status_line(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
         .child(yuki.status.clone())
         .children(git)
         .child(mcp)
+        .children(release)
 }
 
 /// Empty center: the logo and the workspaces, one click to switch.

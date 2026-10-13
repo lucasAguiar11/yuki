@@ -40,6 +40,7 @@ mod table;
 mod tabs;
 mod tree;
 mod ui;
+mod update;
 mod var_view;
 mod vars;
 mod vars_panel;

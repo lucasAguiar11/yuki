@@ -22,6 +22,8 @@ reqwest = { workspace = true }
 dirs = "6"
 rust-i18n = "4"
 sys-locale = "0.3"
+# Already in the tree through gpui; compares release tags (update.rs).
+semver = "1"
 
 # Already in the tree through gpui; used only to set the dock icon.
 [target.'cfg(target_os = "macos")'.dependencies]

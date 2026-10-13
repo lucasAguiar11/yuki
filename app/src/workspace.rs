@@ -52,6 +52,8 @@ pub struct Yuki {
     pub status: SharedString,
     /// Agents connected over MCP; `None` once the server is down.
     pub mcp: Option<usize>,
+    /// A newer GitHub release, once the launch check finds one.
+    pub release: Option<crate::update::Update>,
     _subs: Vec<Subscription>,
 }
 
@@ -87,12 +89,14 @@ impl Yuki {
             renaming: None,
             status: "".into(),
             mcp: Some(0),
+            release: None,
             _subs: vec![],
         };
         this.focus.focus(window, cx);
         this.init_git_inputs(window, cx);
         this.reload_workspaces(window, cx);
         this.watch_mcp(mcp, window, cx);
+        this.check_update(cx);
         let weak = cx.entity().downgrade();
         window.on_window_should_close(cx, move |_, cx| {
             if let Some(this) = weak.upgrade() {
@@ -220,7 +224,7 @@ impl Yuki {
     // ponytail: an autosave already in flight can land after this and write
     // the draft from ≤400 ms earlier; a per-request write sequence fixes it if
     // it ever shows up.
-    fn flush_blocking(&self, cx: &App) {
+    pub(crate) fn flush_blocking(&self, cx: &App) {
         self.flush_envs_blocking(cx);
         if let Some((screen, _)) = &self.settings {
             screen.read(cx).flush_blocking(cx);

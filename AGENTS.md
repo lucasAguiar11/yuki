@@ -78,7 +78,7 @@ cargo test -p yuki -p yuki-mcp          # unit tests (app: draft, vars, locales)
 cargo clippy -p yuki && cargo fmt --all
 ```
 
-No packaged `.app` yet. CI (`.github/workflows/ci.yml`, macOS) runs fmt `--check`, clippy `--workspace --all-targets -D warnings` and `cargo test --workspace`.
+CI (`.github/workflows/ci.yml`, macOS) runs fmt `--check`, clippy `--workspace --all-targets -D warnings` and `cargo test --workspace`. Release: Actions → `release` → Run workflow on `main` with the version — bumps `app/Cargo.toml`, builds the universal `Yuki.app`, commits + tags that tree (deploy key `RELEASE_DEPLOY_KEY`, the only bypass of the `main` ruleset besides admins) and opens a **draft** release. Publish it by hand; `releases/latest` (the updater) ignores drafts.
 
 ## Code
 

@@ -26,6 +26,8 @@ pub fn render(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
         .get(yuki.active)
         .map(|t| t.read(cx).saved.id.clone());
     let count = yuki.rows.iter().filter(|r| r.method.is_some()).count();
+    let has_folders = yuki.data.as_ref().is_some_and(|d| !d.folders.is_empty());
+    let any_open = yuki.any_folder_open();
     let this = cx.entity().downgrade();
     let (drop_bg, drop_line) = (theme.drop_target, theme.ring);
 
@@ -219,6 +221,31 @@ pub fn render(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
                             })
                             .on_click(cx.listener(|this, _, _, cx| this.reveal_active(cx))),
                     )
+                })
+                .when(has_folders, |s| {
+                    s.child(
+                        div()
+                            .id("toggle-folders")
+                            .p_1()
+                            .rounded(theme.radius)
+                            .cursor_pointer()
+                            .text_color(theme.muted_foreground)
+                            .hover(|s| s.text_color(theme.foreground).bg(theme.list_hover))
+                            .child(Icon::new(if any_open {
+                                assets::IconName::ListChevronsDownUp
+                            } else {
+                                assets::IconName::ListChevronsUpDown
+                            }))
+                            .tooltip(move |window, cx| {
+                                let tip = if any_open {
+                                    t!("collapse all folders")
+                                } else {
+                                    t!("expand all folders")
+                                };
+                                Tooltip::new(tip.into_owned()).build(window, cx)
+                            })
+                            .on_click(cx.listener(|this, _, _, cx| this.toggle_folders(cx))),
+                    )
                 }),
         )
         .child(
@@ -284,6 +311,22 @@ impl Yuki {
         if let Some(ix) = self.rows.iter().position(|r| r.id.as_ref() == id) {
             self.tree_scroll.scroll_to_item(ix);
         }
+        cx.notify();
+    }
+
+    fn any_folder_open(&self) -> bool {
+        self.rows.iter().any(|r| r.method.is_none() && r.open)
+    }
+
+    /// Header button: collapse every folder if any is open, else expand them all.
+    fn toggle_folders(&mut self, cx: &mut Context<Self>) {
+        let Some(d) = &self.data else { return };
+        if self.any_folder_open() {
+            self.collapsed = d.folders.iter().map(|f| f.id.clone()).collect();
+        } else {
+            self.collapsed.clear();
+        }
+        self.refresh_rows();
         cx.notify();
     }
 }

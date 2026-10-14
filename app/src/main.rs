@@ -183,7 +183,15 @@ fn register_graphql() {
     }
 }
 
-gpui_kit::assets::icon_assets!(ExtraIcons, [LocateFixed, PawPrint]);
+gpui_kit::assets::icon_assets!(
+    ExtraIcons,
+    [
+        LocateFixed,
+        PawPrint,
+        ListChevronsDownUp,
+        ListChevronsUpDown
+    ]
+);
 
 /// The kit's default icon bundle plus the few catalog icons Yuki uses beyond
 /// it (`AllAssets` would embed the whole 7 MB catalog).

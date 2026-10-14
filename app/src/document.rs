@@ -151,15 +151,10 @@ impl RequestEditor {
                 .child(label)
                 .on_click(cx.listener(move |this, _, _, cx| this.toggle_editor(Some(tab), cx)))
         };
-        // Only when the URL has `:name`s — otherwise it's noise.
-        let params = (self.params.len() > 0).then(|| {
-            segment(
-                "meta-params",
-                format!("params {}", self.params.len()),
-                ReqTab::Params,
-                cx,
-            )
-        });
+        // Only when the URL has `:name`s or a query — otherwise it's noise.
+        let count = self.params_count(cx);
+        let params = (count > 0)
+            .then(|| segment("meta-params", format!("params {count}"), ReqTab::Params, cx));
         let headers = segment(
             "meta-headers",
             format!("headers {}", self.header_count(cx)),

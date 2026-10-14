@@ -1,5 +1,6 @@
-//! Name/value table for headers and form/multipart fields. The last row is
-//! always blank: typing in it makes it a real row and appends a new blank one.
+//! Name/value table for headers, form/multipart fields and query params. The
+//! last row is always blank: typing in it makes it a real row and appends a
+//! new blank one.
 
 use std::path::PathBuf;
 
@@ -18,6 +19,7 @@ use crate::{chip_templates, draft, editor::RequestEditor, ui, vars, FocusNext, F
 pub enum Which {
     Headers,
     Fields,
+    Query,
 }
 
 struct Row {
@@ -122,6 +124,28 @@ impl Table {
         Self { rows }
     }
 
+    /// Rows for `pairs` (a query handed over by the URL), above the blank row.
+    pub fn append_pairs(
+        &mut self,
+        pairs: Vec<(String, String)>,
+        window: &mut Window,
+        cx: &mut Context<RequestEditor>,
+    ) {
+        let at = self.rows.len() - 1;
+        let new: Vec<Row> = pairs
+            .into_iter()
+            .map(|(name, value)| {
+                let field = BodyField {
+                    name,
+                    value,
+                    ..blank()
+                };
+                Row::new(Which::Query, field, window, cx)
+            })
+            .collect();
+        self.rows.splice(at..at, new);
+    }
+
     fn filled(&self) -> &[Row] {
         &self.rows[..self.rows.len() - 1]
     }
@@ -174,6 +198,7 @@ impl RequestEditor {
         match which {
             Which::Headers => &mut self.headers,
             Which::Fields => &mut self.body.fields,
+            Which::Query => &mut self.query,
         }
     }
 
@@ -281,6 +306,7 @@ impl RequestEditor {
         let table = match which {
             Which::Headers => &self.headers,
             Which::Fields => &self.body.fields,
+            Which::Query => &self.query,
         };
         let last = table.rows.len() - 1;
         let head = h_flex()
@@ -399,6 +425,7 @@ impl RequestEditor {
             .id(match which {
                 Which::Headers => "table-headers",
                 Which::Fields => "table-fields",
+                Which::Query => "table-query",
             })
             .size_full()
             .overflow_y_scroll()

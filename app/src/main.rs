@@ -37,6 +37,7 @@ mod oauth;
 mod palette;
 mod params;
 mod prefs;
+mod query;
 mod rename;
 mod response;
 mod secrets;

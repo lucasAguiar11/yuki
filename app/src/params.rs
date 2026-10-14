@@ -1,16 +1,20 @@
-//! Path params: one row per `:name` in the URL, in URL order. Names come
-//! from the URL (not editable here); the value is substituted at send.
+//! The params tab: path params (one row per `:name` in the URL, names from the
+//! URL, value substituted at send) and query params as rows. The URL bar never
+//! keeps a query: one pasted (or left there when it loses focus) moves to the
+//! rows (`query.rs`).
 
 use gpui_kit::component::{
     h_flex,
     input::{Input, InputEvent, InputState},
     v_flex, ActiveTheme as _,
 };
-use gpui_kit::*;
+use gpui_kit::{prelude::FluentBuilder as _, *};
 
 use crate::{
     chip_templates, draft,
     editor::{ReqTab, RequestEditor},
+    query,
+    table::Which,
     ui, vars, FocusNext, FocusPrev,
 };
 
@@ -73,10 +77,42 @@ impl RequestEditor {
             };
             self.params.rows.push(row);
         }
-        if self.params.rows.is_empty() && self.req_tab == ReqTab::Params {
+        self.leave_empty_params_tab(cx);
+        cx.notify();
+    }
+
+    /// The URL's query, if any, becomes rows and leaves the URL bar.
+    pub(crate) fn take_url_query(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let text = self.url.read(cx).value().to_string();
+        if !text.contains('?') {
+            return;
+        }
+        let pairs = query::pairs(&text);
+        let moved = !pairs.is_empty();
+        self.query.append_pairs(pairs, window, cx);
+        let base = query::without_query(&text);
+        self.url_len = base.len();
+        // `set_value` emits no change event: the URL's own handler won't run.
+        self.url.update(cx, |s, cx| {
+            s.set_value(vars::url_content(&base), window, cx)
+        });
+        if moved {
+            self.req_tab = ReqTab::Params;
+            self.editor_open = true;
+        }
+        self.refresh_dirty(cx);
+        cx.notify();
+    }
+
+    /// `:path` params plus enabled, named query rows (the meta line's `params N`).
+    pub fn params_count(&self, cx: &App) -> usize {
+        self.params.len() + self.query.active_count(cx)
+    }
+
+    fn leave_empty_params_tab(&mut self, cx: &App) {
+        if self.req_tab == ReqTab::Params && self.params_count(cx) == 0 {
             self.req_tab = ReqTab::Headers;
         }
-        cx.notify();
     }
 
     fn param_row(&self, name: String, window: &mut Window, cx: &mut Context<Self>) -> Row {
@@ -146,13 +182,23 @@ impl RequestEditor {
                 )
         });
         v_flex()
-            .id("table-params")
             .size_full()
-            .overflow_y_scroll()
-            .on_action(|_: &FocusNext, window, cx| window.focus_next(cx))
-            .on_action(|_: &FocusPrev, window, cx| window.focus_prev(cx))
-            .child(head)
-            .children(rows.collect::<Vec<_>>())
+            .child(
+                v_flex()
+                    .id("table-params")
+                    .flex_none()
+                    .on_action(|_: &FocusNext, window, cx| window.focus_next(cx))
+                    .on_action(|_: &FocusPrev, window, cx| window.focus_prev(cx))
+                    .when(!self.params.rows.is_empty(), |d| {
+                        d.child(head).children(rows.collect::<Vec<_>>())
+                    }),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .child(self.render_table(Which::Query, false, cx)),
+            )
             .into_any_element()
     }
 }

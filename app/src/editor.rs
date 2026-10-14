@@ -65,6 +65,8 @@ pub struct RequestEditor {
     pub url: Entity<InputState>,
     /// One row per `:name` in the URL (`params.rs`).
     pub params: PathParams,
+    /// The URL's query as rows (`params.rs`); the URL stays the saved truth.
+    pub query: Table,
     pub headers: Table,
     pub body: BodyInputs,
     pub auth: AuthForm,
@@ -95,6 +97,8 @@ pub struct RequestEditor {
     pub env_id: Option<String>,
     pub vars: Rc<Vars>,
     pub(crate) complete: Option<Completion>,
+    /// URL length at the last change: a jump of more than one char is a paste.
+    pub(crate) url_len: usize,
     /// Pending autosave; replacing it (next keystroke) cancels the old one.
     autosave: Option<Task<()>>,
     /// A write is in flight: the next one waits, so disk never ends up older.
@@ -108,11 +112,13 @@ impl EventEmitter<crate::capture_view::VarsChanged> for RequestEditor {}
 impl RequestEditor {
     pub fn new(
         backend: Arc<Backend>,
-        req: HttpRequest,
+        mut req: HttpRequest,
         env_id: Option<String>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        // The editor's form: the query lives in the params tab, not the URL bar.
+        crate::query::normalize(&mut req);
         let mut methods: Vec<SharedString> =
             METHODS.iter().map(|m| SharedString::from(*m)).collect();
         if !METHODS.contains(&req.method.as_str()) {
@@ -157,12 +163,23 @@ impl RequestEditor {
                 },
             ),
             cx.subscribe_in(&url, window, |this, url, ev: &InputEvent, window, cx| {
-                if matches!(ev, InputEvent::Change) {
-                    chip_templates!(url, window, cx);
-                    crate::var_view::chip_path_params(url, window, cx);
-                    this.update_completion(url, cx);
-                    this.sync_path_params(window, cx);
-                    this.refresh_dirty(cx);
+                match ev {
+                    InputEvent::Change => {
+                        chip_templates!(url, window, cx);
+                        crate::var_view::chip_path_params(url, window, cx);
+                        this.update_completion(url, cx);
+                        this.sync_path_params(window, cx);
+                        let len = url.read(cx).value().len();
+                        let pasted = len > this.url_len + 1;
+                        this.url_len = len;
+                        if pasted {
+                            this.take_url_query(window, cx);
+                        }
+                        this.refresh_dirty(cx);
+                    }
+                    // A query typed by hand moves once the URL is left.
+                    InputEvent::Blur => this.take_url_query(window, cx),
+                    _ => {}
                 }
             }),
         ];
@@ -171,6 +188,15 @@ impl RequestEditor {
         _subs.push(cx.subscribe_in(&notes, window, Self::on_input));
         _subs.push(cx.observe(&response_body, |this, _, cx| this.track_caret(cx)));
         let has_body = req.body.as_ref().is_some_and(|b| b.kind != BodyKind::None);
+        let was_path = yuki_mcp::resolve::path_params(&req.url);
+        let query_rows = req
+            .parameters
+            .iter()
+            .filter(|p| !was_path.contains(&p.name))
+            .map(param_field)
+            .collect();
+        let query = Table::new(Which::Query, query_rows, window, cx);
+        let url_len = req.url.len();
         let mut this = Self {
             backend,
             saved: req,
@@ -178,6 +204,7 @@ impl RequestEditor {
             method,
             url,
             params: PathParams::default(),
+            query,
             auth,
             notes,
             notes_saved: String::new(),
@@ -205,6 +232,7 @@ impl RequestEditor {
             env_id,
             vars: Rc::default(),
             complete: None,
+            url_len,
             autosave: None,
             saving: false,
             _subs,
@@ -239,18 +267,25 @@ impl RequestEditor {
             .selected_value()
             .cloned()
             .unwrap_or_else(|| "GET".into());
+        let url_text = self.url.read(cx).value();
         let mut req = draft::build(
             &self.saved,
             &method,
-            &self.url.read(cx).value(),
+            &crate::query::without_query(&url_text),
             self.headers.params(cx),
             &self.body.draft(cx),
         );
-        req.parameters = draft::merge_path_params(
-            &self.saved.url,
-            &self.saved.parameters,
-            &self.params.values(cx),
-        );
+        // Path params, then the query rows, then a query still typed in the URL.
+        let was_path = yuki_mcp::resolve::path_params(&self.saved.url);
+        let saved_path: Vec<_> = (self.saved.parameters.iter())
+            .filter(|p| was_path.contains(&p.name))
+            .cloned()
+            .collect();
+        req.parameters =
+            draft::merge_path_params(&self.saved.url, &saved_path, &self.params.values(cx));
+        req.parameters.extend(self.query.params(cx));
+        req.parameters
+            .extend(crate::query::as_params(crate::query::pairs(&url_text)));
         if let Some(auth) = self.auth.draft(cx) {
             req.auth = auth;
         }

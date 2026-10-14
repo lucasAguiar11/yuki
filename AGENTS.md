@@ -27,8 +27,8 @@ app/              `yuki` binary (GPUI) — the only layer that knows gpui
   src/editor.rs   `RequestEditor` (state/logic of one tab)
   src/document.rs RequestEditor render: prompt, meta line, request editor
   src/body.rs     body panel: type select + per-type input (raw, form/multipart, binary, graphql)
-  src/table.rs    name/value table (headers and form/multipart fields); last row always blank
-  src/params.rs   path params: one row per URL `:name` (chipped in the URL), stored in `parameters`; the URL keeps its own query
+  src/table.rs    name/value table (headers, form/multipart fields, query params); last row always blank
+  src/params.rs   params tab: path params (one row per URL `:name`, chipped in the URL) + query rows, all stored in `parameters`; the URL bar holds no query — a pasted one (or one left on blur) moves to the rows; `query.rs` normalizes requests that still have it in the URL (no write until edited)
   src/complete.rs `{{` autocomplete (on typing `{{` or ⌃space) in URL, cells and code editors: variables, then `resolve::funcs`
   src/code_vars.rs `{{ VAR }}` "badge" in code editors (decorations; `EditorState` doesn't take tokens)
   src/response.rs status strip (time, local clock), body/headers, history (●●●)

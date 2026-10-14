@@ -21,8 +21,9 @@ fn resolve_url_and_query(
 ) -> (String, Vec<String>) {
     let path_param_names = path_params(url);
 
-    // Yuki keeps the query in the URL; only query params in the list (imports,
-    // MCP) take it over. Path params alone leave it alone.
+    // Query params in the list (the app's params tab, imports, MCP) own the
+    // query. A query in the URL only counts when the list has none (older
+    // requests saved with it there). Path params alone leave it alone.
     let base = if parameters
         .iter()
         .all(|p| path_param_names.contains(&p.name))

@@ -91,6 +91,7 @@ impl RequestEditor {
     pub fn used_vars(&self, cx: &App) -> Vec<String> {
         let mut texts = vec![self.url.read(cx).value()];
         texts.extend(self.params.texts(cx));
+        texts.extend(self.query.texts(cx));
         texts.extend(self.headers.texts(cx));
         texts.extend(self.body.template_texts(cx));
         texts.extend(self.auth.texts(cx));

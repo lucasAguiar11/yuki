@@ -44,7 +44,7 @@ jobs:
 
       - name: Third-party licenses
         run: |
-          cargo install cargo-about --locked
+          cargo install cargo-about --locked --features cli
           cargo about generate about.hbs -o THIRD-PARTY.html
 
       - name: Bundle Yuki.app

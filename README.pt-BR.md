@@ -25,6 +25,7 @@ cargo build --release -p yuki
 | ⌘P / ⌘⇧P / ⌘O | ir para request / comandos / trocar de workspace |
 | ⌘N / ⌘⇧N | novo request / nova pasta |
 | ⌘E | mostrar/ocultar o editor do request |
+| ⌘⌥L | resposta ao lado / abaixo do request |
 | ⌘⇧E | painel de variáveis |
 | ⌘⌥E | ambientes e variáveis |
 | ⌘⇧G | painel do git |

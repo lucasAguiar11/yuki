@@ -25,6 +25,7 @@ cargo build --release -p yuki
 | ⌘P / ⌘⇧P / ⌘O | go to request / commands / switch workspace |
 | ⌘N / ⌘⇧N | new request / new folder |
 | ⌘E | toggle the request editor |
+| ⌘⌥L | response beside / below the request |
 | ⌘⇧E | variables panel |
 | ⌘⌥E | environments and variables |
 | ⌘⇧G | git panel |

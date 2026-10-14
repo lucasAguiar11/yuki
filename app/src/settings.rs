@@ -251,7 +251,7 @@ impl SettingsScreen {
         self.save_prefs(prefs, cx);
     }
 
-    fn save_prefs(&mut self, prefs: Prefs, cx: &mut Context<Self>) {
+    pub(crate) fn save_prefs(&mut self, prefs: Prefs, cx: &mut Context<Self>) {
         let task = cx.background_spawn(async move { prefs.save() });
         cx.spawn(async move |this, cx| {
             if let Err(e) = task.await {

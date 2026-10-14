@@ -98,6 +98,7 @@ actions!(
         MoveItem,
         DeleteItem,
         CopyAsCurl,
+        ToggleLayout,
         CaptureField,
         CancelRename,
         OpenAbout,
@@ -133,6 +134,7 @@ fn bind_keys(cx: &mut App) {
         KeyBinding::new("cmd-shift-e", ToggleVars, None),
         KeyBinding::new("cmd-shift-g", ToggleGit, None),
         KeyBinding::new("cmd-alt-e", OpenEnvs, None),
+        KeyBinding::new("cmd-alt-l", ToggleLayout, None),
         KeyBinding::new("escape", CloseEnvs, Some("EnvScreen")),
         // ⌘, on macOS, ctrl-, elsewhere.
         KeyBinding::new("secondary-,", OpenSettings, None),
@@ -173,6 +175,17 @@ fn bind_keys(cx: &mut App) {
     ]);
     // Fallback when nothing is focused; the root view handles Quit with a flush.
     cx.on_action(|_: &Quit, cx| cx.quit());
+    // Response below ⇄ beside the request; saved like any other pref.
+    cx.on_action(|_: &ToggleLayout, cx| {
+        let on = !cx.global::<prefs::Prefs>().response_beside;
+        let prefs = prefs::Prefs::set_response_beside(on, cx);
+        cx.background_spawn(async move {
+            if let Err(e) = prefs.save() {
+                eprintln!("[prefs] {e}");
+            }
+        })
+        .detach();
+    });
     // `sw_vers` runs on click, not on every render of the about screen.
     cx.on_action(|_: &ReportBug, cx| cx.open_url(&about::bug_url()));
     cx.on_window_closed(|cx, _| {

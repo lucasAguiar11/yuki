@@ -162,6 +162,10 @@ impl Yuki {
                     action(&t!("Delete request"), Box::new(DeleteItem)),
                     action(&t!("Close tab"), Box::new(CloseTab)),
                     action(&t!("Toggle sidebar"), Box::new(ToggleSidebar)),
+                    action(
+                        &t!("Response beside / below the request"),
+                        Box::new(ToggleLayout),
+                    ),
                     action("Git: commit, branches, pull/push…", Box::new(ToggleGit)),
                     action(&t!("Environments and variables…"), Box::new(OpenEnvs)),
                     action(&t!("Settings…"), Box::new(OpenSettings)),

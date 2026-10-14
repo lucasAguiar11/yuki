@@ -2,12 +2,13 @@
 //! the response (see `response.rs`).
 
 use gpui_kit::component::{
-    h_flex,
+    h_flex, h_resizable,
     input::{InlineTokenContext, Input},
     resizable_panel,
     select::Select,
     spinner::Spinner,
-    v_flex, v_resizable, ActiveTheme as _, Sizable as _,
+    tooltip::Tooltip,
+    v_flex, v_resizable, ActiveTheme as _, Icon, IconName, Sizable as _,
 };
 use gpui_kit::{prelude::FluentBuilder as _, *};
 
@@ -16,14 +17,19 @@ use crate::{
     response,
     table::Which,
     ui, var_view, CompleteAccept, CompleteDismiss, CompleteNext, CompleteOpen, CompletePrev, Send,
-    ToggleEditor, ToggleVars,
+    ToggleEditor, ToggleLayout, ToggleVars,
 };
 
 impl Render for RequestEditor {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let response = response::render(self, cx);
-        let body = if self.editor_open {
-            v_resizable(SharedString::from(format!("doc-{}", self.saved.id)))
+        let beside = cx.global::<crate::prefs::Prefs>().response_beside;
+        // One resizable group per layout: a group reused across directions
+        // would keep the other one's sizes.
+        let id = |dir: &str| SharedString::from(format!("doc-{dir}-{}", self.saved.id));
+        let body = match (self.editor_open, beside) {
+            (false, _) => response,
+            (true, false) => v_resizable(id("v"))
                 .child(
                     resizable_panel()
                         .size(px(240.))
@@ -32,9 +38,17 @@ impl Render for RequestEditor {
                         .child(self.render_editor(cx)),
                 )
                 .child(resizable_panel().child(response))
-                .into_any_element()
-        } else {
-            response
+                .into_any_element(),
+            (true, true) => h_resizable(id("h"))
+                .child(
+                    resizable_panel()
+                        .size(px(520.))
+                        .size_range(px(280.)..Pixels::MAX)
+                        .flex_none()
+                        .child(self.render_editor(cx)),
+                )
+                .child(resizable_panel().child(response))
+                .into_any_element(),
         };
         let popup = self.render_completion(window, cx);
         v_flex()
@@ -170,7 +184,43 @@ impl RequestEditor {
         );
         let notes = segment("meta-notes", self.notes_label(cx).into(), ReqTab::Notes, cx);
         let vars_segment = self.render_vars_segment(cx);
+        let beside = cx.global::<crate::prefs::Prefs>().response_beside;
         let theme = cx.theme();
+        let (fg, muted, selected_bg) = (theme.foreground, theme.muted_foreground, theme.secondary);
+        // Response below / beside: the current one lit; the other one switches.
+        let layout = |id: &'static str, icon: IconName, on: bool, tip: String| {
+            let current = on == beside;
+            div()
+                .id(id)
+                .p_0p5()
+                .rounded(theme.radius)
+                .cursor_pointer()
+                .text_color(if current { fg } else { muted })
+                .when(current, |d| d.bg(selected_bg))
+                .hover(move |s| s.text_color(fg))
+                .child(Icon::new(icon).xsmall())
+                .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
+                .on_click(move |_, window, cx| {
+                    if !current {
+                        window.dispatch_action(Box::new(ToggleLayout), cx)
+                    }
+                })
+        };
+        let layouts = h_flex()
+            .gap_0p5()
+            .mr_3()
+            .child(layout(
+                "layout-below",
+                IconName::PanelBottom,
+                false,
+                t!("response below · ⌘⌥L").into_owned(),
+            ))
+            .child(layout(
+                "layout-beside",
+                IconName::PanelRight,
+                true,
+                t!("response beside · ⌘⌥L").into_owned(),
+            ));
         let dot = || div().text_color(theme.muted_foreground).child("·");
         h_flex()
             .h(px(30.))
@@ -192,6 +242,7 @@ impl RequestEditor {
             .child(dot())
             .child(vars_segment)
             .child(div().flex_1())
+            .child(layouts)
             .child(
                 div()
                     .id("toggle-editor")

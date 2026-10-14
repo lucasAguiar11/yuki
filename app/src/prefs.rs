@@ -1,5 +1,6 @@
-//! App-wide preferences (font sizes, language) in `settings.yaml` in the data
-//! dir, applied over the theme at startup and from the settings screen.
+//! App-wide preferences (font sizes, language, response layout) in
+//! `settings.yaml` in the data dir, applied over the theme at startup and from
+//! the settings screen.
 
 use std::{path::PathBuf, sync::OnceLock};
 
@@ -26,6 +27,9 @@ pub struct Prefs {
     pub mono_font_family: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub language: Option<String>,
+    /// Response beside the request editor instead of below it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub response_beside: bool,
 }
 
 impl Global for Prefs {}
@@ -99,6 +103,7 @@ impl Prefs {
         let prefs = cx.global_mut::<Prefs>();
         *prefs = Prefs {
             language: prefs.language.take(),
+            response_beside: prefs.response_beside,
             ..Prefs::default()
         };
         let prefs = prefs.clone();
@@ -167,6 +172,16 @@ impl Prefs {
         prefs.language = lang.map(str::to_owned);
         let prefs = prefs.clone();
         prefs.apply(cx);
+        prefs
+    }
+
+    /// Response beside (`true`) or below the request editor. Applied at once
+    /// (every window re-renders); the caller saves.
+    pub fn set_response_beside(on: bool, cx: &mut App) -> Prefs {
+        let prefs = cx.global_mut::<Prefs>();
+        prefs.response_beside = on;
+        let prefs = prefs.clone();
+        cx.refresh_windows();
         prefs
     }
 

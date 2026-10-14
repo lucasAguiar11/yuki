@@ -278,6 +278,25 @@ impl SettingsScreen {
                 .child(label)
                 .on_click(cx.listener(move |this, _, _, cx| this.set_language(lang, cx)))
         });
+        // Response below (stacked) or beside the request editor; ⌘⌥L flips it.
+        let beside = cx.global::<Prefs>().response_beside;
+        let layouts = [(false, t!("below")), (true, t!("beside"))].map(|(on, label)| {
+            let selected = beside == on;
+            div()
+                .id(if on { "layout-beside" } else { "layout-below" })
+                .px_2()
+                .py_0p5()
+                .rounded_sm()
+                .cursor_pointer()
+                .text_color(if selected { fg } else { muted })
+                .when(selected, |s| s.bg(active_bg))
+                .hover(move |s| s.bg(hover_bg))
+                .child(label.into_owned())
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    let prefs = Prefs::set_response_beside(on, cx);
+                    this.save_prefs(prefs, cx);
+                }))
+        });
         v_flex()
             .gap_4()
             .child(field(t!("interface font").into_owned(), ui_font, None, cx))
@@ -301,6 +320,12 @@ impl SettingsScreen {
                 t!("language").into_owned(),
                 h_flex().gap_2().children(langs),
                 Some(t!("open tabs finish switching after a restart.").into_owned()),
+                cx,
+            ))
+            .child(field(
+                t!("response").into_owned(),
+                h_flex().gap_2().children(layouts),
+                Some(t!("⌘⌥L switches it from anywhere.").into_owned()),
                 cx,
             ))
             .into_any_element()

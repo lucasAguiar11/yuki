@@ -1,8 +1,8 @@
 //! Fixture-driven tests for the Swagger 2.0 parser → IR mapping.
 
+use yuki_core::{AuthConfig, OAuth2Grant};
 use yuki_import::{
-    detect_format, parse, ImportFormat, ImportedAuth, ImportedBody, ImportedItem, OAuth2GrantKind,
-    RawKind,
+    detect_format, parse, ImportFormat, ImportedAuth, ImportedBody, ImportedItem, RawKind,
 };
 
 const PETSTORE: &str = include_str!("fixtures/swagger/petstore.yaml");
@@ -111,13 +111,15 @@ fn security_maps_global_and_oauth2_override() {
         .into_iter()
         .find(|r| r.name == "Add a new pet to the store")
         .unwrap();
-    let ImportedAuth::OAuth2 {
-        grant, auth_url, ..
-    } = &add.auth
+    let ImportedAuth::Core(AuthConfig::OAuth2 {
+        grant_type,
+        auth_url,
+        ..
+    }) = &add.auth
     else {
         panic!("expected OAuth2 override, got {:?}", add.auth);
     };
-    assert!(matches!(grant, OAuth2GrantKind::Implicit));
+    assert_eq!(*grant_type, OAuth2Grant::Implicit);
     assert_eq!(auth_url, "https://petstore.swagger.io/oauth/authorize");
 
     // No operation security → inherit the global default.

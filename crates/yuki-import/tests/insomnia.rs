@@ -97,8 +97,8 @@ fn maps_bodies_and_explicit_auth() {
         panic!("expected graphql, got {:?}", gql.body);
     };
     assert!(query.contains("me"));
-    // Loose request under the workspace with empty auth → None (no folder to inherit).
-    assert!(matches!(gql.auth, ImportedAuth::None));
+    // Loose request with empty auth inherits the root (resolves to none).
+    assert!(matches!(gql.auth, ImportedAuth::Inherit));
 }
 
 #[test]
@@ -136,6 +136,117 @@ fn cyclic_parent_ids_terminate() {
     // must import without unbounded recursion / stack overflow.
     let col = parse(ImportFormat::Insomnia, CYCLIC).unwrap();
     assert!(!col.items.is_empty());
+}
+
+const EDGE: &str = r#"{"_type":"export","__export_format":4,"resources":[
+  {"_id":"wrk_1","_type":"workspace","parentId":null,"name":"edge"},
+  {"_id":"fld_1","_type":"request_group","parentId":"wrk_1","name":"F",
+   "authentication":{"type":"bearer","token":"folderTok"},"preRequestScript":"x()"},
+  {"_id":"req_1","_type":"request","parentId":"fld_1","name":"disabled-auth","method":"get",
+   "url":"{{ _['api-host'] }}/users/:id","pathParameters":[{"name":"id","value":"42"}],
+   "authentication":{"type":"basic","username":"u","password":"p","disabled":true},
+   "afterResponseScript":"insomnia.test('x',()=>{})"},
+  {"_id":"req_2","_type":"request","parentId":"wrk_1","name":"binary","method":"POST",
+   "url":"{{ _[\"base\"] }}/up","body":{"mimeType":"application/octet-stream","fileName":"/tmp/a.bin"},
+   "authentication":{"type":"bearer","token":"t","prefix":"Token"}},
+  {"_id":"req_3","_type":"request","parentId":"wrk_1","name":"cookie","method":"GET","url":"https://x",
+   "authentication":{"type":"apikey","key":"sid","value":"v","addTo":"cookie"}},
+  {"_id":"req_4","_type":"request","parentId":"wrk_1","name":"multipart","method":"POST","url":"https://x",
+   "body":{"mimeType":"multipart/form-data","params":[{"name":"f","type":"file","fileName":"/tmp/a.png"}]},
+   "authentication":{"type":"hawk","id":"i","key":"k","algorithm":"sha256"}},
+  {"_id":"greq_1","_type":"grpc_request","parentId":"wrk_1","name":"grpc"},
+  {"_id":"ws-req_1","_type":"websocket_request","parentId":"wrk_1","name":"ws"}]}"#;
+
+#[test]
+fn maps_edge_cases_and_warns_about_dropped_items() {
+    let col = parse(ImportFormat::Insomnia, EDGE).unwrap();
+    let reqs = all_requests(&col);
+    let get = |n: &str| reqs.iter().find(|r| r.name == n).unwrap();
+
+    let r = get("disabled-auth");
+    // Disabled auth falls back to the folder's, like Insomnia.
+    assert!(matches!(r.auth, ImportedAuth::Inherit));
+    assert_eq!(r.url, "{{ api-host }}/users/:id");
+    assert!(r
+        .path_params
+        .iter()
+        .any(|p| p.name == "id" && p.value == "42"));
+
+    let r = get("binary");
+    assert_eq!(r.url, "{{ base }}/up");
+    assert!(matches!(&r.body, Some(ImportedBody::Binary(p)) if p == "/tmp/a.bin"));
+    assert!(
+        matches!(&r.auth, ImportedAuth::ApiKey { key, value, in_header: true }
+        if key == "Authorization" && value == "Token t")
+    );
+
+    assert!(
+        matches!(&get("cookie").auth, ImportedAuth::ApiKey { key, value, in_header: true }
+        if key == "Cookie" && value == "sid=v")
+    );
+
+    let r = get("multipart");
+    let Some(ImportedBody::Multipart(fields)) = &r.body else {
+        panic!("expected multipart, got {:?}", r.body);
+    };
+    assert!(fields[0].is_file && fields[0].value == "/tmp/a.png");
+    assert!(matches!(&r.auth, ImportedAuth::Unsupported(k) if k == "hawk"));
+
+    assert!(col
+        .warnings
+        .iter()
+        .any(|w| w == "2 WebSocket/gRPC item(s) skipped"));
+    assert!(col
+        .warnings
+        .iter()
+        .any(|w| w.starts_with("2 item(s) with pre-request")));
+}
+
+#[test]
+fn maps_every_core_auth_kind() {
+    use yuki_core::{AuthConfig, OAuth1Signature, OAuth2ClientAuth, OAuth2Grant, OAuth2PkceMethod};
+    let spec = r#"{"_type":"export","__export_format":4,"resources":[
+      {"_id":"w","_type":"workspace","parentId":null,"name":"A"},
+      {"_id":"r1","_type":"request","parentId":"w","name":"digest","method":"GET","url":"u",
+       "authentication":{"type":"digest","username":"du","password":"dp"}},
+      {"_id":"r2","_type":"request","parentId":"w","name":"ntlm","method":"GET","url":"u",
+       "authentication":{"type":"ntlm","username":"CORP\\nu","password":"np"}},
+      {"_id":"r3","_type":"request","parentId":"w","name":"oauth1","method":"GET","url":"u",
+       "authentication":{"type":"oauth1","consumerKey":"ck","consumerSecret":"cs","tokenKey":"tk",
+        "tokenSecret":"ts","signatureMethod":"RSA-SHA1","privateKey":"pk","realm":"r","verifier":"v"}},
+      {"_id":"r4","_type":"request","parentId":"w","name":"iam","method":"GET","url":"u",
+       "authentication":{"type":"iam","accessKeyId":"ak","secretAccessKey":"sk","sessionToken":"st",
+        "region":"us-east-1","service":"s3"}},
+      {"_id":"r5","_type":"request","parentId":"w","name":"oauth2","method":"GET","url":"u",
+       "authentication":{"type":"oauth2","grantType":"password","accessTokenUrl":"t","clientId":"c",
+        "username":"ou","password":"op","redirectUrl":"cb","audience":"aud","state":"st",
+        "usePkce":false,"pkceMethod":"plain","credentialsInBody":true,"useDefaultBrowser":true}}]}"#;
+    let col = parse(ImportFormat::Insomnia, spec).unwrap();
+    let reqs = all_requests(&col);
+    let core = |n: &str| match &reqs.iter().find(|r| r.name == n).unwrap().auth {
+        ImportedAuth::Core(a) => a.clone(),
+        other => panic!("{n}: expected core auth, got {other:?}"),
+    };
+    assert!(
+        matches!(core("digest"), AuthConfig::Digest { username, password, .. }
+        if username == "du" && password == "dp")
+    );
+    assert!(
+        matches!(core("ntlm"), AuthConfig::Ntlm { username, domain, .. }
+        if username == "nu" && domain == "CORP")
+    );
+    assert!(matches!(core("oauth1"), AuthConfig::OAuth1 {
+        consumer_secret, token, signature_method: OAuth1Signature::RsaSha1, private_key, verifier, ..
+    } if consumer_secret == "cs" && token == "tk" && private_key == "pk" && verifier == "v"));
+    assert!(
+        matches!(core("iam"), AuthConfig::AwsSigV4 { session_token, region, service, .. }
+        if session_token == "st" && region == "us-east-1" && service == "s3")
+    );
+    assert!(matches!(core("oauth2"), AuthConfig::OAuth2 {
+        grant_type: OAuth2Grant::Password, username, password, redirect_uri, audience, state,
+        use_pkce: false, code_challenge_method: OAuth2PkceMethod::Plain,
+        client_auth: OAuth2ClientAuth::RequestBody, use_external_browser: true, ..
+    } if username == "ou" && password == "op" && redirect_uri == "cb" && audience == "aud" && state == "st"));
 }
 
 fn all_requests(col: &yuki_import::ImportedCollection) -> Vec<yuki_import::ImportedRequest> {

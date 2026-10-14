@@ -1,15 +1,19 @@
-//! Postman Collection v2.0 / v2.1 → IR. One parser for both (they differ only in
-//! `info.schema`). `item[]` nests to arbitrary depth (a node with `item` is a
-//! folder, one with `request` is a request); `url` may be a string or an object
-//! with `query`/`variable` arrays; `body` has five modes. Postman `{{var}}`
-//! tokens already match Voleeo's syntax, so variable keys pass through verbatim —
-//! never sanitized (that would break the references). Auth is a `{type, <type>:
-//! [{key,value}]}` shape. `event[]` scripts aren't importable → counted into one
-//! warning.
+//! Postman Collection v2.0 / v2.1 (and environment/globals files) → IR. One
+//! parser for both collection versions (they differ only in `info.schema` and
+//! the auth field shape, see `auth`). `item[]` nests to arbitrary depth (a node
+//! with `item` is a folder, one with `request` is a request); `url` may be a
+//! string or an object with `query`/`variable` arrays; `body` has five modes.
+//! Postman `{{var}}` tokens already match Voleeo's syntax, so variable keys pass
+//! through verbatim — never sanitized (that would break the references). A
+//! missing `auth` inherits the enclosing scope. `event[]` scripts aren't
+//! importable → counted into one warning.
+
+mod auth;
 
 use crate::ir::*;
 use crate::util::{disabled, name_of, parse_value, str_at_or, strip_query};
 use crate::ImportError;
+use auth::to_auth;
 use serde_json::Value;
 
 /// Warnings + the running script count, threaded through the recursive walk.
@@ -22,9 +26,12 @@ struct Acc {
 pub fn parse_postman(content: &str) -> Result<ImportedCollection, ImportError> {
     let doc = parse_value(content)?;
     if doc.get("item").is_none() {
-        return Err(ImportError::Parse(
-            "missing `item` array (not a Postman collection)".into(),
-        ));
+        return match doc.get("values") {
+            Some(values) if values.is_array() => Ok(environment(&doc, values)),
+            _ => Err(ImportError::Parse(
+                "missing `item` array (not a Postman collection)".into(),
+            )),
+        };
     }
     let version = if str_at_or(&doc, "/info/schema").contains("v2.0") {
         "2.0"
@@ -32,13 +39,10 @@ pub fn parse_postman(content: &str) -> Result<ImportedCollection, ImportError> {
         "2.1"
     };
 
-    let root_auth = doc.get("auth").map(to_auth).unwrap_or(ImportedAuth::None);
-    let has_global = !matches!(root_auth, ImportedAuth::None);
-
     let mut acc = Acc::default();
     count_scripts(&doc, &mut acc);
     let items = match doc.get("item") {
-        Some(Value::Array(arr)) => build_items(arr, has_global, &mut acc),
+        Some(Value::Array(arr)) => build_items(arr, &mut acc),
         _ => Vec::new(),
     };
     if acc.scripts > 0 {
@@ -52,6 +56,12 @@ pub fn parse_postman(content: &str) -> Result<ImportedCollection, ImportError> {
             n = acc.scripts
         ));
     }
+    let dynamic = content.matches("{{$").count();
+    if dynamic > 0 {
+        acc.warnings.push(format!(
+            "{dynamic} Postman dynamic variable reference(s) ({{{{$guid}}}}, {{{{$timestamp}}}}, {{{{$random…}}}}) kept as-is — Yuki doesn't resolve them."
+        ));
+    }
 
     Ok(ImportedCollection {
         name: doc
@@ -60,15 +70,41 @@ pub fn parse_postman(content: &str) -> Result<ImportedCollection, ImportError> {
             .unwrap_or("Imported API")
             .to_string(),
         version: Some(version.to_string()),
+        root_headers: Vec::new(),
         variables: variables(doc.get("variable")),
         environments: Vec::new(),
-        root_auth,
+        // Absent root auth = Inherit, which resolves to none at the root.
+        root_auth: to_auth(doc.get("auth")),
         items,
         warnings: acc.warnings,
     })
 }
 
-fn build_items(items: &[Value], has_global: bool, acc: &mut Acc) -> Vec<ImportedItem> {
+/// Environment / globals export: `{name, values[], _postman_variable_scope?}`.
+/// Globals become the collection variables; an environment becomes one named env.
+fn environment(doc: &Value, values: &Value) -> ImportedCollection {
+    let name = doc
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or("Imported environment")
+        .to_string();
+    let vars = variables(Some(values));
+    let mut col = ImportedCollection {
+        name: name.clone(),
+        ..Default::default()
+    };
+    if str_at_or(doc, "/_postman_variable_scope") == "globals" {
+        col.variables = vars;
+    } else {
+        col.environments.push(ImportedEnvironment {
+            name,
+            variables: vars,
+        });
+    }
+    col
+}
+
+fn build_items(items: &[Value], acc: &mut Acc) -> Vec<ImportedItem> {
     let mut out = Vec::new();
     for it in items {
         count_scripts(it, acc);
@@ -79,29 +115,23 @@ fn build_items(items: &[Value], has_global: bool, acc: &mut Acc) -> Vec<Imported
                     .get("description")
                     .and_then(Value::as_str)
                     .map(str::to_string),
-                // No explicit folder auth → inherit from the collection.
-                auth: it.get("auth").map(to_auth).unwrap_or(ImportedAuth::Inherit),
+                auth: to_auth(it.get("auth")),
                 headers: Vec::new(),
                 variables: variables(it.get("variable")),
-                items: build_items(children, has_global, acc),
+                items: build_items(children, acc),
             }));
         } else if let Some(req) = it.get("request") {
-            out.push(ImportedItem::Request(build_request(
-                name_of(it),
-                req,
-                has_global,
-            )));
+            out.push(ImportedItem::Request(build_request(name_of(it), req)));
         }
     }
     out
 }
 
-fn build_request(name: String, req: &Value, has_global: bool) -> ImportedRequest {
+fn build_request(name: String, req: &Value) -> ImportedRequest {
     // v2.0 shorthand: `request` is just a URL string.
     if let Some(raw) = req.as_str() {
         let mut r = blank_request(name, "GET");
         set_url_string(raw, &mut r);
-        r.auth = inherited(has_global);
         return r;
     }
 
@@ -115,28 +145,9 @@ fn build_request(name: String, req: &Value, has_global: bool) -> ImportedRequest
     if let Some(url) = req.get("url") {
         parse_url(url, &mut r);
     }
-    if let Some(Value::Array(headers)) = req.get("header") {
-        for h in headers {
-            let key = h.get("key").and_then(Value::as_str).unwrap_or("");
-            if key.is_empty() {
-                continue;
-            }
-            r.headers.push(ImportedParam {
-                name: key.to_string(),
-                value: h
-                    .get("value")
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .to_string(),
-                enabled: !disabled(h),
-            });
-        }
-    }
+    r.headers = params(req.get("header"));
     r.body = req.get("body").and_then(parse_body);
-    r.auth = match req.get("auth") {
-        Some(a) => to_auth(a),
-        None => inherited(has_global),
-    };
+    r.auth = to_auth(req.get("auth"));
     r
 }
 
@@ -150,42 +161,16 @@ fn parse_url(url: &Value, r: &mut ImportedRequest) {
         Some(s) if !s.is_empty() => s.to_string(),
         _ => reconstruct_raw(url),
     };
-    r.url = strip_query(&raw).to_string();
-    r.path = raw;
-    if let Some(Value::Array(q)) = url.get("query") {
-        for item in q {
-            let key = item.get("key").and_then(Value::as_str).unwrap_or("");
-            if key.is_empty() {
-                continue;
-            }
-            r.query.push(ImportedParam {
-                name: key.to_string(),
-                value: item
-                    .get("value")
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .to_string(),
-                enabled: !disabled(item),
-            });
-        }
+    r.query = params(url.get("query"));
+    if r.query.is_empty() {
+        // No structured `query[]` (hand-written or older exports): the query
+        // lives only in `raw`.
+        set_url_string(&raw, r);
+    } else {
+        r.url = strip_query(&raw).to_string();
+        r.path = raw;
     }
-    if let Some(Value::Array(vars)) = url.get("variable") {
-        for v in vars {
-            let key = v.get("key").and_then(Value::as_str).unwrap_or("");
-            if key.is_empty() {
-                continue;
-            }
-            r.path_params.push(ImportedParam {
-                name: key.to_string(),
-                value: v
-                    .get("value")
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .to_string(),
-                enabled: true,
-            });
-        }
-    }
+    r.path_params = params(url.get("variable"));
 }
 
 /// String URL: store it query-stripped and split any `?a=b&c=d` into params.
@@ -205,6 +190,25 @@ fn set_url_string(raw: &str, r: &mut ImportedRequest) {
             });
         }
     }
+}
+
+/// `[{key, value, disabled}]` (or env `enabled: false`) → params, skipping empty keys.
+fn params(arr: Option<&Value>) -> Vec<ImportedParam> {
+    arr.and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|p| {
+            let key = p
+                .get("key")
+                .and_then(Value::as_str)
+                .filter(|k| !k.is_empty())?;
+            Some(ImportedParam {
+                name: key.to_string(),
+                value: p.get("value").map(scalar).unwrap_or_default(),
+                enabled: !disabled(p) && p.get("enabled").and_then(Value::as_bool) != Some(false),
+            })
+        })
+        .collect()
 }
 
 fn parse_body(body: &Value) -> Option<ImportedBody> {
@@ -229,7 +233,7 @@ fn parse_body(body: &Value) -> Option<ImportedBody> {
                 .filter(|s| !s.is_empty())
                 .map(str::to_string),
         }),
-        "file" => Some(ImportedBody::Binary),
+        "file" => Some(ImportedBody::Binary(file_src(body.pointer("/file/src")))),
         _ => None,
     }
 }
@@ -240,14 +244,16 @@ fn form_fields(arr: Option<&Value>) -> Vec<ImportedField> {
             a.iter()
                 .filter_map(|f| {
                     let name = f.get("key").and_then(Value::as_str)?;
+                    let is_file = f.get("type").and_then(Value::as_str) == Some("file");
                     Some(ImportedField {
                         name: name.to_string(),
-                        value: f
-                            .get("value")
-                            .and_then(Value::as_str)
-                            .unwrap_or("")
-                            .to_string(),
-                        is_file: f.get("type").and_then(Value::as_str) == Some("file"),
+                        value: if is_file {
+                            file_src(f.get("src"))
+                        } else {
+                            f.get("value").map(scalar).unwrap_or_default()
+                        },
+                        is_file,
+                        content_type: None,
                         enabled: !disabled(f),
                     })
                 })
@@ -256,85 +262,35 @@ fn form_fields(arr: Option<&Value>) -> Vec<ImportedField> {
         .unwrap_or_default()
 }
 
-/// `{type, <type>: [{key,value}]}` → IR auth. `<type>` names the field holding the
-/// key/value pairs (Postman's quirky shape).
-fn to_auth(auth: &Value) -> ImportedAuth {
-    let ty = auth.get("type").and_then(Value::as_str).unwrap_or("noauth");
-    let params = auth.get(ty);
-    let get = |k: &str| kv_lookup(params, k);
-    match ty {
-        "noauth" => ImportedAuth::None,
-        "bearer" => ImportedAuth::Bearer {
-            token: get("token"),
-        },
-        "basic" => ImportedAuth::Basic {
-            username: get("username"),
-            password: get("password"),
-        },
-        "apikey" => {
-            let key = get("key");
-            ImportedAuth::ApiKey {
-                key: if key.is_empty() {
-                    "X-API-Key".into()
-                } else {
-                    key
-                },
-                value: get("value"),
-                in_header: get("in") != "query",
-            }
-        }
-        "oauth2" => ImportedAuth::OAuth2 {
-            grant: match get("grant_type").as_str() {
-                "authorization_code" | "authorization_code_with_pkce" => {
-                    OAuth2GrantKind::AuthorizationCode
-                }
-                "password_credentials" | "password" => OAuth2GrantKind::Password,
-                "implicit" => OAuth2GrantKind::Implicit,
-                _ => OAuth2GrantKind::ClientCredentials,
-            },
-            auth_url: get("authUrl"),
-            token_url: get("accessTokenUrl"),
-            client_id: get("clientId"),
-            client_secret: get("clientSecret"),
-            scope: get("scope"),
-        },
-        other => ImportedAuth::Unsupported(other.to_string()),
+/// File `src`: a path string, or an array of paths (first wins).
+fn file_src(src: Option<&Value>) -> String {
+    match src {
+        Some(Value::Array(a)) => a.first().map(scalar).unwrap_or_default(),
+        Some(v) => scalar(v),
+        None => String::new(),
     }
 }
 
-/// First `value` whose `key` matches in a Postman key/value array.
-fn kv_lookup(arr: Option<&Value>, key: &str) -> String {
-    arr.and_then(Value::as_array)
-        .and_then(|a| {
-            a.iter()
-                .find(|e| e.get("key").and_then(Value::as_str) == Some(key))
-        })
-        .and_then(|e| e.get("value").and_then(Value::as_str))
-        .unwrap_or("")
-        .to_string()
+/// A JSON value as text: strings verbatim, `null` empty, numbers/bools printed.
+fn scalar(v: &Value) -> String {
+    match v {
+        Value::String(s) => s.clone(),
+        Value::Null => String::new(),
+        other => other.to_string(),
+    }
 }
 
+/// Collection/folder `variable[]` (`disabled: true`) and environment `values[]`
+/// (`enabled: false`).
 fn variables(v: Option<&Value>) -> Vec<ImportedVariable> {
-    v.and_then(Value::as_array)
-        .map(|a| {
-            a.iter()
-                .filter_map(|item| {
-                    let key = item.get("key").and_then(Value::as_str)?;
-                    if key.is_empty() {
-                        return None;
-                    }
-                    Some(ImportedVariable {
-                        key: key.to_string(),
-                        value: item
-                            .get("value")
-                            .and_then(Value::as_str)
-                            .unwrap_or("")
-                            .to_string(),
-                    })
-                })
-                .collect()
+    params(v)
+        .into_iter()
+        .map(|p| ImportedVariable {
+            key: p.name,
+            value: p.value,
+            enabled: p.enabled,
         })
-        .unwrap_or_default()
+        .collect()
 }
 
 fn count_scripts(node: &Value, acc: &mut Acc) {
@@ -358,14 +314,6 @@ fn blank_request(name: String, method: &str) -> ImportedRequest {
         name,
         method: method.to_string(),
         ..Default::default()
-    }
-}
-
-fn inherited(has_global: bool) -> ImportedAuth {
-    if has_global {
-        ImportedAuth::Inherit
-    } else {
-        ImportedAuth::None
     }
 }
 

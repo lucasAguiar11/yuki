@@ -1,8 +1,8 @@
 //! Fixture-driven tests for the Bruno OpenCollection (YAML) parser → IR mapping.
 
+use yuki_core::{AuthConfig, OAuth2Grant};
 use yuki_import::{
-    detect_format, parse, ImportFormat, ImportedAuth, ImportedBody, ImportedItem, OAuth2GrantKind,
-    RawKind,
+    detect_format, parse, ImportFormat, ImportedAuth, ImportedBody, ImportedItem, RawKind,
 };
 
 const COLLECTION: &str = include_str!("fixtures/bruno/collection.yml");
@@ -124,13 +124,15 @@ fn maps_bodies_and_oauth2() {
     };
     assert!(fields.iter().any(|f| f.name == "file" && f.is_file));
     assert!(fields.iter().any(|f| f.name == "caption" && !f.is_file));
-    let ImportedAuth::OAuth2 {
-        grant, token_url, ..
-    } = &upload.auth
+    let ImportedAuth::Core(AuthConfig::OAuth2 {
+        grant_type,
+        token_url,
+        ..
+    }) = &upload.auth
     else {
         panic!("expected oauth2, got {:?}", upload.auth);
     };
-    assert!(matches!(grant, OAuth2GrantKind::AuthorizationCode));
+    assert_eq!(*grant_type, OAuth2Grant::AuthorizationCode);
     assert_eq!(token_url, "https://auth.example.com/token");
 }
 

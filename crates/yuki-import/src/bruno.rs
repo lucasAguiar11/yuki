@@ -2,14 +2,17 @@
 //! (`info.type` is `folder` or `http`), ordered by `info.seq`. Bruno templating
 //! is `{{var}}` — identical to Voleeo, so values pass through verbatim. Auth on a
 //! folder/collection `request` block is inherited by descendants (the literal
-//! string `auth: inherit` requests that inheritance). Collection/folder variables
-//! and the first `config.environments` entry become collection variables; scripts
-//! aren't importable → one warning.
+//! string `auth: inherit` requests that inheritance). Collection variables
+//! become collection variables, folder variables stay on their folder, and each
+//! `config.environments` entry becomes a named environment; scripts aren't
+//! importable → one warning.
 
+use crate::convert::oauth2;
 use crate::ir::*;
 use crate::util::{disabled, name_of, parse_value, strip_query};
 use crate::ImportError;
 use serde_json::Value;
+use yuki_core::OAuth2Grant;
 
 pub fn parse_bruno(content: &str) -> Result<ImportedCollection, ImportError> {
     let doc = parse_value(content)?;
@@ -61,6 +64,7 @@ pub fn parse_bruno(content: &str) -> Result<ImportedCollection, ImportError> {
             .unwrap_or_default(),
         environments: collect_environments(&doc),
         root_auth,
+        root_headers: Vec::new(),
         items,
         warnings,
     })
@@ -197,7 +201,7 @@ fn body_to_body(body: &Value) -> Option<ImportedBody> {
             false,
         ))),
         "multipart-form" => Some(ImportedBody::Multipart(form_fields(body.get("data"), true))),
-        "file" => Some(ImportedBody::Binary),
+        "file" => Some(ImportedBody::Binary(String::new())),
         _ => None,
     }
 }
@@ -217,6 +221,7 @@ fn form_fields(data: Option<&Value>, multipart: bool) -> Vec<ImportedField> {
                             .to_string(),
                         is_file: multipart && f.get("type").and_then(Value::as_str) == Some("file"),
                         enabled: !disabled(f),
+                        content_type: None,
                     })
                 })
                 .collect()
@@ -260,26 +265,25 @@ fn parse_auth(a: &Value) -> ImportedAuth {
                     .unwrap_or("")
                     .to_string()
             };
-            ImportedAuth::OAuth2 {
-                grant: match a.get("flow").and_then(Value::as_str).unwrap_or("") {
-                    "authorization_code" => OAuth2GrantKind::AuthorizationCode,
-                    "password" => OAuth2GrantKind::Password,
-                    "implicit" => OAuth2GrantKind::Implicit,
-                    _ => OAuth2GrantKind::ClientCredentials,
+            ImportedAuth::Core(oauth2(
+                match a.get("flow").and_then(Value::as_str).unwrap_or("") {
+                    "authorization_code" => OAuth2Grant::AuthorizationCode,
+                    "password" => OAuth2Grant::Password,
+                    "implicit" => OAuth2Grant::Implicit,
+                    _ => OAuth2Grant::ClientCredentials,
                 },
-                auth_url: s("authorizationUrl"),
-                token_url: s("accessTokenUrl"),
-                client_id: cred("clientId"),
-                client_secret: cred("clientSecret"),
-                scope: s("scope"),
-            }
+                s("authorizationUrl"),
+                s("accessTokenUrl"),
+                cred("clientId"),
+                cred("clientSecret"),
+                s("scope"),
+            ))
         }
         "" | "none" => ImportedAuth::None,
         other => ImportedAuth::Unsupported(other.to_string()),
     }
 }
 
-/// Collection `request.variables` + the first `config.environments` entry.
 /// Each `config.environments` entry → a named Voleeo environment.
 fn collect_environments(doc: &Value) -> Vec<ImportedEnvironment> {
     doc.pointer("/config/environments")
@@ -317,6 +321,7 @@ fn to_variables(v: &Value) -> Vec<ImportedVariable> {
                     Some(ImportedVariable {
                         key: key.to_string(),
                         value,
+                        enabled: !disabled(var),
                     })
                 })
                 .collect()

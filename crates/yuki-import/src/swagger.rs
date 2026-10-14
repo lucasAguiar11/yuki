@@ -4,6 +4,7 @@
 //! `in:body`/`in:formData` parameters, `consumes`/`produces`, and the flat
 //! `securityDefinitions` oauth2 shape (a single `flow`, not nested `flows`).
 
+use crate::convert::oauth2;
 use crate::ir::*;
 use crate::util::{
     classify_param, group_by_path, merged_params, parse_value, path_template_to_segments,
@@ -11,6 +12,7 @@ use crate::util::{
 };
 use crate::ImportError;
 use serde_json::Value;
+use yuki_core::OAuth2Grant;
 
 pub fn parse_swagger2(content: &str) -> Result<ImportedCollection, ImportError> {
     let doc = parse_value(content)?;
@@ -89,6 +91,7 @@ fn add_base_url(doc: &Value, col: &mut ImportedCollection) -> bool {
     col.variables.push(ImportedVariable {
         key: "base_url".into(),
         value: format!("{scheme}://{host}{base_path}"),
+        enabled: true,
     });
     true
 }
@@ -143,6 +146,7 @@ fn build_operation(
                     value: String::new(),
                     is_file,
                     enabled: true,
+                    content_type: None,
                 });
             }
             _ => classify_param(&p, &mut req, &mut warns),
@@ -241,45 +245,34 @@ fn security_to_auth(defs: Option<&Value>, security: Option<&Value>) -> (Imported
             Vec::new(),
         ),
         "oauth2" => oauth2_to_auth(def),
-        other => (
-            ImportedAuth::Unsupported(other.to_string()),
-            vec![format!(
-                "Auth scheme `{name}` ({other}) is not supported; left as None."
-            )],
-        ),
+        // `convert` warns once per unsupported kind.
+        other => (ImportedAuth::Unsupported(other.to_string()), Vec::new()),
     }
 }
 
 /// Swagger oauth2 is flat: one `flow` + top-level `authorizationUrl`/`tokenUrl`.
 fn oauth2_to_auth(def: &Value) -> (ImportedAuth, Vec<String>) {
     let grant = match def.get("flow").and_then(Value::as_str).unwrap_or("") {
-        "implicit" => OAuth2GrantKind::Implicit,
-        "password" => OAuth2GrantKind::Password,
-        "accessCode" => OAuth2GrantKind::AuthorizationCode,
-        _ => OAuth2GrantKind::ClientCredentials, // "application" + fallback
+        "implicit" => OAuth2Grant::Implicit,
+        "password" => OAuth2Grant::Password,
+        "accessCode" => OAuth2Grant::AuthorizationCode,
+        _ => OAuth2Grant::ClientCredentials, // "application" + fallback
     };
     let scope = def
         .get("scopes")
         .and_then(Value::as_object)
         .map(|s| s.keys().cloned().collect::<Vec<_>>().join(" "))
         .unwrap_or_default();
+    let url = |k: &str| def.get(k).and_then(Value::as_str).unwrap_or("").to_string();
     (
-        ImportedAuth::OAuth2 {
+        ImportedAuth::Core(oauth2(
             grant,
-            auth_url: def
-                .get("authorizationUrl")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string(),
-            token_url: def
-                .get("tokenUrl")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string(),
-            client_id: String::new(),
-            client_secret: String::new(),
+            url("authorizationUrl"),
+            url("tokenUrl"),
+            String::new(),
+            String::new(),
             scope,
-        },
+        )),
         Vec::new(),
     )
 }

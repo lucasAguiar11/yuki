@@ -1,17 +1,27 @@
 use crate::ir::*;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use yuki_core::{
-    new_id, now_iso, ApiFolder, ApiKeyLocation, AuthConfig, BodyField, BodyKind,
-    EnvironmentVariable, HttpRequest, OAuth2ClientAuth, OAuth2Grant, OAuth2PkceMethod, RequestBody,
-    RequestParameter,
+    new_id, now_iso, ApiFolder, ApiKeyLocation, AuthConfig, BodyField, BodyKind, Environment,
+    EnvironmentKind, EnvironmentVariable, GrpcRequest, HttpRequest, OAuth2ClientAuth, OAuth2Grant,
+    OAuth2PkceMethod, RequestBody, RequestParameter, WsConnection,
 };
 
-/// Fully-built structs ready for `RequestStore::write_bulk` + an "Imported" env.
+/// Fully-built structs ready to persist. Folders come out flattened (auth `None`,
+/// no headers) because the send pipeline ignores `AuthConfig::Inherit` and
+/// folder/workspace headers: each request carries its effective auth and merged
+/// headers instead.
+#[derive(Debug, Default)]
 pub struct ConvertedPlan {
     pub folders: Vec<ApiFolder>,
     pub requests: Vec<HttpRequest>,
+    /// Collection/base variables → the workspace's Global environment.
     pub variables: Vec<EnvironmentVariable>,
-    pub root_auth: AuthConfig,
+    /// Named environments (fresh ids, `workspace_id` set).
+    pub environments: Vec<Environment>,
+    /// Voleeo bundles only.
+    pub websockets: Vec<WsConnection>,
+    /// Voleeo bundles only.
+    pub grpc: Vec<GrpcRequest>,
     pub warnings: Vec<String>,
 }
 
@@ -19,55 +29,77 @@ pub struct ConvertedPlan {
 /// `timestamp_millis`; existing ones use `max_sibling_order + 1` to append).
 pub fn build_plan(workspace_id: &str, order_base: f64, col: &ImportedCollection) -> ConvertedPlan {
     let mut plan = ConvertedPlan {
-        folders: Vec::new(),
-        requests: Vec::new(),
         variables: col.variables.iter().map(to_env_var).collect(),
-        root_auth: to_auth(&col.root_auth),
+        environments: col
+            .environments
+            .iter()
+            .map(|e| {
+                let vars = e.variables.iter().map(to_env_var).collect();
+                named_env(workspace_id, &e.name, vars)
+            })
+            .collect(),
         warnings: col.warnings.clone(),
+        ..Default::default()
     };
-    let mut counter = 0f64;
+    let root_auth = resolve(&col.root_auth, &AuthConfig::None);
+    let root_headers = to_params(&col.root_headers);
+    let mut order = order_base;
     convert_items(
         workspace_id,
         &col.items,
         None,
-        order_base,
-        &mut counter,
+        (&root_auth, &root_headers),
+        &mut order,
         &mut plan,
     );
+    let mut unsupported = BTreeMap::new();
+    count_unsupported(&col.root_auth, &col.items, &mut unsupported);
+    for (kind, n) in unsupported {
+        plan.warnings.push(format!(
+            "`{kind}` auth ({n}×) isn't supported by Yuki; imported without auth."
+        ));
+    }
     plan
 }
 
+fn count_unsupported(
+    auth: &ImportedAuth,
+    items: &[ImportedItem],
+    out: &mut BTreeMap<String, usize>,
+) {
+    if let ImportedAuth::Unsupported(kind) = auth {
+        *out.entry(kind.clone()).or_default() += 1;
+    }
+    for item in items {
+        match item {
+            ImportedItem::Folder(f) => count_unsupported(&f.auth, &f.items, out),
+            ImportedItem::Request(r) => count_unsupported(&r.auth, &[], out),
+        }
+    }
+}
+
+/// `scope` = (auth, headers) in effect for these items, already merged from root
+/// and every enclosing folder.
 fn convert_items(
     ws: &str,
     items: &[ImportedItem],
     parent: Option<&str>,
-    base: f64,
-    counter: &mut f64,
+    scope: (&AuthConfig, &[RequestParameter]),
+    order: &mut f64,
     plan: &mut ConvertedPlan,
 ) {
     for item in items {
-        let order = base + *counter;
-        *counter += 1.0;
+        let this_order = *order;
+        *order += 1.0;
         match item {
             ImportedItem::Folder(f) => {
-                let id = new_id();
-                let now = now_iso();
-                plan.folders.push(ApiFolder {
-                    id: id.clone(),
-                    folder_type: "api".to_string(),
-                    model: "folder".to_string(),
-                    workspace_id: ws.to_string(),
-                    folder_id: parent.map(str::to_string),
-                    name: f.name.clone(),
-                    headers: to_params(&f.headers),
-                    auth: to_auth(&f.auth),
-                    variables: f.variables.iter().map(to_env_var).collect(),
-                    color: None,
-                    order,
-                    created_at: now.clone(),
-                    updated_at: now,
-                });
-                convert_items(ws, &f.items, Some(&id), base, counter, plan);
+                let mut folder = new_folder(ws, parent, &f.name, this_order);
+                let id = folder.id.clone();
+                folder.variables = f.variables.iter().map(to_env_var).collect();
+                plan.folders.push(folder);
+                let auth = resolve(&f.auth, scope.0);
+                let headers = merge_headers(scope.1, &to_params(&f.headers));
+                convert_items(ws, &f.items, Some(&id), (&auth, &headers), order, plan);
             }
             ImportedItem::Request(r) => {
                 let now = now_iso();
@@ -83,10 +115,10 @@ fn convert_items(
                     name: r.name.clone(),
                     url: r.url.clone(),
                     parameters,
-                    headers: to_params(&r.headers),
+                    headers: merge_headers(scope.1, &to_params(&r.headers)),
                     body: to_body(r.body.as_ref()),
-                    auth: to_auth(&r.auth),
-                    order,
+                    auth: resolve(&r.auth, scope.0),
+                    order: this_order,
                     created_at: now.clone(),
                     updated_at: now,
                 });
@@ -95,12 +127,82 @@ fn convert_items(
     }
 }
 
+/// A flattened folder: no auth/headers (those live on its requests).
+pub(crate) fn new_folder(ws: &str, parent: Option<&str>, name: &str, order: f64) -> ApiFolder {
+    let now = now_iso();
+    ApiFolder {
+        id: new_id(),
+        folder_type: "api".to_string(),
+        model: "folder".to_string(),
+        workspace_id: ws.to_string(),
+        folder_id: parent.map(str::to_string),
+        name: name.to_string(),
+        headers: Vec::new(),
+        auth: AuthConfig::None,
+        variables: Vec::new(),
+        color: None,
+        order,
+        created_at: now.clone(),
+        updated_at: now,
+    }
+}
+
+/// Auth a scope hands to its children: its own when declared, else the outer one.
+pub(crate) fn scope_auth(own: &AuthConfig, outer: &AuthConfig) -> AuthConfig {
+    match own {
+        AuthConfig::None | AuthConfig::Inherit { .. } => outer.clone(),
+        declared => declared.clone(),
+    }
+}
+
+/// A request's effective auth: `Inherit` resolves to the enclosing scope's; an
+/// explicit `None` stays none.
+pub(crate) fn request_auth(own: &AuthConfig, outer: &AuthConfig) -> AuthConfig {
+    match own {
+        AuthConfig::Inherit { .. } => outer.clone(),
+        declared => declared.clone(),
+    }
+}
+
+/// Outer headers, then inner ones; an inner header replaces every outer one with
+/// the same name (case-insensitive). Fresh row ids — copies must not share them.
+pub(crate) fn merge_headers(
+    outer: &[RequestParameter],
+    inner: &[RequestParameter],
+) -> Vec<RequestParameter> {
+    outer
+        .iter()
+        .filter(|o| !inner.iter().any(|i| i.name.eq_ignore_ascii_case(&o.name)))
+        .chain(inner)
+        .map(|p| RequestParameter {
+            id: new_id(),
+            ..p.clone()
+        })
+        .collect()
+}
+
+/// A personal (non-shared, uncolored) environment in `ws`.
+fn named_env(ws: &str, name: &str, variables: Vec<EnvironmentVariable>) -> Environment {
+    let now = now_iso();
+    Environment {
+        id: new_id(),
+        workspace_id: ws.to_string(),
+        kind: EnvironmentKind::Personal,
+        name: name.to_string(),
+        color: String::new(),
+        shared: false,
+        variables,
+        created_at: now.clone(),
+        updated_at: now,
+    }
+}
+
 fn to_env_var(v: &ImportedVariable) -> EnvironmentVariable {
     EnvironmentVariable {
         key: v.key.clone(),
         value: v.value.clone(),
         encrypted: false,
-        enabled: true,
+        enabled: v.enabled,
     }
 }
 
@@ -139,8 +241,9 @@ fn to_body(body: Option<&ImportedBody>) -> Option<RequestBody> {
             fields: Some(to_fields(fields)),
             ..Default::default()
         },
-        ImportedBody::Binary => RequestBody {
+        ImportedBody::Binary(path) => RequestBody {
             kind: BodyKind::Binary,
+            file_path: (!path.is_empty()).then(|| path.clone()),
             ..Default::default()
         },
         ImportedBody::GraphQl { query, variables } => RequestBody {
@@ -162,17 +265,17 @@ fn to_fields(fields: &[ImportedField]) -> Vec<BodyField> {
             value: f.value.clone(),
             enabled: f.enabled,
             is_file: f.is_file,
-            content_type: None,
+            content_type: f.content_type.clone(),
         })
         .collect()
 }
 
-fn to_auth(auth: &ImportedAuth) -> AuthConfig {
-    match auth {
+/// `own` resolved against the enclosing scope's effective auth.
+fn resolve(own: &ImportedAuth, outer: &AuthConfig) -> AuthConfig {
+    match own {
+        ImportedAuth::Inherit => outer.clone(),
         ImportedAuth::None | ImportedAuth::Unsupported(_) => AuthConfig::None,
-        ImportedAuth::Inherit => AuthConfig::Inherit {
-            from: Default::default(),
-        },
+        ImportedAuth::Core(a) => a.clone(),
         ImportedAuth::Bearer { token } => AuthConfig::Bearer {
             token: token.clone(),
             token_encrypted: false,
@@ -199,39 +302,39 @@ fn to_auth(auth: &ImportedAuth) -> AuthConfig {
             value_encrypted: false,
             enabled: true,
         },
-        ImportedAuth::OAuth2 {
-            grant,
-            auth_url,
-            token_url,
-            client_id,
-            client_secret,
-            scope,
-        } => AuthConfig::OAuth2 {
-            grant_type: match grant {
-                OAuth2GrantKind::ClientCredentials => OAuth2Grant::ClientCredentials,
-                OAuth2GrantKind::AuthorizationCode => OAuth2Grant::AuthorizationCode,
-                OAuth2GrantKind::Password => OAuth2Grant::Password,
-                OAuth2GrantKind::Implicit => OAuth2Grant::Implicit,
-            },
-            auth_url: auth_url.clone(),
-            token_url: token_url.clone(),
-            client_id: client_id.clone(),
-            client_secret: client_secret.clone(),
-            client_secret_encrypted: false,
-            scope: scope.clone(),
-            audience: String::new(),
-            client_auth: OAuth2ClientAuth::BasicHeader,
-            use_pkce: true,
-            code_challenge_method: OAuth2PkceMethod::S256,
-            code_verifier: String::new(),
-            redirect_uri: String::new(),
-            state: String::new(),
-            username: String::new(),
-            password: String::new(),
-            password_encrypted: false,
-            use_external_browser: false,
-            enabled: true,
-        },
+    }
+}
+
+/// OAuth2 with Yuki's defaults (PKCE S256, client auth in a Basic header);
+/// parsers set the remaining fields through `if let AuthConfig::OAuth2 {..}`.
+pub(crate) fn oauth2(
+    grant_type: OAuth2Grant,
+    auth_url: String,
+    token_url: String,
+    client_id: String,
+    client_secret: String,
+    scope: String,
+) -> AuthConfig {
+    AuthConfig::OAuth2 {
+        grant_type,
+        auth_url,
+        token_url,
+        client_id,
+        client_secret,
+        client_secret_encrypted: false,
+        scope,
+        audience: String::new(),
+        client_auth: OAuth2ClientAuth::BasicHeader,
+        use_pkce: true,
+        code_challenge_method: OAuth2PkceMethod::S256,
+        code_verifier: String::new(),
+        redirect_uri: String::new(),
+        state: String::new(),
+        username: String::new(),
+        password: String::new(),
+        password_encrypted: false,
+        use_external_browser: false,
+        enabled: true,
     }
 }
 

@@ -1,17 +1,19 @@
-//! Parse external API collections (OpenAPI, Swagger, Postman, Insomnia) into a
-//! shared IR, then convert that IR to `yuki-core` types. Pure — no Tauri, no
-//! storage, no disk. The Tauri command layer drives parse → filter → build_plan
-//! → persist.
+//! Parse external API collections (OpenAPI, Swagger, Postman, Insomnia v4/v5,
+//! Bruno, Yaak) into a shared IR, then convert that IR to `yuki-core` types.
+//! Voleeo bundles are already core types and skip the IR. Pure — no storage,
+//! no disk. Callers drive `preview` → `plan` → persist.
 
 mod bruno;
 pub mod convert;
 pub mod detect;
 mod insomnia;
+mod insomnia_v5;
 pub mod ir;
 mod openapi;
 mod postman;
 mod swagger;
 mod util;
+mod voleeo;
 mod yaak;
 
 use std::collections::HashSet;
@@ -30,7 +32,8 @@ pub enum ImportError {
     Unsupported(String),
 }
 
-/// Parse `content` in the given format into the IR.
+/// Parse `content` in the given format into the IR. Voleeo bundles have no IR
+/// form — use `preview`/`plan`.
 pub fn parse(format: ImportFormat, content: &str) -> Result<ImportedCollection, ImportError> {
     match format {
         ImportFormat::OpenApi => openapi::parse_openapi(content),
@@ -39,11 +42,33 @@ pub fn parse(format: ImportFormat, content: &str) -> Result<ImportedCollection, 
         ImportFormat::Insomnia => insomnia::parse_insomnia(content),
         ImportFormat::Bruno => bruno::parse_bruno(content),
         ImportFormat::Yaak => yaak::parse_yaak(content),
+        ImportFormat::Voleeo => Err(ImportError::Unsupported(
+            "Voleeo bundles map to core types directly — use `plan`".into(),
+        )),
     }
+}
+
+/// Parse + select + build: the persistence plan for the chosen nodes
+/// (`selected` = positional ids from `preview`; `None` keeps everything).
+pub fn plan(
+    format: ImportFormat,
+    content: &str,
+    selected: Option<&[String]>,
+    workspace_id: &str,
+    order_base: f64,
+) -> Result<ConvertedPlan, ImportError> {
+    if format == ImportFormat::Voleeo {
+        return voleeo::plan(content, selected, workspace_id, order_base);
+    }
+    let col = select(parse(format, content)?, selected);
+    Ok(build_plan(workspace_id, order_base, &col))
 }
 
 /// Parse + build the preview tree the UI renders for endpoint selection.
 pub fn preview(format: ImportFormat, content: &str) -> Result<ImportPreview, ImportError> {
+    if format == ImportFormat::Voleeo {
+        return voleeo::preview(content);
+    }
     let col = parse(format, content)?;
     Ok(ImportPreview {
         format,

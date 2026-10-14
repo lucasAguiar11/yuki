@@ -1,0 +1,122 @@
+voleeoBundle: "1.0"
+workspaces:
+  - workspace:
+      id: ws_alpha
+      name: Alpha
+      model: workspace
+      headers:
+        - { id: h1, name: X-Client, value: yuki, enabled: true }
+      auth: { kind: bearer, token: ws-token }
+      dnsOverrides:
+        - { id: d1, enabled: true, hostname: api.local, address: 127.0.0.1 }
+      createdAt: "2026-10-01T00:00:00.000Z"
+      updatedAt: "2026-10-01T00:00:00.000Z"
+    folders:
+      - id: fld_users
+        type: api
+        model: folder
+        workspaceId: ws_alpha
+        folderId: null
+        name: Users
+        headers:
+          - { id: h2, name: x-client, value: users, enabled: true }
+        color: "#ff8800"
+        order: 1
+        createdAt: "2026-10-01T00:00:00.000Z"
+        updatedAt: "2026-10-01T00:00:00.000Z"
+    requests:
+      - id: req_list
+        type: api
+        model: http_request
+        workspaceId: ws_alpha
+        folderId: fld_users
+        method: GET
+        name: List users
+        url: "{{ base_url }}/users"
+        auth: { kind: inherit }
+        order: 1
+        createdAt: "2026-10-01T00:00:00.000Z"
+        updatedAt: "2026-10-01T00:00:00.000Z"
+      - id: req_ping
+        type: api
+        model: http_request
+        workspaceId: ws_alpha
+        folderId: null
+        method: GET
+        name: Ping
+        url: "{{ base_url }}/ping"
+        auth: { kind: inherit, from: workspace }
+        order: 2
+        createdAt: "2026-10-01T00:00:00.000Z"
+        updatedAt: "2026-10-01T00:00:00.000Z"
+    websockets:
+      - id: ws_live
+        type: api
+        model: websocket
+        workspaceId: ws_alpha
+        folderId: fld_users
+        name: Live users
+        url: wss://api.example.com/live
+        auth: { kind: inherit }
+        createdAt: "2026-10-01T00:00:00.000Z"
+        updatedAt: "2026-10-01T00:00:00.000Z"
+    grpc:
+      - id: grpc_greet
+        type: api
+        model: grpc_request
+        workspaceId: ws_alpha
+        folderId: null
+        name: Greet
+        target: localhost:50051
+        createdAt: "2026-10-01T00:00:00.000Z"
+        updatedAt: "2026-10-01T00:00:00.000Z"
+    environments:
+      - id: env_global
+        workspaceId: ws_alpha
+        kind: global
+        name: Global
+        color: ""
+        shared: true
+        variables:
+          - { key: base_url, value: "https://api.example.com", encrypted: false }
+        createdAt: "2026-10-01T00:00:00.000Z"
+        updatedAt: "2026-10-01T00:00:00.000Z"
+      - id: env_dev
+        workspaceId: ws_alpha
+        kind: personal
+        name: Dev
+        color: "#00aa00"
+        shared: true
+        variables:
+          - { key: api_key, value: "", encrypted: true }
+        createdAt: "2026-10-01T00:00:00.000Z"
+        updatedAt: "2026-10-01T00:00:00.000Z"
+  - workspace:
+      id: ws_beta
+      name: Beta
+      model: workspace
+      createdAt: "2026-10-01T00:00:00.000Z"
+      updatedAt: "2026-10-01T00:00:00.000Z"
+    folders:
+      - id: fld_orders
+        type: api
+        model: folder
+        workspaceId: ws_beta
+        folderId: null
+        name: Orders
+        auth: { kind: basic, username: bob, password: pw }
+        order: 1
+        createdAt: "2026-10-01T00:00:00.000Z"
+        updatedAt: "2026-10-01T00:00:00.000Z"
+    requests:
+      - id: req_orders
+        type: api
+        model: http_request
+        workspaceId: ws_beta
+        folderId: fld_orders
+        method: GET
+        name: List orders
+        url: https://beta.example.com/orders
+        auth: { kind: inherit }
+        createdAt: "2026-10-01T00:00:00.000Z"
+        updatedAt: "2026-10-01T00:00:00.000Z"

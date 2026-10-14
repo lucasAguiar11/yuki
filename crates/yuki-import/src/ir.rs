@@ -9,8 +9,10 @@ pub struct ImportedCollection {
     pub variables: Vec<ImportedVariable>,
     /// Named sub-environments (dev/staging/…) → one Voleeo environment each.
     pub environments: Vec<ImportedEnvironment>,
-    /// Collection-level / global security → workspace auth (new workspace only).
+    /// Collection-level / global security → flattened onto every request.
     pub root_auth: ImportedAuth,
+    /// Collection/workspace headers → merged under every request's own headers.
+    pub root_headers: Vec<ImportedParam>,
     pub items: Vec<ImportedItem>,
     /// Unsupported features surfaced to the user (skipped scripts, external refs…).
     pub warnings: Vec<String>,
@@ -68,6 +70,7 @@ pub struct ImportedParam {
 pub struct ImportedVariable {
     pub key: String,
     pub value: String,
+    pub enabled: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -78,7 +81,8 @@ pub enum ImportedBody {
     },
     FormUrlEncoded(Vec<ImportedField>),
     Multipart(Vec<ImportedField>),
-    Binary,
+    /// The file path (empty when the source has none).
+    Binary(String),
     GraphQl {
         query: String,
         variables: Option<String>,
@@ -96,17 +100,24 @@ pub enum RawKind {
 #[derive(Debug, Clone)]
 pub struct ImportedField {
     pub name: String,
+    /// For `is_file`, the file path.
     pub value: String,
     pub is_file: bool,
     pub enabled: bool,
+    pub content_type: Option<String>,
 }
 
-/// Auth schemes the IR can carry. `convert::to_auth` maps these onto
-/// `yuki_core::AuthConfig`; `Unsupported` becomes `None` plus a warning.
+/// Auth schemes the IR can carry. `convert` maps these onto
+/// `yuki_core::AuthConfig`. Absent auth is `Inherit` (resolves to the enclosing
+/// scope, `None` at the root); an explicit `None` stops inheritance;
+/// `Unsupported` becomes `None` plus a warning. Schemes with many fields
+/// (OAuth1/2, AWS, Digest, NTLM) go straight to core as `Core`.
+// Transient (one value per imported item): boxing `Core` would only add noise.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Default)]
 pub enum ImportedAuth {
-    #[default]
     None,
+    #[default]
     Inherit,
     Bearer {
         token: String,
@@ -120,22 +131,6 @@ pub enum ImportedAuth {
         value: String,
         in_header: bool,
     },
-    OAuth2 {
-        grant: OAuth2GrantKind,
-        auth_url: String,
-        token_url: String,
-        client_id: String,
-        client_secret: String,
-        scope: String,
-    },
+    Core(yuki_core::AuthConfig),
     Unsupported(String),
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-pub enum OAuth2GrantKind {
-    #[default]
-    ClientCredentials,
-    AuthorizationCode,
-    Password,
-    Implicit,
 }

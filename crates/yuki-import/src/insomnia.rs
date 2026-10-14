@@ -1,21 +1,51 @@
-//! Insomnia v4 export → IR. Resources are a flat array linked by `parentId`; we
-//! reconstruct the tree (workspace → request_group* → request) and order siblings
-//! by `metaSortKey`. Insomnia templating `{{ _.var }}` maps to Voleeo's
-//! `{{ var }}` — done once as a textual normalize before parsing (the `_.`
-//! prefix only ever appears inside these tags). `{% … %}` function tags aren't
-//! supported and are left as text with a warning. Auth/headers set on a
-//! request_group are inherited by descendants (mirrors the app's folder auth).
+//! Insomnia export → IR. v5 (`collection.insomnia.rest/5.0` YAML) nests its tree
+//! and is handed to `insomnia_v5`; v4 resources are a flat array linked by
+//! `parentId` — we reconstruct the tree (workspace → request_group* → request)
+//! and order siblings by `metaSortKey`. Insomnia templating `{{ _.var }}` maps to
+//! Voleeo's `{{ var }}` — done once as a textual normalize before parsing (the
+//! `_.` prefix only ever appears inside these tags). `{% … %}` function tags
+//! aren't supported and are left as text with a warning. Absent or disabled
+//! auth inherits the nearest folder's (Insomnia's `getOrInheritAuthentication`).
+
+mod auth;
+mod notes;
 
 use crate::ir::*;
 use crate::util::{disabled, name_of, parse_value, strip_query};
 use crate::ImportError;
+pub(crate) use auth::to_auth;
+pub(crate) use notes::Notes;
 use serde_json::Value;
 use std::collections::HashSet;
 
+/// v5 file types that carry a `collection` and/or `environments`.
+const V5_TYPES: [&str; 3] = [
+    crate::insomnia_v5::V5_TYPE,
+    "spec.insomnia.rest/5.0",
+    "environment.insomnia.rest/5.0",
+];
+
 pub fn parse_insomnia(content: &str) -> Result<ImportedCollection, ImportError> {
     // `{{ _.x }}` → `{{ x }}`. Safe on the raw JSON: `_.` only appears in tags.
-    let normalized = content.replace("{{ _.", "{{ ").replace("{{_.", "{{");
+    let normalized = normalize_brackets(&content.replace("{{ _.", "{{ ").replace("{{_.", "{{"));
     let doc = parse_value(&normalized)?;
+
+    let mut warnings = Vec::new();
+    if content.contains("{%") || has_template_filter(&normalized) {
+        warnings.push(
+            "Some Insomnia template tags ({% … %} or `|` filters) aren't supported and were \
+             left as text — adjust them after import."
+                .into(),
+        );
+    }
+    if doc
+        .get("type")
+        .and_then(Value::as_str)
+        .is_some_and(|t| V5_TYPES.contains(&t))
+    {
+        return Ok(crate::insomnia_v5::parse(&doc, warnings));
+    }
+
     let resources = doc
         .get("resources")
         .and_then(Value::as_array)
@@ -42,15 +72,17 @@ pub fn parse_insomnia(content: &str) -> Result<ImportedCollection, ImportError> 
                 .unwrap_or("")
         });
 
-    let mut warnings = Vec::new();
-    if content.contains("{%") || has_template_filter(&normalized) {
-        warnings.push(
-            "Some Insomnia template tags ({% … %} or `|` filters) aren't supported and were \
-             left as text — adjust them after import."
-                .into(),
-        );
+    let mut notes = Notes::default();
+    for r in resources {
+        match type_of(r) {
+            "grpc_request" | "websocket_request" | "socketio_request" => notes.skipped += 1,
+            "request" | "request_group" => notes.script(r),
+            _ => {}
+        }
     }
-    let (variables, environments) = collect_environments(resources, root_id);
+    let (variables, environments) = collect_environments(resources, root_id, &mut notes);
+    let items = build_children(resources, root_id, &mut notes, &mut HashSet::new());
+    notes.warn(&mut warnings);
 
     Ok(ImportedCollection {
         name: workspace
@@ -61,19 +93,47 @@ pub fn parse_insomnia(content: &str) -> Result<ImportedCollection, ImportError> 
         variables,
         environments,
         root_auth: ImportedAuth::None,
-        items: build_children(resources, root_id, false, &mut HashSet::new()),
+        root_headers: Vec::new(),
+        items,
         warnings,
     })
 }
 
-/// Children of `parent_id`, ordered by `metaSortKey`. `inherit` is true when an
-/// ancestor request_group carries auth, so authless requests resolve to Inherit.
+/// `{{ _['name'] }}` / `{{ _["name"] }}` → `{{ name }}` (Insomnia's syntax for
+/// names with dashes). Other spans are left untouched.
+fn normalize_brackets(content: &str) -> String {
+    let mut out = String::with_capacity(content.len());
+    let mut rest = content;
+    while let Some(start) = rest.find("{{") {
+        let after = &rest[start + 2..];
+        let Some(end) = after.find("}}") else { break };
+        out.push_str(&rest[..start]);
+        let inner = after[..end].trim();
+        let name = inner
+            .strip_prefix("_[")
+            .and_then(|s| s.strip_suffix(']'))
+            .map(|s| s.trim_matches(|c| c == '\'' || c == '"' || c == '\\'));
+        match name {
+            Some(n) if !n.is_empty() => {
+                out.push_str("{{ ");
+                out.push_str(n);
+                out.push_str(" }}");
+            }
+            _ => out.push_str(&rest[start..start + 2 + end + 2]),
+        }
+        rest = &after[end + 2..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Children of `parent_id`, ordered by `metaSortKey`.
 /// `seen` guards against a `parentId` cycle in a crafted export (mirrors
 /// `util::RefResolver`) — a repeated group id stops the walk.
 fn build_children<'a>(
     resources: &'a [Value],
     parent_id: &str,
-    inherit: bool,
+    notes: &mut Notes,
     seen: &mut HashSet<&'a str>,
 ) -> Vec<ImportedItem> {
     let mut kids: Vec<&Value> = resources
@@ -93,11 +153,6 @@ fn build_children<'a>(
             if !seen.insert(id_of(r)) {
                 continue;
             }
-            let group_auth = r
-                .get("authentication")
-                .map(to_auth)
-                .unwrap_or(ImportedAuth::None);
-            let has_auth = !matches!(group_auth, ImportedAuth::None);
             out.push(ImportedItem::Folder(ImportedFolder {
                 name: name_of(r),
                 description: r
@@ -105,25 +160,19 @@ fn build_children<'a>(
                     .and_then(Value::as_str)
                     .filter(|s| !s.is_empty())
                     .map(str::to_string),
-                auth: if has_auth {
-                    group_auth
-                } else if inherit {
-                    ImportedAuth::Inherit
-                } else {
-                    ImportedAuth::None
-                },
+                auth: r.get("authentication").map(to_auth).unwrap_or_default(),
                 headers: headers_of(r),
-                variables: env_data(r.get("environment")),
-                items: build_children(resources, id_of(r), inherit || has_auth, seen),
+                variables: notes.env(r.get("environment")),
+                items: build_children(resources, id_of(r), notes, seen),
             }));
         } else {
-            out.push(ImportedItem::Request(build_request(r, inherit)));
+            out.push(ImportedItem::Request(build_request(r)));
         }
     }
     out
 }
 
-fn build_request(r: &Value, inherit: bool) -> ImportedRequest {
+pub(crate) fn build_request(r: &Value) -> ImportedRequest {
     let url = s(r, "url");
     let mut method = s(r, "method").to_uppercase();
     if method.is_empty() {
@@ -140,25 +189,17 @@ fn build_request(r: &Value, inherit: bool) -> ImportedRequest {
     if req.query.is_empty() {
         req.query = query_from_url(&url);
     }
+    req.path_params = name_value_list(r.get("pathParameters"));
     req.headers = headers_of(r);
     req.body = parse_body(r.get("body"));
-    // Empty `authentication: {}` means inherit; an explicit type (incl. "none")
-    // is taken literally.
-    req.auth = match r.get("authentication") {
-        Some(a) if a.as_object().is_some_and(|o| !o.is_empty()) => to_auth(a),
-        _ if inherit => ImportedAuth::Inherit,
-        _ => ImportedAuth::None,
-    };
+    req.auth = r.get("authentication").map(to_auth).unwrap_or_default();
     req
 }
 
 fn parse_body(body: Option<&Value>) -> Option<ImportedBody> {
     let body = body?;
     let mime = body.get("mimeType").and_then(Value::as_str).unwrap_or("");
-    let has_file = body
-        .get("fileName")
-        .and_then(Value::as_str)
-        .is_some_and(|s| !s.is_empty());
+    let file = s(body, "fileName");
 
     if mime.contains("graphql") {
         // `text` is a JSON blob: { "query": "...", "variables": {...} }.
@@ -186,8 +227,8 @@ fn parse_body(body: Option<&Value>) -> Option<ImportedBody> {
             body.get("params"),
         )));
     }
-    if has_file {
-        return Some(ImportedBody::Binary);
+    if !file.is_empty() {
+        return Some(ImportedBody::Binary(file));
     }
     let text = s(body, "text");
     if text.is_empty() && mime.is_empty() {
@@ -199,58 +240,17 @@ fn parse_body(body: Option<&Value>) -> Option<ImportedBody> {
     })
 }
 
-fn to_auth(a: &Value) -> ImportedAuth {
-    if a.get("disabled").and_then(Value::as_bool) == Some(true) {
-        return ImportedAuth::None;
-    }
-    match a.get("type").and_then(Value::as_str).unwrap_or("none") {
-        "none" | "" => ImportedAuth::None,
-        "bearer" => ImportedAuth::Bearer {
-            token: s(a, "token"),
-        },
-        "basic" => ImportedAuth::Basic {
-            username: s(a, "username"),
-            password: s(a, "password"),
-        },
-        "apikey" => {
-            let key = s(a, "key");
-            ImportedAuth::ApiKey {
-                key: if key.is_empty() {
-                    "X-API-Key".into()
-                } else {
-                    key
-                },
-                value: s(a, "value"),
-                in_header: a.get("addTo").and_then(Value::as_str) != Some("queryParams"),
-            }
-        }
-        "oauth2" => ImportedAuth::OAuth2 {
-            grant: match a.get("grantType").and_then(Value::as_str).unwrap_or("") {
-                "authorization_code" => OAuth2GrantKind::AuthorizationCode,
-                "password" => OAuth2GrantKind::Password,
-                "implicit" => OAuth2GrantKind::Implicit,
-                _ => OAuth2GrantKind::ClientCredentials,
-            },
-            auth_url: s(a, "authorizationUrl"),
-            token_url: s(a, "accessTokenUrl"),
-            client_id: s(a, "clientId"),
-            client_secret: s(a, "clientSecret"),
-            scope: s(a, "scope"),
-        },
-        other => ImportedAuth::Unsupported(other.to_string()),
-    }
-}
-
 /// Split environments: the base env (parent is the workspace) → Global variables;
 /// every other `environment` resource → a named Voleeo environment.
 fn collect_environments(
     resources: &[Value],
     root_id: &str,
+    notes: &mut Notes,
 ) -> (Vec<ImportedVariable>, Vec<ImportedEnvironment>) {
     let mut base = Vec::new();
     let mut named = Vec::new();
     for e in resources.iter().filter(|r| type_of(r) == "environment") {
-        let vars = env_data(e.get("data"));
+        let vars = notes.env_of(e);
         if parent_of(e) == root_id {
             base = vars;
         } else {
@@ -263,23 +263,7 @@ fn collect_environments(
     (base, named)
 }
 
-fn env_data(v: Option<&Value>) -> Vec<ImportedVariable> {
-    v.and_then(Value::as_object)
-        .map(|o| {
-            o.iter()
-                .map(|(k, val)| ImportedVariable {
-                    key: k.clone(),
-                    value: match val {
-                        Value::String(s) => s.clone(),
-                        other => other.to_string(),
-                    },
-                })
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-fn headers_of(v: &Value) -> Vec<ImportedParam> {
+pub(crate) fn headers_of(v: &Value) -> Vec<ImportedParam> {
     name_value_list(v.get("headers"))
 }
 
@@ -314,15 +298,15 @@ fn params_to_fields(v: Option<&Value>) -> Vec<ImportedField> {
             a.iter()
                 .filter_map(|p| {
                     let name = p.get("name").and_then(Value::as_str)?;
-                    let is_file = p.get("type").and_then(Value::as_str) == Some("file")
-                        || p.get("fileName")
-                            .and_then(Value::as_str)
-                            .is_some_and(|s| !s.is_empty());
+                    let file = s(p, "fileName");
+                    let is_file =
+                        p.get("type").and_then(Value::as_str) == Some("file") || !file.is_empty();
                     Some(ImportedField {
                         name: name.to_string(),
-                        value: s(p, "value"),
+                        value: if is_file { file } else { s(p, "value") },
                         is_file,
                         enabled: !disabled(p),
+                        content_type: None,
                     })
                 })
                 .collect()
@@ -390,6 +374,6 @@ fn parent_of(v: &Value) -> &str {
 fn sort_key(v: &Value) -> f64 {
     v.get("metaSortKey").and_then(Value::as_f64).unwrap_or(0.0)
 }
-fn s(v: &Value, key: &str) -> String {
+pub(crate) fn s(v: &Value, key: &str) -> String {
     v.get(key).and_then(Value::as_str).unwrap_or("").to_string()
 }

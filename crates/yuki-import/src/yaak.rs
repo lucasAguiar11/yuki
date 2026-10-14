@@ -2,14 +2,23 @@
 //! workspaces, folders, httpRequests, environments, … } }`; we rebuild the tree
 //! by `folderId` (null = workspace root) and order siblings by `sortPriority`.
 //! Yaak templating is `${[ var ]}` — converted to Voleeo's `{{ var }}` per string
-//! field (a global replace is unsafe: the `]}` closer collides with JSON). Auth on
-//! the workspace/folder is inherited by descendants. gRPC/WebSocket resources are
-//! ignored; non-base environments are skipped with a warning.
+//! field (a global replace is unsafe: the `]}` closer collides with JSON).
+//! Auth follows Yaak: a missing `authenticationType` inherits from the folder /
+//! workspace, any value (including `"none"`) is the item's own. Older schemas
+//! (1–4) are read the way Yaak's own importer migrates them. gRPC/WebSocket
+//! resources are skipped with a warning; the base environment becomes collection
+//! variables, folder environments folder variables, every other environment a
+//! named one.
 
+use crate::convert::oauth2;
 use crate::ir::*;
 use crate::util::{name_of, parse_value, strip_query};
 use crate::ImportError;
 use serde_json::Value;
+use std::collections::HashMap;
+use yuki_core::{
+    AuthConfig, OAuth1Location, OAuth1Signature, OAuth2ClientAuth, OAuth2Grant, OAuth2PkceMethod,
+};
 
 pub fn parse_yaak(content: &str) -> Result<ImportedCollection, ImportError> {
     let doc = parse_value(content)?;
@@ -21,14 +30,23 @@ pub fn parse_yaak(content: &str) -> Result<ImportedCollection, ImportError> {
     let resources = doc.get("resources");
     let workspaces = arr(resources, "workspaces");
     let folders = arr(resources, "folders");
-    let requests = arr(resources, "httpRequests");
-    let environments = arr(resources, "environments");
-
+    // Schema 1 called them `requests`.
+    let requests = match arr(resources, "httpRequests") {
+        [] => arr(resources, "requests"),
+        r => r,
+    };
     let workspace = workspaces.first();
-    let root_auth = workspace.map(auth_of).unwrap_or(ImportedAuth::None);
-    let has_global = !matches!(root_auth, ImportedAuth::None);
+    let mut envs = collect_environments(arr(resources, "environments"));
+    // Schema ≤ 2 kept the base variables on the workspace itself.
+    if let Some(w) = workspace {
+        envs.base.extend(env_vars(w));
+    }
 
-    let (variables, named_envs) = collect_environments(environments);
+    let mut warnings = Vec::new();
+    let skipped = arr(resources, "grpcRequests").len() + arr(resources, "websocketRequests").len();
+    if skipped > 0 {
+        warnings.push(format!("{skipped} WebSocket/gRPC item(s) skipped"));
+    }
 
     Ok(ImportedCollection {
         name: workspace
@@ -41,21 +59,22 @@ pub fn parse_yaak(content: &str) -> Result<ImportedCollection, ImportError> {
                 .map(|n| n.to_string())
                 .unwrap_or_else(|| "4".into()),
         ),
-        variables,
-        environments: named_envs,
-        root_auth,
-        items: build_children(folders, requests, None, has_global),
-        warnings: Vec::new(),
+        variables: envs.base,
+        environments: envs.named,
+        root_auth: workspace.map(auth_of).unwrap_or_default(),
+        root_headers: workspace.map(headers_of).unwrap_or_default(),
+        items: build_children(folders, requests, None, &envs.folders),
+        warnings,
     })
 }
 
 /// Folders + requests whose `folderId` matches `parent` (None = workspace root),
-/// ordered by `sortPriority`. `inherit` is true once an ancestor carries auth.
+/// ordered by `sortPriority`.
 fn build_children(
     folders: &[Value],
     requests: &[Value],
     parent: Option<&str>,
-    inherit: bool,
+    folder_vars: &HashMap<String, Vec<ImportedVariable>>,
 ) -> Vec<ImportedItem> {
     enum Node<'a> {
         Folder(&'a Value),
@@ -77,34 +96,27 @@ fn build_children(
     nodes
         .into_iter()
         .map(|(_, n)| match n {
-            Node::Folder(f) => {
-                let auth = auth_of(f);
-                let has_auth = !matches!(auth, ImportedAuth::None);
-                ImportedItem::Folder(ImportedFolder {
-                    name: name_of(f),
-                    description: f
-                        .get("description")
-                        .and_then(Value::as_str)
-                        .filter(|s| !s.is_empty())
-                        .map(str::to_string),
-                    auth: if has_auth {
-                        auth
-                    } else if inherit {
-                        ImportedAuth::Inherit
-                    } else {
-                        ImportedAuth::None
-                    },
-                    headers: headers_of(f),
-                    variables: Vec::new(),
-                    items: build_children(folders, requests, id_of(f), inherit || has_auth),
-                })
-            }
-            Node::Request(r) => ImportedItem::Request(build_request(r, inherit)),
+            Node::Folder(f) => ImportedItem::Folder(ImportedFolder {
+                name: name_of(f),
+                description: f
+                    .get("description")
+                    .and_then(Value::as_str)
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_string),
+                auth: auth_of(f),
+                headers: headers_of(f),
+                variables: id_of(f)
+                    .and_then(|id| folder_vars.get(id))
+                    .cloned()
+                    .unwrap_or_default(),
+                items: build_children(folders, requests, id_of(f), folder_vars),
+            }),
+            Node::Request(r) => ImportedItem::Request(build_request(r)),
         })
         .collect()
 }
 
-fn build_request(r: &Value, inherit: bool) -> ImportedRequest {
+fn build_request(r: &Value) -> ImportedRequest {
     let url = tv(r, "url");
     let mut method = sv(r, "method").to_uppercase();
     if method.is_empty() {
@@ -143,61 +155,59 @@ fn build_request(r: &Value, inherit: bool) -> ImportedRequest {
     }
     req.headers = headers_of(r);
     req.body = body_to_body(r);
-    req.auth = match r.get("authenticationType").and_then(Value::as_str) {
-        Some("none") | Some("") => ImportedAuth::None,
-        Some(_) => auth_of(r),
-        None if inherit => ImportedAuth::Inherit,
-        None => ImportedAuth::None,
-    };
+    req.auth = auth_of(r);
     req
 }
 
 fn body_to_body(r: &Value) -> Option<ImportedBody> {
     let bt = r.get("bodyType").and_then(Value::as_str)?;
-    let body = r.get("body");
-    let text = || tv(body.unwrap_or(&Value::Null), "text");
+    let body = r.get("body").unwrap_or(&Value::Null);
+    let raw = |hint| {
+        Some(ImportedBody::Raw {
+            hint,
+            text: tv(body, "text"),
+        })
+    };
     match bt {
         "" => None,
-        "application/json" => Some(ImportedBody::Raw {
-            hint: RawKind::Json,
-            text: text(),
-        }),
+        "application/json" => raw(RawKind::Json),
         "application/x-www-form-urlencoded" => {
             Some(ImportedBody::FormUrlEncoded(form_fields(body)))
         }
         "multipart/form-data" => Some(ImportedBody::Multipart(form_fields(body))),
         "graphql" => Some(ImportedBody::GraphQl {
-            query: tv(body.unwrap_or(&Value::Null), "query"),
+            query: tv(body, "query"),
             variables: body
-                .and_then(|b| b.get("variables"))
+                .get("variables")
                 .and_then(Value::as_str)
                 .filter(|s| !s.is_empty())
                 .map(convert_template),
         }),
-        "binary" => Some(ImportedBody::Binary),
-        _ => Some(ImportedBody::Raw {
-            hint: RawKind::Text,
-            text: text(),
-        }),
+        "binary" => Some(ImportedBody::Binary(sv(body, "filePath"))),
+        t if t.contains("xml") => raw(RawKind::Xml),
+        t if t.contains("html") => raw(RawKind::Html),
+        _ => raw(RawKind::Text),
     }
 }
 
-fn form_fields(body: Option<&Value>) -> Vec<ImportedField> {
-    body.and_then(|b| b.get("form"))
+fn form_fields(body: &Value) -> Vec<ImportedField> {
+    body.get("form")
         .and_then(Value::as_array)
         .map(|a| {
             a.iter()
                 .filter_map(|f| {
                     let name = f.get("name").and_then(Value::as_str)?;
-                    let is_file = f
-                        .get("file")
-                        .and_then(Value::as_str)
-                        .is_some_and(|s| !s.is_empty());
+                    let file = sv(f, "file");
                     Some(ImportedField {
                         name: name.to_string(),
-                        value: tv(f, "value"),
-                        is_file,
                         enabled: enabled(f),
+                        content_type: Some(sv(f, "contentType")).filter(|c| !c.is_empty()),
+                        is_file: !file.is_empty(),
+                        value: if file.is_empty() {
+                            tv(f, "value")
+                        } else {
+                            file
+                        },
                     })
                 })
                 .collect()
@@ -205,21 +215,34 @@ fn form_fields(body: Option<&Value>) -> Vec<ImportedField> {
         .unwrap_or_default()
 }
 
+/// The auth a workspace/folder/request declares (see the module doc for the
+/// inheritance rule). Keys are the Yaak auth plugins' argument names.
 fn auth_of(v: &Value) -> ImportedAuth {
-    let a = v.get("authentication");
-    let get = |k: &str| convert_template(a.map(|o| sv(o, k)).unwrap_or_default().as_str());
-    match v
-        .get("authenticationType")
-        .and_then(Value::as_str)
-        .unwrap_or("none")
-    {
+    let Some(kind) = v.get("authenticationType").and_then(Value::as_str) else {
+        return ImportedAuth::Inherit;
+    };
+    let a = v.get("authentication").unwrap_or(&Value::Null);
+    if a.get("disabled").and_then(Value::as_bool) == Some(true) {
+        return ImportedAuth::None;
+    }
+    let get = |k: &str| tv(a, k);
+    let flag = |k: &str| a.get(k).and_then(Value::as_bool).unwrap_or(false);
+    match kind {
         "none" | "" => ImportedAuth::None,
         "basic" => ImportedAuth::Basic {
             username: get("username"),
             password: get("password"),
         },
-        "bearer" => ImportedAuth::Bearer {
-            token: get("token"),
+        // The plugin's prefix defaults to "Bearer"; any other one only fits a raw header.
+        "bearer" => match a.get("prefix").map(|_| get("prefix")) {
+            Some(p) if !p.trim().eq_ignore_ascii_case("bearer") => ImportedAuth::ApiKey {
+                key: "Authorization".into(),
+                value: format!("{} {}", p.trim(), get("token")).trim().to_string(),
+                in_header: true,
+            },
+            _ => ImportedAuth::Bearer {
+                token: get("token"),
+            },
         },
         "apikey" => {
             let key = get("key");
@@ -233,40 +256,146 @@ fn auth_of(v: &Value) -> ImportedAuth {
                 in_header: get("location") != "query",
             }
         }
-        "oauth2" => ImportedAuth::OAuth2 {
-            grant: match get("grantType").as_str() {
-                "authorization_code" => OAuth2GrantKind::AuthorizationCode,
-                "password" => OAuth2GrantKind::Password,
-                "implicit" => OAuth2GrantKind::Implicit,
-                _ => OAuth2GrantKind::ClientCredentials,
+        "oauth2" => {
+            let grant = match get("grantType").as_str() {
+                "authorization_code" => OAuth2Grant::AuthorizationCode,
+                "password" => OAuth2Grant::Password,
+                "implicit" => OAuth2Grant::Implicit,
+                _ => OAuth2Grant::ClientCredentials,
+            };
+            let mut auth = oauth2(
+                grant,
+                get("authorizationUrl"),
+                get("accessTokenUrl"),
+                get("clientId"),
+                get("clientSecret"),
+                get("scope"),
+            );
+            if let AuthConfig::OAuth2 {
+                username,
+                password,
+                redirect_uri,
+                state,
+                audience,
+                client_auth,
+                use_pkce,
+                code_challenge_method,
+                code_verifier,
+                use_external_browser,
+                ..
+            } = &mut auth
+            {
+                *username = get("username");
+                *password = get("password");
+                *redirect_uri = get("redirectUri");
+                *state = get("state");
+                *audience = get("audience");
+                // Yaak sends credentials in the body unless told "basic".
+                *client_auth = if get("credentials") == "basic" {
+                    OAuth2ClientAuth::BasicHeader
+                } else {
+                    OAuth2ClientAuth::RequestBody
+                };
+                *use_pkce = flag("usePkce");
+                if get("pkceChallengeMethod") == "plain" {
+                    *code_challenge_method = OAuth2PkceMethod::Plain;
+                }
+                *use_external_browser = flag("useExternalBrowser");
+                *code_verifier = get("pkceCodeChallenge");
+            }
+            ImportedAuth::Core(auth)
+        }
+        "oauth1" => ImportedAuth::Core(AuthConfig::OAuth1 {
+            consumer_key: get("consumerKey"),
+            consumer_secret: get("consumerSecret"),
+            consumer_secret_encrypted: false,
+            token: get("tokenKey"),
+            token_secret: get("tokenSecret"),
+            token_secret_encrypted: false,
+            signature_method: match get("signatureMethod").as_str() {
+                "HMAC-SHA256" => OAuth1Signature::HmacSha256,
+                "HMAC-SHA512" => OAuth1Signature::HmacSha512,
+                "RSA-SHA1" => OAuth1Signature::RsaSha1,
+                "RSA-SHA256" => OAuth1Signature::RsaSha256,
+                "RSA-SHA512" => OAuth1Signature::RsaSha512,
+                "PLAINTEXT" => OAuth1Signature::PlainText,
+                _ => OAuth1Signature::HmacSha1,
             },
-            auth_url: get("authorizationUrl"),
-            token_url: get("accessTokenUrl"),
-            client_id: get("clientId"),
-            client_secret: get("clientSecret"),
-            scope: get("scope"),
-        },
+            realm: get("realm"),
+            private_key: get("privateKey"),
+            private_key_encrypted: false,
+            params_location: OAuth1Location::Header,
+            callback: get("callback"),
+            verifier: get("verifier"),
+            timestamp: get("timestamp"),
+            nonce: get("nonce"),
+            version: get("version"),
+            enabled: true,
+        }),
+        "awsv4" => ImportedAuth::Core(AuthConfig::AwsSigV4 {
+            access_key: get("accessKeyId"),
+            secret_key: get("secretAccessKey"),
+            secret_key_encrypted: false,
+            session_token: get("sessionToken"),
+            session_token_encrypted: false,
+            region: get("region"),
+            service: get("service"),
+            enabled: true,
+        }),
+        "digest" => ImportedAuth::Core(AuthConfig::Digest {
+            username: get("username"),
+            password: get("password"),
+            password_encrypted: false,
+            enabled: true,
+        }),
+        "windows" => ImportedAuth::Core(AuthConfig::Ntlm {
+            username: get("username"),
+            password: get("password"),
+            password_encrypted: false,
+            domain: get("domain"),
+            workstation: get("workstation"),
+            enabled: true,
+        }),
         other => ImportedAuth::Unsupported(other.to_string()),
     }
 }
 
-/// Split environments into the base set (`parentModel == "workspace"` → Global)
-/// and named sub-environments (→ one Voleeo environment each).
-fn collect_environments(envs: &[Value]) -> (Vec<ImportedVariable>, Vec<ImportedEnvironment>) {
-    let mut base = Vec::new();
-    let mut named = Vec::new();
+#[derive(Default)]
+struct Envs {
+    base: Vec<ImportedVariable>,
+    named: Vec<ImportedEnvironment>,
+    /// Folder id → that folder's environment variables.
+    folders: HashMap<String, Vec<ImportedVariable>>,
+}
+
+/// Base (→ Global), folder and named environments. Schema 5 says which via
+/// `parentModel`; schema 4 used `base: bool`, schema 3 `environmentId: null`
+/// for the base one.
+fn collect_environments(envs: &[Value]) -> Envs {
+    let mut out = Envs::default();
     for e in envs {
         let vars = env_vars(e);
-        if e.get("parentModel").and_then(Value::as_str) == Some("workspace") {
-            base = vars;
+        let base = match e.get("parentModel").and_then(Value::as_str) {
+            Some(model) => model == "workspace",
+            None => match e.get("base").and_then(Value::as_bool) {
+                Some(b) => b,
+                None => e.get("environmentId").is_some_and(Value::is_null),
+            },
+        };
+        if base {
+            out.base.extend(vars);
+        } else if e.get("parentModel").and_then(Value::as_str) == Some("folder") {
+            if let Some(id) = e.get("parentId").and_then(Value::as_str) {
+                out.folders.entry(id.to_string()).or_default().extend(vars);
+            }
         } else {
-            named.push(ImportedEnvironment {
+            out.named.push(ImportedEnvironment {
                 name: name_of(e),
                 variables: vars,
             });
         }
     }
-    (base, named)
+    out
 }
 
 fn env_vars(e: &Value) -> Vec<ImportedVariable> {
@@ -282,6 +411,7 @@ fn env_vars(e: &Value) -> Vec<ImportedVariable> {
                     Some(ImportedVariable {
                         key: key.to_string(),
                         value: tv(v, "value"),
+                        enabled: enabled(v),
                     })
                 })
                 .collect()

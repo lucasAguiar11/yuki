@@ -1,6 +1,5 @@
-//! Format auto-detection from raw content. Each phase's parser is wired into
-//! `crate::parse`; detection recognizes all four up front so the UI's format
-//! picker and the command signature stay stable across phases.
+//! Format auto-detection from raw content. Every format's parser is wired into
+//! `crate::parse` (Voleeo bundles go through `crate::plan` directly).
 
 use crate::util::parse_value_opt;
 use serde_json::Value;
@@ -15,13 +14,18 @@ pub enum ImportFormat {
     Insomnia,
     Bruno,
     Yaak,
+    /// Native Voleeo/Yuki bundle (`yuki_core::VoleeoBundle`).
+    Voleeo,
 }
 
 /// Sniff the format from JSON/YAML content. Returns `None` when nothing matches.
 pub fn detect_format(content: &str) -> Option<ImportFormat> {
     let v = parse_value_opt(content)?;
 
-    // Bruno OpenCollection (YAML) and Yaak (JSON) carry unique root keys.
+    // Voleeo bundles, Bruno OpenCollection (YAML) and Yaak (JSON) carry unique root keys.
+    if v.get("voleeoBundle").is_some() {
+        return Some(ImportFormat::Voleeo);
+    }
     if v.get("opencollection").is_some() {
         return Some(ImportFormat::Bruno);
     }
@@ -37,15 +41,31 @@ pub fn detect_format(content: &str) -> Option<ImportFormat> {
     if v.get("openapi").is_some() {
         return Some(ImportFormat::OpenApi);
     }
+    // `schema.getpostman.com` (≤2023) and `schema.postman.com` (current).
     let postman_schema = v
         .pointer("/info/schema")
         .and_then(Value::as_str)
-        .is_some_and(|s| s.contains("schema.getpostman.com"));
-    if postman_schema || v.pointer("/info/_postman_id").is_some() {
+        .is_some_and(|s| s.contains("postman.com"));
+    // Environment/globals files: `{ name, values: [...] }`, scope tag optional.
+    let postman_env = v.get("_postman_variable_scope").is_some()
+        || (v.get("values").is_some_and(Value::is_array)
+            && v.get("name").is_some_and(Value::is_string));
+    if postman_schema || v.pointer("/info/_postman_id").is_some() || postman_env {
         return Some(ImportFormat::Postman);
     }
+    // v5 YAML: collections, design documents (`spec.…`, carry a `collection`)
+    // and standalone environments.
+    let v5 = v.get("type").and_then(Value::as_str).is_some_and(|t| {
+        [
+            crate::insomnia_v5::V5_TYPE,
+            "spec.insomnia.rest/5.0",
+            "environment.insomnia.rest/5.0",
+        ]
+        .contains(&t)
+    });
     if v.get("__export_format").is_some()
         || v.get("_type").and_then(Value::as_str) == Some("export")
+        || v5
     {
         return Some(ImportFormat::Insomnia);
     }

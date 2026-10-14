@@ -1,0 +1,129 @@
+type: collection.insomnia.rest/5.0
+schema_version: "5.1"
+name: Sample API
+meta:
+  id: wrk_5a1b2c3d
+  created: 1760000000000
+  modified: 1760000000000
+  description: ""
+collection:
+  - name: Users
+    meta:
+      id: fld_users
+      created: 1760000000000
+      modified: 1760000000000
+      sortKey: -1760000000000
+      description: User management
+    authentication:
+      type: bearer
+      token: "{{ _.token }}"
+    headers:
+      - name: X-Tenant
+        value: acme
+      - name: Accept
+        value: application/json
+    children:
+      - url: "{{ _.base_url }}/users?limit=10"
+        name: List users
+        meta:
+          id: req_list
+          created: 1760000000000
+          modified: 1760000000000
+          isPrivate: false
+          sortKey: -1760000000001
+        method: GET
+        parameters:
+          - name: limit
+            value: "10"
+          - name: debug
+            value: "1"
+            disabled: true
+        headers:
+          - name: accept
+            value: application/xml
+        authentication: {}
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+      - url: "{{ _.base_url }}/users"
+        name: Create user
+        meta:
+          id: req_create
+          created: 1760000000000
+          modified: 1760000000000
+          isPrivate: false
+          sortKey: -1760000000002
+        method: POST
+        body:
+          mimeType: application/json
+          text: |-
+            {
+              "name": "{{ _.user_name }}"
+            }
+        headers:
+          - name: Content-Type
+            value: application/json
+        authentication:
+          type: basic
+          username: admin
+          password: secret
+  - url: "{{ _.base_url }}/health"
+    name: Health
+    meta:
+      id: req_health
+      created: 1760000000000
+      modified: 1760000000000
+      isPrivate: false
+      sortKey: -1760000000003
+    method: GET
+  - url: wss://api.example.com/live
+    name: Live feed
+    meta:
+      id: ws-req_live
+      created: 1760000000000
+      modified: 1760000000000
+      sortKey: -1760000000004
+    headers: []
+    authentication: {}
+  - url: localhost:50051
+    name: Greeter
+    meta:
+      id: greq_greet
+      created: 1760000000000
+      modified: 1760000000000
+      sortKey: -1760000000005
+    protoMethodName: /helloworld.Greeter/SayHello
+    body:
+      text: "{}"
+cookieJar:
+  name: Default Jar
+  meta:
+    id: jar_1
+    created: 1760000000000
+    modified: 1760000000000
+environments:
+  name: Base Environment
+  meta:
+    id: env_base
+    created: 1760000000000
+    modified: 1760000000000
+    isPrivate: false
+  data:
+    base_url: https://api.example.com
+    token: dev-token
+  subEnvironments:
+    - name: Staging
+      meta:
+        id: env_staging
+        created: 1760000000000
+        modified: 1760000000000
+        isPrivate: false
+        sortKey: 1760000000000
+      data:
+        base_url: https://staging.example.com
+      color: "#7d69cb"

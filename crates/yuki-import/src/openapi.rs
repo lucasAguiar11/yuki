@@ -5,6 +5,7 @@
 //! security schemes map onto the IR auth enum. Internal `$ref`s resolve; external
 //! refs are skipped with a warning.
 
+use crate::convert::oauth2;
 use crate::ir::*;
 use crate::util::{
     classify_param, group_by_path, merged_params, parse_value, path_template_to_segments,
@@ -12,6 +13,7 @@ use crate::util::{
 };
 use crate::ImportError;
 use serde_json::Value;
+use yuki_core::OAuth2Grant;
 
 pub fn parse_openapi(content: &str) -> Result<ImportedCollection, ImportError> {
     let doc = parse_value(content)?;
@@ -90,6 +92,7 @@ fn add_base_url(doc: &Value, col: &mut ImportedCollection) -> bool {
     col.variables.push(ImportedVariable {
         key: "base_url".into(),
         value: resolved,
+        enabled: true,
     });
     if let Some(w) = extra {
         col.warnings.push(w);
@@ -188,7 +191,7 @@ fn request_body_to_body(resolver: &RefResolver, rb: &Value) -> Option<ImportedBo
             ImportedBody::FormUrlEncoded(fields)
         });
     }
-    Some(ImportedBody::Binary)
+    Some(ImportedBody::Binary(String::new()))
 }
 
 /// One field per schema property; `binary`-format props become file fields.
@@ -213,6 +216,7 @@ fn schema_fields(
                 value: String::new(),
                 is_file,
                 enabled: true,
+                content_type: None,
             }
         })
         .collect()
@@ -253,11 +257,10 @@ fn security_to_auth(
                     Vec::new(),
                 )
             } else {
+                // `convert` warns once per unsupported kind.
                 (
                     ImportedAuth::Unsupported(format!("http {scheme}")),
-                    vec![format!(
-                        "Auth scheme `{name}` (http {scheme}) is not supported; left as None."
-                    )],
+                    Vec::new(),
                 )
             }
         }
@@ -274,12 +277,7 @@ fn security_to_auth(
             Vec::new(),
         ),
         "oauth2" => oauth2_to_auth(name, def),
-        other => (
-            ImportedAuth::Unsupported(other.to_string()),
-            vec![format!(
-                "Auth scheme `{name}` ({other}) is not supported; left as None."
-            )],
-        ),
+        other => (ImportedAuth::Unsupported(other.to_string()), Vec::new()),
     }
 }
 
@@ -287,7 +285,7 @@ fn oauth2_to_auth(name: &str, def: &Value) -> (ImportedAuth, Vec<String>) {
     let flows = def.get("flows").and_then(Value::as_object);
     let Some(flows) = flows else {
         return (
-            ImportedAuth::Unsupported("oauth2".into()),
+            ImportedAuth::None,
             vec![format!(
                 "OAuth2 scheme `{name}` had no flows; left as None."
             )],
@@ -302,38 +300,36 @@ fn oauth2_to_auth(name: &str, def: &Value) -> (ImportedAuth, Vec<String>) {
     ]
     .iter()
     .find_map(|k| flows.get(*k).map(|f| (grant_for(k), f)))
-    .unwrap_or((OAuth2GrantKind::ClientCredentials, def));
+    .unwrap_or((OAuth2Grant::ClientCredentials, def));
     let scope = flow
         .get("scopes")
         .and_then(Value::as_object)
         .map(|s| s.keys().cloned().collect::<Vec<_>>().join(" "))
         .unwrap_or_default();
+    let url = |k: &str| {
+        flow.get(k)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string()
+    };
     (
-        ImportedAuth::OAuth2 {
+        ImportedAuth::Core(oauth2(
             grant,
-            auth_url: flow
-                .get("authorizationUrl")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string(),
-            token_url: flow
-                .get("tokenUrl")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string(),
-            client_id: String::new(),
-            client_secret: String::new(),
+            url("authorizationUrl"),
+            url("tokenUrl"),
+            String::new(),
+            String::new(),
             scope,
-        },
+        )),
         Vec::new(),
     )
 }
 
-fn grant_for(flow: &str) -> OAuth2GrantKind {
+fn grant_for(flow: &str) -> OAuth2Grant {
     match flow {
-        "authorizationCode" => OAuth2GrantKind::AuthorizationCode,
-        "implicit" => OAuth2GrantKind::Implicit,
-        "password" => OAuth2GrantKind::Password,
-        _ => OAuth2GrantKind::ClientCredentials,
+        "authorizationCode" => OAuth2Grant::AuthorizationCode,
+        "implicit" => OAuth2Grant::Implicit,
+        "password" => OAuth2Grant::Password,
+        _ => OAuth2Grant::ClientCredentials,
     }
 }

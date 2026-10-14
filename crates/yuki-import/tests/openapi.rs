@@ -147,7 +147,7 @@ fn security_maps_global_and_operation_override() {
         .find(|r| r.name == "Create a pet")
         .unwrap();
     // Operation override → OAuth2 with the token URL from the flow.
-    let ImportedAuth::OAuth2 { token_url, .. } = &create.auth else {
+    let ImportedAuth::Core(yuki_core::AuthConfig::OAuth2 { token_url, .. }) = &create.auth else {
         panic!("expected OAuth2 on create, got {:?}", create.auth);
     };
     assert_eq!(token_url, "https://api.example.com/oauth/token");

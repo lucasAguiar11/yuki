@@ -125,6 +125,7 @@ impl RequestEditor {
     /// ⌃space: list every variable at the cursor of the focused field.
     pub(crate) fn open_completion(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let mut targets: Vec<Target> = vec![(&self.url).into()];
+        targets.extend(self.params.inputs().map(Target::Line));
         targets.extend(self.headers.inputs().map(Target::Line));
         targets.extend(self.body.fields.inputs().map(Target::Line));
         targets.extend(self.body.code_editors().map(Target::Code));

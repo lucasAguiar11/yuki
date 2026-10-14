@@ -151,6 +151,15 @@ impl RequestEditor {
                 .child(label)
                 .on_click(cx.listener(move |this, _, _, cx| this.toggle_editor(Some(tab), cx)))
         };
+        // Only when the URL has `:name`s — otherwise it's noise.
+        let params = (self.params.len() > 0).then(|| {
+            segment(
+                "meta-params",
+                format!("params {}", self.params.len()),
+                ReqTab::Params,
+                cx,
+            )
+        });
         let headers = segment(
             "meta-headers",
             format!("headers {}", self.header_count(cx)),
@@ -177,6 +186,7 @@ impl RequestEditor {
             .text_color(theme.muted_foreground)
             .border_b_1()
             .border_color(theme.border)
+            .when_some(params, |s, p| s.child(p).child(dot()))
             .child(headers)
             .child(dot())
             .child(body)
@@ -203,6 +213,7 @@ impl RequestEditor {
 
     fn render_editor(&self, cx: &mut Context<Self>) -> AnyElement {
         let pane = match self.req_tab {
+            ReqTab::Params => self.render_params(cx),
             ReqTab::Headers => self.render_table(Which::Headers, false, cx),
             ReqTab::Body => self.render_body(cx),
             ReqTab::Auth => self.render_auth(cx),
@@ -221,7 +232,8 @@ impl RequestEditor {
         &self,
     ) -> impl Fn(&InlineTokenContext, &mut Window, &mut App) -> AnyElement + 'static {
         let vars = self.vars.clone();
-        move |ctx, _, cx| var_view::chip(ctx, &vars, cx).into_any_element()
+        let params = self.params.entries();
+        move |ctx, _, cx| var_view::chip(ctx, &vars, &params, cx).into_any_element()
     }
 
     /// `vars 4` — or `vars 4 · 1 missing` in red; opens the variables panel.

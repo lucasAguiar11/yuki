@@ -92,6 +92,44 @@ pub fn content(text: &str) -> InputContent {
         })
 }
 
+/// `:name` path params before the query (outside `{{ }}`), as byte ranges.
+/// With the caret right after a name it's skipped: still being typed.
+pub fn path_spans(text: &str, cursor: Option<usize>) -> Vec<Range<usize>> {
+    let path_end = text.find(['?', '#']).unwrap_or(text.len());
+    let templates = spans(text);
+    let mut out = Vec::new();
+    let mut from = 0;
+    while let Some(colon) = text[from..path_end].find(':') {
+        let start = from + colon;
+        let end = text[start + 1..]
+            .find(|c: char| !c.is_alphanumeric() && c != '_')
+            .map_or(text.len(), |e| start + 1 + e);
+        from = end.max(start + 1);
+        if is_identifier(&text[start + 1..end])
+            && cursor != Some(end)
+            && !templates.iter().any(|(r, _)| r.contains(&start))
+        {
+            out.push(start..end);
+        }
+    }
+    out
+}
+
+/// Chip for a `:name` path param; the id keeps the colon (no template has one).
+pub fn path_token(source: &str) -> InlineToken {
+    InlineToken::new(source.to_string(), source.to_string()).with_label(source.to_string())
+}
+
+/// The URL with templates and path params chipped, for `set_value`.
+pub fn url_content(text: &str) -> InputContent {
+    path_spans(text, None)
+        .into_iter()
+        .fold(content(text), |acc, range| {
+            let chip = path_token(&text[range.clone()]);
+            acc.clone().with_token(range, chip).unwrap_or(acc)
+        })
+}
+
 /// Distinct expressions referenced across `texts`, first-seen order.
 pub fn used<'a>(texts: impl IntoIterator<Item = &'a str>) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
@@ -196,5 +234,19 @@ mod tests {
             .map(|(k, _)| k.as_str())
             .collect();
         assert_eq!(names, ["BASE", "API_BASE"]);
+    }
+
+    #[test]
+    fn path_spans_skip_ports_query_templates_and_typing() {
+        let url = "http://h:8080/{{ a:b }}/:id/x/:org_id?q=:no";
+        let names: Vec<_> = path_spans(url, None).into_iter().map(|r| &url[r]).collect();
+        assert_eq!(names, [":id", ":org_id"]);
+        // Caret right after `:org_id`: still typing it.
+        let at = url.find('?').unwrap();
+        let names: Vec<_> = path_spans(url, Some(at))
+            .into_iter()
+            .map(|r| &url[r])
+            .collect();
+        assert_eq!(names, [":id"]);
     }
 }

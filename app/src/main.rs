@@ -32,6 +32,7 @@ mod moving;
 mod notes;
 mod oauth;
 mod palette;
+mod params;
 mod prefs;
 mod rename;
 mod response;

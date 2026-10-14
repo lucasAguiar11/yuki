@@ -4,7 +4,10 @@
 use std::rc::Rc;
 
 use gpui_kit::component::{
-    h_flex, input::InlineTokenContext, tooltip::Tooltip, v_flex, ActiveTheme as _,
+    h_flex,
+    input::{InlineTokenContext, InputState},
+    tooltip::Tooltip,
+    v_flex, ActiveTheme as _,
 };
 use gpui_kit::*;
 
@@ -31,6 +34,28 @@ macro_rules! chip_templates {
             }
         })
     };
+}
+
+/// Chip the URL's finished `:name` path params (`vars::path_spans`).
+pub fn chip_path_params(url: &Entity<InputState>, window: &mut Window, cx: &mut App) {
+    url.update(cx, |state, cx| {
+        let (text, cursor) = (state.value(), state.cursor());
+        let chipped: Vec<_> = state.tokens().iter().map(|s| s.range()).collect();
+        let mut changed = false;
+        for range in vars::path_spans(&text, Some(cursor)).into_iter().rev() {
+            if !chipped.contains(&range) {
+                let chip = vars::path_token(&text[range.clone()]);
+                changed |= state
+                    .replace_range_with_token(range, chip, window, cx)
+                    .is_ok();
+            }
+        }
+        // Chipping parks the caret at the chip's end; the `/` typed after
+        // it would land before it. The text is unchanged, so put it back.
+        if changed {
+            state.set_selected_range(cursor..cursor, cx);
+        }
+    })
 }
 
 pub const MASK: &str = "••••••••";
@@ -65,6 +90,7 @@ impl RequestEditor {
     /// Templates referenced by the request as currently edited.
     pub fn used_vars(&self, cx: &App) -> Vec<String> {
         let mut texts = vec![self.url.read(cx).value()];
+        texts.extend(self.params.texts(cx));
         texts.extend(self.headers.texts(cx));
         texts.extend(self.body.template_texts(cx));
         texts.extend(self.auth.texts(cx));
@@ -89,15 +115,86 @@ pub(crate) fn kind_color(kind: Kind, cx: &App) -> Hsla {
 
 /// Inline chip: the expression without braces, tinted by state; hovering shows
 /// the resolved value and its origin.
-pub fn chip(ctx: &InlineTokenContext, vars: &Vars, cx: &App) -> impl IntoElement {
+pub fn chip(
+    ctx: &InlineTokenContext,
+    vars: &Vars,
+    params: &[(String, Entity<InputState>)],
+    cx: &App,
+) -> impl IntoElement {
     let expr = ctx.token().id().clone();
+    if let Some(name) = expr.strip_prefix(':') {
+        return path_chip(ctx, name, params, cx).into_any_element();
+    }
     let kind = vars::kind(&expr, vars);
     let var = vars.get(expr.as_ref()).cloned();
     let color = kind_color(kind, cx);
+    shell(ctx, color, kind == Kind::Missing, cx)
+        // A tooltip, not app state: re-rendering the input on hover would reset
+        // its token hover tracking.
+        .tooltip(move |window, cx| {
+            let (expr, var) = (expr.clone(), var.clone());
+            Tooltip::element(move |_, cx| card(&expr, kind, var.as_ref(), cx)).build(window, cx)
+        })
+        .into_any_element()
+}
+
+/// `:name` chip; the tooltip shows the value it gets from the params tab.
+fn path_chip(
+    ctx: &InlineTokenContext,
+    name: &str,
+    params: &[(String, Entity<InputState>)],
+    cx: &App,
+) -> impl IntoElement {
+    let value = params
+        .iter()
+        .find(|(n, _)| n == name)
+        .map(|(_, v)| v.clone());
+    let empty = value.as_ref().is_none_or(|v| v.read(cx).value().is_empty());
+    let color = cx.theme().blue;
+    let label = ctx.token().label().clone();
+    shell(ctx, color, empty, cx).tooltip(move |window, cx| {
+        let (label, value) = (label.clone(), value.clone());
+        Tooltip::element(move |_, cx| {
+            let theme = cx.theme();
+            let shown = value
+                .as_ref()
+                .map(|v| v.read(cx).value())
+                .unwrap_or_default();
+            let line = if shown.is_empty() {
+                div()
+                    .text_color(theme.red)
+                    .child(t!("no value — fill it in params"))
+            } else {
+                div().text_color(theme.foreground).child(shown)
+            };
+            v_flex()
+                .max_w(px(360.))
+                .gap_1p5()
+                .text_xs()
+                .font_family(theme.mono_font_family.clone())
+                .child(
+                    h_flex()
+                        .justify_between()
+                        .gap_4()
+                        .child(div().text_color(theme.blue).child(label.clone()))
+                        .child(
+                            div()
+                                .text_color(theme.muted_foreground)
+                                .child(t!("path param")),
+                        ),
+                )
+                .child(line)
+        })
+        .build(window, cx)
+    })
+}
+
+/// Tinted pill around the token's label; `strong` = emphasized border.
+fn shell(ctx: &InlineTokenContext, color: Hsla, strong: bool, cx: &App) -> Stateful<Div> {
     div()
         .id(SharedString::from(format!(
             "chip-{}-{}",
-            expr,
+            ctx.token().id(),
             ctx.range().start
         )))
         .flex()
@@ -108,7 +205,7 @@ pub fn chip(ctx: &InlineTokenContext, vars: &Vars, cx: &App) -> impl IntoElement
         .rounded(cx.theme().radius)
         .bg(color.opacity(if ctx.is_selected() { 0.32 } else { 0.13 }))
         .border_1()
-        .border_color(color.opacity(if kind == Kind::Missing { 0.7 } else { 0.25 }))
+        .border_color(color.opacity(if strong { 0.7 } else { 0.25 }))
         .text_color(color)
         .child(
             div()
@@ -116,12 +213,6 @@ pub fn chip(ctx: &InlineTokenContext, vars: &Vars, cx: &App) -> impl IntoElement
                 .text_ellipsis()
                 .child(ctx.token().label().clone()),
         )
-        // A tooltip, not app state: re-rendering the input on hover would reset
-        // its token hover tracking.
-        .tooltip(move |window, cx| {
-            let (expr, var) = (expr.clone(), var.clone());
-            Tooltip::element(move |_, cx| card(&expr, kind, var.as_ref(), cx)).build(window, cx)
-        })
 }
 
 /// Name, origin, resolved value (secrets masked), or why there is none.

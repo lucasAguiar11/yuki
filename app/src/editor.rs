@@ -20,7 +20,9 @@ use crate::{
     body::BodyInputs,
     chip_templates,
     complete::Completion,
-    draft, response,
+    draft,
+    params::PathParams,
+    response,
     table::{param_field, Table, Which},
     vars,
     vars::Vars,
@@ -35,6 +37,7 @@ pub type MethodSelect = SelectState<SearchableVec<SharedString>>;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum ReqTab {
+    Params,
     Headers,
     Body,
     Auth,
@@ -60,6 +63,8 @@ pub struct RequestEditor {
     pub dirty: bool,
     pub method: Entity<MethodSelect>,
     pub url: Entity<InputState>,
+    /// One row per `:name` in the URL (`params.rs`).
+    pub params: PathParams,
     pub headers: Table,
     pub body: BodyInputs,
     pub auth: AuthForm,
@@ -118,7 +123,7 @@ impl RequestEditor {
         let url = cx.new(|cx| {
             let mut s = InputState::new(window, cx)
                 .placeholder(t!("https://api.example.com/resource").into_owned());
-            s.set_value(vars::content(&req.url), window, cx);
+            s.set_value(vars::url_content(&req.url), window, cx);
             s
         });
         let headers = Table::new(
@@ -147,7 +152,9 @@ impl RequestEditor {
             cx.subscribe_in(&url, window, |this, url, ev: &InputEvent, window, cx| {
                 if matches!(ev, InputEvent::Change) {
                     chip_templates!(url, window, cx);
+                    crate::var_view::chip_path_params(url, window, cx);
                     this.update_completion(url, cx);
+                    this.sync_path_params(window, cx);
                     this.refresh_dirty(cx);
                 }
             }),
@@ -162,6 +169,7 @@ impl RequestEditor {
             dirty: false,
             method,
             url,
+            params: PathParams::default(),
             auth,
             notes,
             notes_saved: String::new(),
@@ -189,6 +197,7 @@ impl RequestEditor {
             saving: false,
             _subs,
         };
+        this.sync_path_params(window, cx);
         this.refresh_history(true, window, cx);
         this.load_vars(window, cx);
         this.load_notes(window, cx);
@@ -224,6 +233,11 @@ impl RequestEditor {
             &self.url.read(cx).value(),
             self.headers.params(cx),
             &self.body.draft(cx),
+        );
+        req.parameters = draft::merge_path_params(
+            &self.saved.url,
+            &self.saved.parameters,
+            &self.params.values(cx),
         );
         if let Some(auth) = self.auth.draft(cx) {
             req.auth = auth;

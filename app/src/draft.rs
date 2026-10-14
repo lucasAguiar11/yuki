@@ -83,6 +83,39 @@ pub fn build(
     }
 }
 
+/// The stored params with the URL's `:name` values applied. Params whose
+/// `:name` left the URL are dropped (they'd turn into a query); others
+/// (imported query params) ride along. Order and ids are kept and empty new
+/// names aren't stored, so an untouched request rebuilds exactly.
+pub fn merge_path_params(
+    saved_url: &str,
+    saved: &[RequestParameter],
+    path: &[(String, String)],
+) -> Vec<RequestParameter> {
+    let was_path = yuki_mcp::resolve::path_params(saved_url);
+    let mut out: Vec<RequestParameter> = saved
+        .iter()
+        .filter_map(|p| match path.iter().find(|(n, _)| *n == p.name) {
+            Some((_, v)) => Some(RequestParameter {
+                value: v.clone(),
+                ..p.clone()
+            }),
+            None => (!was_path.contains(&p.name)).then(|| p.clone()),
+        })
+        .collect();
+    for (name, value) in path {
+        if !value.is_empty() && !saved.iter().any(|p| p.name == *name) {
+            out.push(RequestParameter {
+                id: new_id(),
+                name: name.clone(),
+                value: value.clone(),
+                enabled: true,
+            });
+        }
+    }
+    out
+}
+
 /// DNS overrides as `/etc/hosts` lines (`127.0.0.1 api.local`); `#` = disabled.
 pub fn hosts_text(rows: &[DnsOverride]) -> String {
     let line = |r: &DnsOverride| {
@@ -211,6 +244,35 @@ mod tests {
         assert_eq!(one_line(stored), "l1 l2 l3");
         assert_eq!(cell_value("l1 l2 l3", stored), stored);
         assert_eq!(cell_value("l1 l2", stored), "l1 l2");
+    }
+
+    #[test]
+    fn path_params_merge_keeps_query_and_drops_stale() {
+        let p = |name: &str, value: &str| RequestParameter {
+            id: name.into(),
+            name: name.into(),
+            value: value.into(),
+            enabled: true,
+        };
+        let saved = vec![p("id", "7"), p("limit", "10"), p("tab", "x")];
+        let url = "/users/:id/:tab";
+        let path = |v: &[(&str, &str)]| -> Vec<(String, String)> {
+            v.iter()
+                .map(|(n, v)| (n.to_string(), v.to_string()))
+                .collect()
+        };
+        // Untouched: identical (no phantom save).
+        let same = path(&[("id", "7"), ("tab", "x")]);
+        assert_eq!(merge_path_params(url, &saved, &same), saved);
+        // `:tab` removed, `:org` added: id edited, limit (query) kept.
+        let got = merge_path_params(url, &saved, &path(&[("id", "8"), ("org", "acme")]));
+        let names: Vec<_> = got
+            .iter()
+            .map(|p| (p.name.as_str(), p.value.as_str()))
+            .collect();
+        assert_eq!(names, [("id", "8"), ("limit", "10"), ("org", "acme")]);
+        // A new empty `:name` isn't stored.
+        assert!(merge_path_params("/u/:id", &[], &path(&[("id", "")])).is_empty());
     }
 
     #[test]

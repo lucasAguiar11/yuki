@@ -85,6 +85,12 @@ pub struct RequestEditor {
     pub resp_tab: RespTab,
     pub response_body: Entity<EditorState>,
     pub history: Vec<StoredHttpResponseSummary>,
+    /// The shown body parsed as JSON (fields can become variables).
+    pub response_json: bool,
+    pub(crate) capture: Option<crate::capture_view::Capture>,
+    /// The JSON field under the response caret, and the caret it was read at.
+    pub(crate) caret: Option<crate::capture_view::CaretField>,
+    pub(crate) caret_at: Option<usize>,
     /// Personal env the vars resolve against (globals always apply).
     pub env_id: Option<String>,
     pub vars: Rc<Vars>,
@@ -97,6 +103,7 @@ pub struct RequestEditor {
 }
 
 impl EventEmitter<EditorChanged> for RequestEditor {}
+impl EventEmitter<crate::capture_view::VarsChanged> for RequestEditor {}
 
 impl RequestEditor {
     pub fn new(
@@ -162,6 +169,7 @@ impl RequestEditor {
         _subs.extend(body_subs);
         _subs.push(auth_sub);
         _subs.push(cx.subscribe_in(&notes, window, Self::on_input));
+        _subs.push(cx.observe(&response_body, |this, _, cx| this.track_caret(cx)));
         let has_body = req.body.as_ref().is_some_and(|b| b.kind != BodyKind::None);
         let mut this = Self {
             backend,
@@ -190,6 +198,10 @@ impl RequestEditor {
             response_body,
             timeline_focus: cx.focus_handle(),
             history: vec![],
+            response_json: false,
+            capture: None,
+            caret: None,
+            caret_at: None,
             env_id,
             vars: Rc::default(),
             complete: None,
@@ -348,6 +360,8 @@ impl RequestEditor {
                     this.load_sent(id, window, cx);
                 }
                 this.refresh_history(false, window, cx);
+                // Variables reading this response (`$response.body`) changed.
+                cx.emit(crate::capture_view::VarsChanged);
             })
         })
         .detach();
@@ -407,6 +421,33 @@ impl RequestEditor {
         .detach();
     }
 
+    /// Another tab's send may have sent this request too (it was read through
+    /// `$response.body`): pick up a newer response if one landed.
+    pub(crate) fn sync_history(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let newest = self.history.first().map(|s| s.id.clone());
+        let backend = self.backend.clone();
+        let (ws, id) = (self.saved.workspace_id.clone(), self.saved.id.clone());
+        let task = cx.background_spawn(async move {
+            let history = backend.history(&ws, &id);
+            let latest = history
+                .first()
+                .filter(|s| Some(&s.id) != newest.as_ref())
+                .and_then(|s| backend.stored_response(&ws, &id, &s.id).ok());
+            (history, latest)
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            let (history, latest) = task.await;
+            this.update_in(cx, |this, window, cx| {
+                if let Some((resp, sent)) = latest {
+                    this.history = history;
+                    this.sent = sent;
+                    this.show_response(Ok(resp), window, cx);
+                }
+            })
+        })
+        .detach();
+    }
+
     pub fn show_history(&mut self, resp_id: String, window: &mut Window, cx: &mut Context<Self>) {
         let backend = self.backend.clone();
         let (ws, id) = (self.saved.workspace_id.clone(), self.saved.id.clone());
@@ -435,11 +476,15 @@ impl RequestEditor {
     ) {
         if let Ok(resp) = &result {
             let (text, lang) = response::body_for_editor(resp);
+            self.response_json = lang == "json";
             self.response_body.update(cx, |s, cx| {
                 s.set_highlighter(lang, cx);
                 s.set_value(text, window, cx);
             });
         }
+        self.capture = None;
+        self.caret = None;
+        self.caret_at = None;
         self.response = Some(result);
         cx.notify();
     }

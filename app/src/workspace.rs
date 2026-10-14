@@ -208,6 +208,20 @@ impl Yuki {
                     cx.notify();
                 }),
             );
+            // A variable changed (captured field, or a send that feeds one):
+            // every open tab re-resolves its variables.
+            self._subs.push(cx.subscribe_in(
+                &editor,
+                window,
+                |this, _, _: &crate::capture_view::VarsChanged, window, cx| {
+                    for tab in &this.tabs {
+                        tab.update(cx, |e, cx| {
+                            e.load_vars(window, cx);
+                            e.sync_history(window, cx);
+                        });
+                    }
+                },
+            ));
             self.tabs.push(editor);
             self.active = self.tabs.len() - 1;
         }

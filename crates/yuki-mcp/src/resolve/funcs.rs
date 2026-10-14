@@ -203,6 +203,35 @@ pub fn lookup(expr: &str) -> Option<Generator> {
     FUNCTIONS.iter().find(|(n, _)| *n == name).map(|(_, f)| *f)
 }
 
+/// `name(key="value", …)` → the name and its args (`\"` and `\\` unescaped);
+/// `None` on any syntax error.
+pub fn call(expr: &str) -> Option<(&str, Vec<(&str, String)>)> {
+    let open = expr.find('(')?;
+    let name = &expr[..open];
+    let mut rest = expr[open + 1..].strip_suffix(')')?;
+    let mut args = Vec::new();
+    loop {
+        rest = rest.trim_start_matches(|c: char| c == ',' || c.is_whitespace());
+        if rest.is_empty() {
+            return Some((name, args));
+        }
+        let eq = rest.find('=')?;
+        let key = rest[..eq].trim();
+        rest = rest[eq + 1..].trim_start().strip_prefix('"')?;
+        let mut value = String::new();
+        let mut chars = rest.char_indices();
+        let end = loop {
+            match chars.next()? {
+                (i, '"') => break i,
+                (_, '\\') => value.push(chars.next()?.1),
+                (_, c) => value.push(c),
+            }
+        };
+        args.push((key, value));
+        rest = &rest[end + 1..];
+    }
+}
+
 fn pick(list: &[&'static str]) -> &'static str {
     list[rand::rng().random_range(0..list.len())]
 }
@@ -294,5 +323,22 @@ mod tests {
     fn slug_strips_accents() {
         assert_eq!(slug("João"), "joao");
         assert_eq!(slug("Natália"), "natalia");
+    }
+
+    #[test]
+    fn call_parses_args() {
+        let (name, args) =
+            call(r#"response.body(requestId="abc", selector="$['a \"b\"'].c")"#).unwrap();
+        assert_eq!(name, "response.body");
+        assert_eq!(
+            args,
+            [
+                ("requestId", "abc".to_string()),
+                ("selector", r#"$['a "b"'].c"#.to_string())
+            ]
+        );
+        assert_eq!(call("fake.email()").unwrap().1, []);
+        assert!(call(r#"x(a="unterminated)"#).is_none());
+        assert!(call("x(a=1)").is_none());
     }
 }

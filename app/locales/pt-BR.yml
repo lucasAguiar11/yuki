@@ -303,3 +303,7 @@
 "with pi-mcp-adapter installed (pi install npm:pi-mcp-adapter), add to ~/.pi/agent/mcp.json:": "com o pi-mcp-adapter instalado (pi install npm:pi-mcp-adapter), adicione em ~/.pi/agent/mcp.json:"
 "in pi, /mcp lists yuki.": "no pi, /mcp lista o yuki."
 "e.g.": "ex.:"
+"letters, digits and _ only": "só letras, números e _"
+"→ variable": "→ variável"
+"click a JSON value to use it as a variable": "clique num valor do JSON para usá-lo como variável"
+"↵ save · esc cancel": "↵ salvar · esc cancelar"

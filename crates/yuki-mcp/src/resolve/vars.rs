@@ -184,6 +184,8 @@ fn resolve_inner(
             }
         } else if let Some(f) = super::funcs::lookup(inner) {
             result.push_str(&f());
+        } else if let Some(val) = vars.get(inner) {
+            result.push_str(val); // prefilled call (`responses::prefill_responses`)
         } else {
             push_token(&mut result, inner); // unknown function — keep verbatim
         }

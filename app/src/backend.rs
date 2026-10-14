@@ -179,6 +179,9 @@ impl Backend {
         let key = yuki_crypto::load_key_from_file(ws_id, &api.app_data_dir).ok();
         let mut values = resolve::load_env_vars_from(&envs, ws_id, env_id, &api.app_data_dir);
         resolve::apply_folder_vars(&mut values, folder_id, &folders, key.as_ref());
+        // `$response.body(…)` results, for resolving only (not listed as vars).
+        let mut lookup = values.clone();
+        resolve::prefill_responses(&mut lookup, None, ws_id, &api.responses);
 
         // Nearest folder first; bounded so a corrupt parent cycle can't loop.
         let mut chain: Vec<&ApiFolder> = Vec::new();
@@ -216,7 +219,7 @@ impl Backend {
                             .and_then(|e| defined(&e.variables, name).map(|s| (Source::Global, s)))
                     })
                     .unwrap_or((Source::System, false));
-                let value = resolve::resolve_str(raw, &values);
+                let value = resolve::resolve_str(raw, &lookup);
                 (
                     name.clone(),
                     Var {
@@ -228,6 +231,43 @@ impl Backend {
                 )
             })
             .collect()
+    }
+
+    /// Set (`Some`) or remove (`None`) `key` in the personal env `env_id`, or in
+    /// the global one when there's none. A new variable is plain (not secret).
+    pub fn set_var(
+        &self,
+        ws_id: &str,
+        env_id: Option<&str>,
+        key: &str,
+        value: Option<&str>,
+    ) -> Result<(), YukiError> {
+        let envs = &self.api.environments;
+        let mut env = match env_id {
+            Some(id) => envs
+                .get(ws_id, id)?
+                .ok_or_else(|| YukiError::NotFound("environment".into()))?,
+            None => envs.ensure_global(ws_id)?,
+        };
+        match value {
+            None => env.variables.retain(|v| v.key != key),
+            Some(value) => match env.variables.iter_mut().find(|v| v.key == key) {
+                Some(v) => {
+                    v.value = value.into();
+                    v.enabled = true;
+                }
+                None => env.variables.push(EnvironmentVariable {
+                    key: key.into(),
+                    value: value.into(),
+                    encrypted: false,
+                    enabled: true,
+                }),
+            },
+        }
+        env.updated_at = chrono::Utc::now()
+            .format("%Y-%m-%dT%H:%M:%S%.6f")
+            .to_string();
+        envs.save(&env)
     }
 }
 

@@ -46,14 +46,21 @@ pub enum Kind {
     Function,
 }
 
-/// Unknown functions are `Missing`: the engine sends them verbatim.
+/// Unknown functions are `Missing`: the engine sends them verbatim. A variable
+/// still holding an unresolved `$response.…` (no stored response yet) is a
+/// `Function`: the send fetches it.
 pub fn kind(expr: &str, vars: &Vars) -> Kind {
-    if funcs::lookup(expr).is_some() {
+    let pending = |v: &Var| v.value.contains("{{ $response.");
+    if funcs::lookup(expr).is_some() || expr.starts_with("$response.body(") {
         Kind::Function
-    } else if is_identifier(expr) && vars.contains_key(expr) {
-        Kind::Defined
-    } else {
+    } else if !is_identifier(expr) {
         Kind::Missing
+    } else {
+        match vars.get(expr) {
+            Some(v) if pending(v) => Kind::Function,
+            Some(_) => Kind::Defined,
+            None => Kind::Missing,
+        }
     }
 }
 
@@ -218,12 +225,18 @@ mod tests {
             source: Source::Global,
             secret: false,
         };
+        let pending = Var {
+            value: r#"{{ $response.body(requestId="r", selector="$.t") }}"#.into(),
+            ..var.clone()
+        };
         vars.insert("A".into(), var);
+        vars.insert("TOKEN".into(), pending);
         assert_eq!(kind("A", &vars), Kind::Defined);
         assert_eq!(kind("B", &vars), Kind::Missing);
         assert_eq!(kind("$uuid.v4()", &vars), Kind::Function);
         assert_eq!(kind("uuid.v4()", &vars), Kind::Missing);
         assert_eq!(kind("nope.fn()", &vars), Kind::Missing);
+        assert_eq!(kind("TOKEN", &vars), Kind::Function);
         assert_eq!(used(["{{ A }}{{B}}", "{{ A }}"]), ["A", "B"]);
     }
 

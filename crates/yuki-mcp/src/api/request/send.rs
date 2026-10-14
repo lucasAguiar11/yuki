@@ -2,12 +2,14 @@ use super::super::{redact, ApiBackend};
 use crate::{protocol::ToolResult, resolve};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::future::Future;
 use std::path::Path;
+use std::pin::Pin;
 use yuki_core::{
     AuthConfig, BodyField, BodyKind, Environment, EnvironmentKind, HttpRequest, HttpResponse,
     RequestBody, RequestParameter, StoredCookie, YukiError,
 };
-use yuki_storage::{CookieJarStore, RequestStore, SelectionStore, WorkspaceStore};
+use yuki_storage::{CookieJarStore, RequestStore, ResponseStore, SelectionStore, WorkspaceStore};
 
 /// Resolve + decrypt the active cookie jar for a workspace, off-runtime.
 /// Mirrors Tauri's `load_active_jar_for_send` so MCP sends (and pair replays)
@@ -222,7 +224,92 @@ impl ApiBackend {
     /// auth, attach the active cookie jar, send, ingest captured cookies, append
     /// to history. `agent` = AI-initiated: requires an explicit env when personal
     /// ones exist and refuses link-local / cloud-metadata targets.
+    ///
+    /// `$response.body` is a pointer: every request whose response this one
+    /// reads (through its fields or the variables it uses) is sent first, so the
+    /// value is the current one. A source already being sent up the chain (a
+    /// cycle) is read from history instead.
     pub async fn send_http(
+        &self,
+        ws_id: String,
+        req_id: String,
+        env_id: Option<String>,
+        url_override: Option<String>,
+        agent: bool,
+    ) -> Result<HttpResponse, String> {
+        self.send_chain(ws_id, req_id, env_id, url_override, agent, Vec::new())
+            .await
+    }
+
+    fn send_chain(
+        &self,
+        ws_id: String,
+        req_id: String,
+        env_id: Option<String>,
+        url_override: Option<String>,
+        agent: bool,
+        chain: Vec<String>,
+    ) -> Pin<Box<dyn Future<Output = Result<HttpResponse, String>> + Send + '_>> {
+        Box::pin(async move {
+            let mut chain = chain;
+            chain.push(req_id.clone());
+            for src in self
+                .response_sources(&ws_id, &req_id, env_id.as_deref())
+                .await
+            {
+                if chain.contains(&src) {
+                    continue;
+                }
+                let name = self
+                    .requests
+                    .get_request(&ws_id, &src)
+                    .map_or_else(|_| src.clone(), |r| r.name);
+                self.send_chain(
+                    ws_id.clone(),
+                    src,
+                    env_id.clone(),
+                    None,
+                    agent,
+                    chain.clone(),
+                )
+                .await
+                .map_err(|e| format!("{name} (read by $response.body): {e}"))?;
+            }
+            self.send_once(ws_id, req_id, env_id, url_override, agent)
+                .await
+        })
+    }
+
+    /// `$response.body` sources of a stored request (see `resolve::response_sources`).
+    async fn response_sources(
+        &self,
+        ws_id: &str,
+        req_id: &str,
+        env_id: Option<&str>,
+    ) -> Vec<String> {
+        let (requests, environments) = (self.requests.clone(), self.environments.clone());
+        let app_data_dir = self.app_data_dir.clone();
+        let (ws, id, env) = (
+            ws_id.to_string(),
+            req_id.to_string(),
+            env_id.map(str::to_string),
+        );
+        tokio::task::spawn_blocking(move || {
+            let Ok(req) = requests.get_request(&ws, &id) else {
+                return Vec::new();
+            };
+            let envs = environments.list(&ws).unwrap_or_default();
+            let key = yuki_crypto::load_key_from_file(&ws, &app_data_dir).ok();
+            let mut vars = resolve::load_env_vars_from(&envs, &ws, env.as_deref(), &app_data_dir);
+            let folders = requests.list_folders(&ws).unwrap_or_default();
+            resolve::apply_folder_vars(&mut vars, req.folder_id.as_deref(), &folders, key.as_ref());
+            resolve::response_sources(&vars, &req)
+        })
+        .await
+        .unwrap_or_default()
+    }
+
+    async fn send_once(
         &self,
         ws_id: String,
         req_id: String,
@@ -235,6 +322,7 @@ impl ApiBackend {
         let workspaces = self.workspaces.clone();
         let cookies_store = self.cookies.clone();
         let selections = self.selections.clone();
+        let responses = self.responses.clone();
         let app_data_dir = self.app_data_dir.clone();
         let ws_id2 = ws_id.clone();
         let req_id2 = req_id.clone();
@@ -270,6 +358,7 @@ impl ApiBackend {
             let (vars, var_key, stored_auth) = resolve_request(
                 &requests,
                 &envs,
+                &responses,
                 &app_data_dir,
                 env_id2.as_deref(),
                 &mut req,
@@ -410,6 +499,7 @@ impl ApiBackend {
 fn resolve_request(
     requests: &RequestStore,
     envs: &[Environment],
+    responses: &ResponseStore,
     app_data_dir: &Path,
     env_id: Option<&str>,
     req: &mut HttpRequest,
@@ -428,6 +518,7 @@ fn resolve_request(
         &folders,
         var_key.as_ref(),
     );
+    resolve::prefill_responses(&mut vars, Some(req), &ws_id, responses);
     // Auth secrets are stored as `enc:v1:` ciphertext; the store hands them
     // back raw. Decrypt in place so static schemes inject plaintext and
     // dynamic schemes (SigV4) sign with the real key.
@@ -490,10 +581,18 @@ impl ApiBackend {
         env_id: Option<String>,
     ) -> Result<HttpRequest, String> {
         let (requests, environments) = (self.requests.clone(), self.environments.clone());
+        let responses = self.responses.clone();
         let app_data_dir = self.app_data_dir.clone();
         req = tokio::task::spawn_blocking(move || {
             let envs = environments.list(&req.workspace_id).unwrap_or_default();
-            resolve_request(&requests, &envs, &app_data_dir, env_id.as_deref(), &mut req);
+            resolve_request(
+                &requests,
+                &envs,
+                &responses,
+                &app_data_dir,
+                env_id.as_deref(),
+                &mut req,
+            );
             req
         })
         .await

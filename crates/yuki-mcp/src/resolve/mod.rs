@@ -1,12 +1,14 @@
 //! Backend mirror of `sendResolution.ts`, shared by the Tauri commands and MCP
 //! tools. `vars` loads env/folder variables and resolves `{{ VAR }}` tokens and
-//! `funcs` (`{{ $fake.email() }}`); `http` applies them to HTTP/WS requests
-//! (+ auth); `grpc` does the gRPC equivalent; `text` holds the pure
-//! URL/encoding helpers. Unknown function tokens pass through verbatim.
+//! `funcs` (`{{ $fake.email() }}`); `responses` prefills `$response.body(…)`
+//! from stored responses; `http` applies them to HTTP/WS requests (+ auth);
+//! `grpc` does the gRPC equivalent; `text` holds the pure URL/encoding
+//! helpers. Unknown function tokens pass through verbatim.
 
 pub mod funcs;
 mod grpc;
 mod http;
+mod responses;
 mod system_env;
 mod text;
 mod vars;
@@ -14,6 +16,7 @@ mod vars;
 pub use grpc::{apply_to_grpc, grpc_vars, resolve_grpc_for_send};
 pub(crate) use http::auth_header;
 pub use http::{apply_to_connection, apply_to_request};
+pub use responses::{prefill_responses, select as select_json, sources as response_sources};
 pub use system_env::{
     allowlist as system_env_allowlist, set_allowlist as set_system_env_allowlist,
     snapshot as system_env_snapshot,

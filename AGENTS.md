@@ -32,6 +32,7 @@ app/              `yuki` binary (GPUI) — the only layer that knows gpui
   src/complete.rs `{{` autocomplete (on typing `{{` or ⌃space) in URL, cells and code editors: variables, then `resolve::funcs`
   src/code_vars.rs `{{ VAR }}` "badge" in code editors (decorations; `EditorState` doesn't take tokens)
   src/response.rs status strip (time, local clock), body/headers, history (●●●)
+  src/capture.rs  response field → variable (pure: JSONPath under the caret, name, `$response.body` formula, readers); capture_view.rs the bar under a JSON response (⌥↵, name in place, readers ✕). The engine prefills `$response.body` (`resolve::prefill_responses`) before `resolve_str`
   src/sent.rs     timeline tab: resolved request as sent + engine event log (credentials masked)
   src/var_view.rs `{{ VAR }}` chips + tooltip; src/vars.rs model/tokenization (pure)
   src/vars_panel.rs ⌘⇧E panel;  src/sidebar.rs, tabs.rs, chrome.rs, palette.rs

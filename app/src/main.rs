@@ -10,6 +10,8 @@ mod auth;
 mod auth_form;
 mod backend;
 mod body;
+mod capture;
+mod capture_view;
 mod chrome;
 mod code_vars;
 mod complete;
@@ -95,6 +97,7 @@ actions!(
         MoveItem,
         DeleteItem,
         CopyAsCurl,
+        CaptureField,
         CancelRename,
         OpenAbout,
         OpenMcp,
@@ -137,6 +140,9 @@ fn bind_keys(cx: &mut App) {
         KeyBinding::new("cmd-s", Save, None),
         KeyBinding::new("cmd-enter", Send, None),
         KeyBinding::new("cmd-shift-c", CopyAsCurl, None),
+        // The response body is a read-only editor: ⌥↵ turns the field under
+        // its caret into a variable (`capture_view`).
+        KeyBinding::new("alt-enter", CaptureField, Some("ResponseBody")),
         // Inputs bind cmd-enter themselves (newline + PressEnter); same-context
         // bindings registered later win, so this makes ⌘↵ send from any field.
         KeyBinding::new("cmd-enter", Send, Some("Input")),

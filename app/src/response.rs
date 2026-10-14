@@ -4,7 +4,7 @@ use yuki_core::HttpResponse;
 
 use crate::{
     editor::{RequestEditor, RespTab},
-    sent, ui,
+    sent, ui, CaptureField,
 };
 
 /// Body text for the read-only viewer + highlighter language.
@@ -36,41 +36,49 @@ pub fn body_for_editor(resp: &HttpResponse) -> (String, &'static str) {
 
 pub fn render(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> AnyElement {
     let theme = cx.theme();
-    let content = match &editor.response {
-        None => empty(editor, cx),
-        Some(Err(e)) => v_flex()
-            .p_4()
-            .gap_2()
-            .text_sm()
-            .child(div().text_color(theme.red).child(t!("✕ send failed")))
-            .child(div().text_color(theme.foreground).child(e.clone()))
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(theme.muted_foreground)
-                    .child(t!("check the URL and the selected environment")),
-            )
-            .into_any_element(),
-        Some(Ok(resp)) => match editor.resp_tab {
-            RespTab::Body => div()
-                .size_full()
-                .pl_2()
+    let content =
+        match &editor.response {
+            None => empty(editor, cx),
+            Some(Err(e)) => v_flex()
+                .p_4()
+                .gap_2()
+                .text_sm()
+                .child(div().text_color(theme.red).child(t!("✕ send failed")))
+                .child(div().text_color(theme.foreground).child(e.clone()))
                 .child(
-                    Editor::new(&editor.response_body)
-                        .appearance(false)
-                        .readonly(true)
-                        .h_full(),
+                    div()
+                        .text_xs()
+                        .text_color(theme.muted_foreground)
+                        .child(t!("check the URL and the selected environment")),
                 )
                 .into_any_element(),
-            RespTab::Headers => headers_table(resp, cx),
-            RespTab::Timeline => {
-                sent::render(resp, editor.sent.as_ref(), &editor.timeline_focus, cx)
-            }
-        },
-    };
+            Some(Ok(resp)) => match editor.resp_tab {
+                RespTab::Body => div()
+                    .size_full()
+                    .pl_2()
+                    .key_context("ResponseBody")
+                    .on_action(cx.listener(|this, _: &CaptureField, window, cx| {
+                        this.start_capture(window, cx)
+                    }))
+                    .child(
+                        Editor::new(&editor.response_body)
+                            .appearance(false)
+                            .readonly(true)
+                            .h_full(),
+                    )
+                    .into_any_element(),
+                RespTab::Headers => headers_table(resp, cx),
+                RespTab::Timeline => {
+                    sent::render(resp, editor.sent.as_ref(), &editor.timeline_focus, cx)
+                }
+            },
+        };
     v_flex()
         .size_full()
         .child(strip(editor, cx))
+        .when(editor.resp_tab == RespTab::Body, |r| {
+            r.children(editor.render_capture_bar(cx))
+        })
         .child(div().flex_1().min_h_0().child(content))
         .into_any_element()
 }

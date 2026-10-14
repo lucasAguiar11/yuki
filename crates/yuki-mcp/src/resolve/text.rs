@@ -1,14 +1,12 @@
 //! Pure text helpers for send-time resolution: URL path-param handling,
 //! percent-encoding, and base64 (Basic auth).
 
-use std::collections::HashSet;
-
 use super::vars::is_identifier;
 
-/// Extract `:name` path-parameter names from a URL.
-pub(super) fn extract_path_params(url: &str) -> HashSet<String> {
+/// `:name` path-parameter names in a URL, in order, without repeats.
+pub fn path_params(url: &str) -> Vec<String> {
     let path = url.split('?').next().unwrap_or(url);
-    let mut names = HashSet::new();
+    let mut names: Vec<String> = Vec::new();
     let mut rest = path;
     while let Some(colon) = rest.find(':') {
         rest = &rest[colon + 1..];
@@ -16,8 +14,8 @@ pub(super) fn extract_path_params(url: &str) -> HashSet<String> {
             .find(|c: char| !c.is_alphanumeric() && c != '_')
             .unwrap_or(rest.len());
         let name = &rest[..end];
-        if !name.is_empty() && is_identifier(name) {
-            names.insert(name.to_string());
+        if is_identifier(name) && !names.iter().any(|n| n == name) {
+            names.push(name.to_string());
         }
         rest = &rest[end..];
     }
@@ -109,6 +107,14 @@ mod tests {
         assert_eq!(
             replace_path_param("/api/:name/info", "name", "ditto"),
             "/api/ditto/info"
+        );
+    }
+
+    #[test]
+    fn path_params_in_order_skipping_ports() {
+        assert_eq!(
+            path_params("http://localhost:8080/users/:id/posts/:post_id?q=:x&id=:id"),
+            ["id", "post_id"]
         );
     }
 

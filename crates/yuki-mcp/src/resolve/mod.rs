@@ -17,6 +17,7 @@ pub use system_env::{
     allowlist as system_env_allowlist, set_allowlist as set_system_env_allowlist,
     snapshot as system_env_snapshot,
 };
+pub use text::path_params;
 pub use vars::{
     apply_folder_vars, is_identifier, load_env_vars, load_env_vars_from, merge_inherited_metadata,
     resolve_str,

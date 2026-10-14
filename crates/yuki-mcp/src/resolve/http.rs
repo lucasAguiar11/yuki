@@ -8,9 +8,7 @@ use std::collections::HashMap;
 
 use yuki_core::{ApiKeyLocation, AuthConfig, HttpRequest, RequestParameter, WsConnection};
 
-use super::text::{
-    base64_encode, extract_path_params, replace_path_param, strip_query, url_encode,
-};
+use super::text::{base64_encode, path_params, replace_path_param, strip_query, url_encode};
 use super::vars::resolve_str;
 
 /// Substitute `:params`, resolve `{{ }}` in the base URL, and build the query
@@ -21,11 +19,14 @@ fn resolve_url_and_query(
     parameters: &[RequestParameter],
     vars: &HashMap<String, String>,
 ) -> (String, Vec<String>) {
-    let path_param_names = extract_path_params(url);
+    let path_param_names = path_params(url);
 
-    // A request without a params list (Yuki has no params editor) carries its
-    // query in the URL itself — keep it. With params, they own the query.
-    let base = if parameters.is_empty() {
+    // Yuki keeps the query in the URL; only query params in the list (imports,
+    // MCP) take it over. Path params alone leave it alone.
+    let base = if parameters
+        .iter()
+        .all(|p| path_param_names.contains(&p.name))
+    {
         url
     } else {
         strip_query(url)
@@ -381,10 +382,11 @@ mod tests {
     #[test]
     fn apply_path_param_substitution() {
         let v = vars(&[("USER_ID", "42")]);
-        let mut req = bare_request("https://api.example.com/users/:id/profile");
+        // Path params alone don't take over the URL's own query.
+        let mut req = bare_request("https://api.example.com/users/:id/profile?full=1");
         req.parameters = vec![param("id", "{{ USER_ID }}", true)];
         apply_to_request(&mut req, &v);
-        assert_eq!(req.url, "https://api.example.com/users/42/profile");
+        assert_eq!(req.url, "https://api.example.com/users/42/profile?full=1");
     }
 
     #[test]

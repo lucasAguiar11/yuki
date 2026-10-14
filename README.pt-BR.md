@@ -39,7 +39,7 @@ Tudo fica em `~/Library/Application Support/dev.yuki` (troque com `YUKI_DATA_DIR
 
 ## Variáveis e funções
 
-`{{ NOME }}` na URL, params, headers, body ou auth é resolvido no envio a partir do ambiente ativo (e das variáveis da pasta). Funções começam com `$` e geram um valor novo a cada ocorrência: `{{ $fake.fullName() }}`, `firstName`, `lastName`, `email`, `phone`, `cpf`, `cnpj`, `uuid`, `lorem`, `number`, `password`, `date`, `username`, `company`, `street`, `city`, `zipCode`, `jobTitle`, `url` (todas `$fake.*`), além de `{{ $uuid.v4() }}` e `{{ $timestamp.iso() }}` / `unix` / `unixMs` / `date` / `time`. Digite `{{ $` para escolher uma; a timeline mostra os valores enviados.
+`{{ NOME }}` na URL, params, headers, body ou auth é resolvido no envio a partir do ambiente ativo (e das variáveis da pasta). Funções começam com `$` e geram um valor novo a cada ocorrência: `{{ $fake.fullName() }}`, `firstName`, `lastName`, `email`, `phone`, `cpf`, `cnpj`, `uuid`, `lorem`, `number`, `password`, `date`, `username`, `company`, `street`, `city`, `zipCode`, `jobTitle`, `url` (todas `$fake.*`), além de `{{ $uuid.v4() }}` e `{{ $timestamp.iso() }}` / `unix` / `unixMs` / `date` / `time`. Digite `$` para escolher uma (a lista mostra um exemplo de cada); a timeline mostra os valores enviados.
 
 ## Importar / exportar
 

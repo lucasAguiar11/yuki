@@ -13,6 +13,18 @@ use yuki_mcp::resolve::funcs::FUNCTIONS;
 
 const MAX_ITEMS: usize = 8;
 
+/// One sample per function, drawn once per launch so the preview doesn't
+/// reshuffle on every keystroke.
+static SAMPLES: std::sync::LazyLock<Vec<String>> =
+    std::sync::LazyLock::new(|| FUNCTIONS.iter().map(|(_, f)| f()).collect());
+
+/// The sample for `$name()`.
+fn sample(name: &str) -> Option<&'static str> {
+    let name = name.strip_prefix('$')?.strip_suffix("()")?;
+    let ix = FUNCTIONS.iter().position(|(n, _)| *n == name)?;
+    Some(&SAMPLES[ix])
+}
+
 /// The field the popup belongs to.
 #[derive(Clone, PartialEq)]
 pub enum Target {
@@ -78,16 +90,20 @@ pub struct Completion {
     selected: usize,
     /// Cursor offset of a ⌃space trigger: what is typed after it filters.
     anchor: Option<usize>,
+    /// Keeps the selected row in view as ↑↓ move past the visible ones.
+    scroll: ScrollHandle,
 }
 
-/// Range to replace and the name typed so far: an open `{{ prefix`, else the
-/// text typed since a manual trigger.
+/// Range to replace and the name typed so far: an open `{{ prefix`, a bare
+/// `$fn` prefix, else the text typed since a manual trigger.
 fn query(value: &str, cursor: usize, anchor: Option<usize>) -> Option<(usize, &str)> {
-    vars::open_template(value, cursor).or_else(|| {
-        let at = anchor?;
-        let typed = value.get(at..cursor)?;
-        typed.chars().all(vars::is_name_char).then_some((at, typed))
-    })
+    vars::open_template(value, cursor)
+        .or_else(|| vars::open_function(value, cursor))
+        .or_else(|| {
+            let at = anchor?;
+            let typed = value.get(at..cursor)?;
+            typed.chars().all(vars::is_name_char).then_some((at, typed))
+        })
 }
 
 /// End of the text to replace: past a `}}` right after the caret (the code
@@ -115,10 +131,11 @@ impl RequestEditor {
             let s = e.read(cx);
             query(&s.value(), s.cursor(), anchor).is_some()
         });
-        self.complete = open.then_some(Completion {
+        self.complete = open.then(|| Completion {
             target,
             selected: 0,
             anchor,
+            scroll: ScrollHandle::new(),
         });
         cx.notify();
     }
@@ -142,12 +159,14 @@ impl RequestEditor {
             target,
             selected: 0,
             anchor: Some(start),
+            scroll: ScrollHandle::new(),
         });
         cx.notify();
     }
 
     /// The focused field and its suggestions (variables, then functions), when
-    /// the popup should show.
+    /// the popup should show. A `$` prefix asks for functions only, matched on
+    /// the rest (`$em` → `$fake.email()`).
     fn suggestions(&self, window: &Window, cx: &App) -> Option<(Target, Vec<String>)> {
         let c = self.complete.as_ref()?;
         let (value, cursor, focused) = c.target.snapshot(window, cx);
@@ -155,16 +174,21 @@ impl RequestEditor {
             return None;
         }
         let (_, prefix) = query(&value, cursor, c.anchor)?;
-        let p = prefix.to_lowercase();
+        let sigil = prefix.starts_with('$');
+        let p = prefix.trim_start_matches('$').to_lowercase();
         let fns = FUNCTIONS
             .iter()
-            .map(|(n, _)| format!("${n}()"))
-            .filter(|n| n.to_lowercase().contains(&p));
-        let names: Vec<String> = vars::suggest(&self.vars, prefix)
+            .filter(|(n, _)| n.to_lowercase().contains(&p))
+            .map(|(n, _)| format!("${n}()"));
+        let vars = if sigil {
+            vec![]
+        } else {
+            vars::suggest(&self.vars, prefix)
+        };
+        let names: Vec<String> = vars
             .into_iter()
             .map(|(k, _)| k.clone())
             .chain(fns)
-            .take(MAX_ITEMS)
             .collect();
         (!names.is_empty()).then(|| (c.target.clone(), names))
     }
@@ -180,6 +204,7 @@ impl RequestEditor {
         };
         if let Some(c) = self.complete.as_mut() {
             c.selected = (c.selected as isize + delta).rem_euclid(names.len() as isize) as usize;
+            c.scroll.scroll_to_item(c.selected);
         }
         cx.notify();
     }
@@ -237,28 +262,53 @@ impl RequestEditor {
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         let (target, names) = self.suggestions(window, cx)?;
-        let selected = self
-            .complete
-            .as_ref()
-            .map_or(0, |c| c.selected.min(names.len() - 1));
+        let (selected, scroll) = self.complete.as_ref().map_or((0, None), |c| {
+            (c.selected.min(names.len() - 1), Some(c.scroll.clone()))
+        });
         let at = target.anchor(window, cx);
         let theme = cx.theme();
-        let (blue, magenta, fg, sel) =
-            (theme.blue, theme.magenta, theme.foreground, theme.secondary);
+        let (blue, magenta, fg, muted, sel) = (
+            theme.blue,
+            theme.magenta,
+            theme.foreground,
+            theme.muted_foreground,
+            theme.secondary,
+        );
         let faint = ui::faint(cx);
         let rows = names.into_iter().enumerate().map(|(ix, name)| {
             let var = self.vars.get(&name);
-            let value = var.map_or(String::new(), |v| {
-                if v.secret {
+            // A variable's real value; for a function, a muted `e.g. …` — a
+            // sample, not what will be sent.
+            let value = match var {
+                Some(v) => div().text_color(fg).text_ellipsis().child(if v.secret {
                     MASK.to_string()
                 } else {
                     v.value.clone()
-                }
-            });
+                }),
+                None => div()
+                    .flex()
+                    .gap_1()
+                    .overflow_hidden()
+                    .child(
+                        div()
+                            .flex_none()
+                            .text_color(faint)
+                            .child(t!("e.g.").into_owned()),
+                    )
+                    .child(
+                        div()
+                            .min_w_0()
+                            .text_ellipsis()
+                            .italic()
+                            .text_color(muted)
+                            .child(sample(&name).unwrap_or_default().to_string()),
+                    ),
+            };
             let origin = var.map_or_else(|| t!("function").into_owned(), |v| v.source.label());
             h_flex()
                 .id(ElementId::Name(format!("var-opt-{name}").into()))
                 .h(px(24.))
+                .flex_none()
                 .px_2()
                 .gap_3()
                 .rounded(theme.radius)
@@ -271,14 +321,7 @@ impl RequestEditor {
                         .text_color(if var.is_some() { blue } else { magenta })
                         .child(name),
                 )
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .text_ellipsis()
-                        .text_color(fg)
-                        .child(value),
-                )
+                .child(div().flex_1().min_w_0().child(value))
                 .child(div().flex_none().text_color(faint).child(origin))
                 .on_mouse_down(
                     MouseButton::Left,
@@ -289,8 +332,16 @@ impl RequestEditor {
                 )
         });
         let theme = cx.theme();
+        // MAX_ITEMS rows of 24 px with 2 px gaps; the rest scrolls.
+        let rows = v_flex()
+            .id("var-complete-rows")
+            .max_h(px(MAX_ITEMS as f32 * 26. - 2.))
+            .gap_0p5()
+            .overflow_y_scroll()
+            .when_some(scroll, |d, s| d.track_scroll(&s))
+            .children(rows);
         let list = v_flex()
-            .w(px(360.))
+            .w(px(440.))
             .p_1()
             .gap_0p5()
             .bg(theme.popover)
@@ -299,7 +350,7 @@ impl RequestEditor {
             .rounded(theme.radius)
             .font_family(theme.mono_font_family.clone())
             .text_xs()
-            .children(rows)
+            .child(rows)
             .child(
                 div()
                     .px_2()

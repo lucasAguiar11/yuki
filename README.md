@@ -39,7 +39,7 @@ Everything lives in `~/Library/Application Support/dev.yuki` (override with `YUK
 
 ## Variables and functions
 
-`{{ NAME }}` in the URL, params, headers, body or auth resolves from the active environment (and folder variables) at send time. Functions start with `$` and generate a fresh value per occurrence: `{{ $fake.fullName() }}`, `firstName`, `lastName`, `email`, `phone`, `cpf`, `cnpj`, `uuid`, `lorem`, `number`, `password`, `date`, `username`, `company`, `street`, `city`, `zipCode`, `jobTitle`, `url` (all `$fake.*`), plus `{{ $uuid.v4() }}` and `{{ $timestamp.iso() }}` / `unix` / `unixMs` / `date` / `time`. Type `{{ $` to pick one; the timeline shows the values that were sent.
+`{{ NAME }}` in the URL, params, headers, body or auth resolves from the active environment (and folder variables) at send time. Functions start with `$` and generate a fresh value per occurrence: `{{ $fake.fullName() }}`, `firstName`, `lastName`, `email`, `phone`, `cpf`, `cnpj`, `uuid`, `lorem`, `number`, `password`, `date`, `username`, `company`, `street`, `city`, `zipCode`, `jobTitle`, `url` (all `$fake.*`), plus `{{ $uuid.v4() }}` and `{{ $timestamp.iso() }}` / `unix` / `unixMs` / `date` / `time`. Type `$` to pick one (the list shows a sample of each); the timeline shows the values that were sent.
 
 ## Import / export
 

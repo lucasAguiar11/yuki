@@ -157,6 +157,18 @@ pub fn open_template(text: &str, cursor: usize) -> Option<(usize, &str)> {
     prefix.chars().all(is_name_char).then_some((start, prefix))
 }
 
+/// A bare `$prefix` right before the cursor (functions without typing `{{`):
+/// byte offset of the `$` and the text typed so far, `$` included.
+pub fn open_function(text: &str, cursor: usize) -> Option<(usize, &str)> {
+    let before = text.get(..cursor)?;
+    let start = before.rfind('$')?;
+    let typed = &before[start..];
+    typed[1..]
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '.')
+        .then_some((start, typed))
+}
+
 /// Names containing `prefix` (any case), those starting with it first.
 pub fn suggest<'a>(vars: &'a Vars, prefix: &str) -> Vec<(&'a String, &'a Var)> {
     let p = prefix.to_lowercase();
@@ -222,6 +234,9 @@ mod tests {
         assert_eq!(open_template("{{ A }} b", 9), None);
         assert_eq!(open_template("{{ A b", 6), None);
         assert_eq!(open_template("{{ BA }}", 5), Some((0, "BA")));
+        assert_eq!(open_function("x=$fa", 5), Some((2, "$fa")));
+        assert_eq!(open_function("$", 1), Some((0, "$")));
+        assert_eq!(open_function("$fake.email() x", 15), None);
         let var = Var {
             raw: String::new(),
             value: String::new(),

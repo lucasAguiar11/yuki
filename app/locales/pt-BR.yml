@@ -302,3 +302,4 @@
 "in omp, /mcp list shows yuki.": "no omp, /mcp list mostra o yuki."
 "with pi-mcp-adapter installed (pi install npm:pi-mcp-adapter), add to ~/.pi/agent/mcp.json:": "com o pi-mcp-adapter instalado (pi install npm:pi-mcp-adapter), adicione em ~/.pi/agent/mcp.json:"
 "in pi, /mcp lists yuki.": "no pi, /mcp lista o yuki."
+"e.g.": "ex.:"

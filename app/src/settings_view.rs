@@ -74,7 +74,13 @@ impl SettingsScreen {
             theme.border,
             theme.sidebar,
         );
-        let rows = [Section::Workspace, Section::Appearance, Section::About].map(|section| {
+        let rows = [
+            Section::Workspace,
+            Section::Appearance,
+            Section::Mcp,
+            Section::About,
+        ]
+        .map(|section| {
             let selected = section == self.section;
             div()
                 .id(section.id())
@@ -113,6 +119,7 @@ impl SettingsScreen {
         let body = match self.section {
             Section::Workspace => self.render_workspace(cx),
             Section::Appearance => self.render_appearance(cx),
+            Section::Mcp => self.render_mcp(cx),
             Section::About => self.render_about(cx),
         };
         let theme = cx.theme();
@@ -305,6 +312,7 @@ impl Section {
         match self {
             Section::Workspace => "section-workspace",
             Section::Appearance => "section-appearance",
+            Section::Mcp => "section-mcp",
             Section::About => "section-about",
         }
     }
@@ -313,6 +321,7 @@ impl Section {
         match self {
             Section::Workspace => t!("workspace"),
             Section::Appearance => t!("appearance"),
+            Section::Mcp => t!("agents (mcp)"),
             Section::About => t!("about"),
         }
         .into_owned()

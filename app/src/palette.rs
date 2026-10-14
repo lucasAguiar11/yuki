@@ -167,6 +167,7 @@ impl Yuki {
                     action(&t!("Settings…"), Box::new(OpenSettings)),
                     action(&t!("Check for updates…"), Box::new(CheckUpdates)),
                     action(&t!("About Yuki"), Box::new(OpenAbout)),
+                    action(&t!("Connect an AI agent (MCP)…"), Box::new(OpenMcp)),
                     action(&t!("Go to request…"), Box::new(OpenRequests)),
                     action(&t!("Switch workspace…"), Box::new(OpenWorkspaces)),
                     action(&t!("Report a bug…"), Box::new(ReportBug)),

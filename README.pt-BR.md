@@ -51,7 +51,7 @@ Com o Yuki aberto, agentes de IA podem listar, criar, editar e enviar seus reque
 
 **1. Ache o binário.** App instalado: `/Applications/Yuki.app/Contents/MacOS/yuki`. Do código-fonte: `target/release/yuki` (depois de `cargo build --release -p yuki`). Use o caminho absoluto.
 
-**2. Adicione ao seu cliente** (compilou do código-fonte? troque pelo seu caminho):
+**2. Adicione ao seu cliente** — o mais fácil é pelo app: clique em `● mcp` na barra de status (ou configurações → agentes (mcp)), escolha o cliente e copie o trecho, já com o caminho deste binário. À mão (compilou do código-fonte? troque pelo seu caminho):
 
 | Cliente | Configuração |
 |---|---|

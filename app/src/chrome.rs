@@ -10,7 +10,7 @@ use crate::{
     ui,
     update::{State, Updater},
     workspace::Yuki,
-    ImportCollection, ImportVoleeo, InstallUpdate, OpenCommands, OpenEnvs, OpenRequests,
+    ImportCollection, ImportVoleeo, InstallUpdate, OpenCommands, OpenEnvs, OpenMcp, OpenRequests,
     OpenSettings, OpenWorkspaces, ToggleEditor, ToggleGit, ToggleSidebar, ToggleVars,
 };
 
@@ -155,15 +155,19 @@ pub fn status_line(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
         None => (theme.red, t!("MCP is off — the socket didn't open")),
     };
     let tip = SharedString::from(tip.into_owned());
+    let fg = theme.foreground;
     let mcp = h_flex()
         .id("mcp-chip")
         .gap_1()
+        .cursor_pointer()
+        .hover(move |s| s.text_color(fg))
         .child(div().text_color(dot).child("●"))
         .child(match yuki.mcp {
             Some(n) if n > 0 => format!("mcp {n}"),
             _ => "mcp".into(),
         })
-        .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx));
+        .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
+        .on_click(|_, window, cx| window.dispatch_action(Box::new(OpenMcp), cx));
     // `↑ v0.2.0` — a newer release; click installs it and restarts.
     let updater = cx.global::<Updater>();
     let release = updater.release.as_ref().map(|r| {

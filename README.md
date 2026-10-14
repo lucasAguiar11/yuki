@@ -51,7 +51,7 @@ While Yuki is open, AI agents can list, create, edit and send your requests (HTT
 
 **1. Find the binary.** Installed app: `/Applications/Yuki.app/Contents/MacOS/yuki`. From source: `target/release/yuki` (after `cargo build --release -p yuki`). Use the absolute path.
 
-**2. Add it to your client** (built from source? swap in your path):
+**2. Add it to your client** — easiest from the app: click `● mcp` in the status line (or settings → agents (mcp)), pick the client and copy the snippet, already filled with this binary's path. By hand (built from source? swap in your path):
 
 | Client | Setup |
 |---|---|

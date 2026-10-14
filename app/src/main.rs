@@ -28,6 +28,7 @@ mod import_render;
 mod import_view;
 mod items;
 mod mcp;
+mod mcp_view;
 mod moving;
 mod notes;
 mod oauth;
@@ -96,6 +97,7 @@ actions!(
         CopyAsCurl,
         CancelRename,
         OpenAbout,
+        OpenMcp,
         CheckUpdates,
         InstallUpdate,
         OpenFolder,

@@ -39,7 +39,7 @@ app/              `yuki` binary (GPUI) — the only layer that knows gpui
   src/settings.rs "settings" screen ⌘, (workspace name, DNS overrides as hosts lines, shell-env allowlist); settings_view.rs render; prefs.rs font sizes + language; about.rs "about" section
   src/items.rs    tree CRUD (create/duplicate/delete); moving.rs drag & drop + "move to…"; rename.rs inline rename
   src/backend.rs  bridge to the engine: tokio runtime, load/save/send, Voleeo import
-  src/mcp.rs      MCP: engine server on `mcp.sock` + `mcp-token` (data dir), `yuki mcp` stdio bridge, agent edits reload the tree (not open tabs)
+  src/mcp.rs      MCP: engine server on `mcp.sock` + `mcp-token` (data dir), `yuki mcp` stdio bridge, agent edits reload the tree (not open tabs); mcp_view.rs settings → agents (mcp): per-client setup snippet (this binary's path, no token), opened by the `● mcp` chip
   src/update.rs   self-update: `Updater` global; GitHub `releases/latest` on launch (only from a `.app`) or by hand (about) → `↑ vX` chip → swap bundle, relaunch
   src/ws_folder.rs workspace in a user folder: ⌘O → + open folder… (new, or the one already there) and settings → move…; `workspaces/{id}` becomes a symlink to it
   src/transfer.rs import (yuki_import::plan → seal → stores) / export (open secrets → Bundle → yuki_export); transfer_ui.rs window glue; import_view.rs + import_render.rs, export_view.rs screens. Imports flatten inherited auth/headers onto requests (ADR-20261013)

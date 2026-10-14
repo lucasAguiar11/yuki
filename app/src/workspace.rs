@@ -372,6 +372,7 @@ impl Render for Yuki {
             .key_context("Yuki")
             .track_focus(&self.focus)
             .map(|el| crate::update::on_actions(el, cx))
+            .map(|el| crate::mcp_view::on_actions(el, cx))
             .map(|el| crate::transfer_ui::on_actions(el, cx))
             .on_action(cx.listener(|this, _: &Quit, _, cx| {
                 this.flush_blocking(cx);

@@ -27,6 +27,7 @@ const AUTOSAVE_DELAY: Duration = Duration::from_millis(400);
 pub enum Section {
     Workspace,
     Appearance,
+    Mcp,
     About,
 }
 
@@ -41,6 +42,7 @@ pub struct SettingsScreen {
     /// Where the workspace's files (and its git repo) live, links resolved.
     pub folder: PathBuf,
     pub section: Section,
+    pub mcp_client: crate::mcp_view::Client,
     pub name: Entity<InputState>,
     pub dns: Entity<TextareaState>,
     pub env: Entity<InputState>,
@@ -136,6 +138,7 @@ impl SettingsScreen {
             allow,
             folder,
             section: Section::Workspace,
+            mcp_client: Default::default(),
             name,
             dns,
             env,

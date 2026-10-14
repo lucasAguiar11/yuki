@@ -163,7 +163,7 @@ fn effective_root_auth<'a>(b: &'a Bundle, folder: &'a ApiFolder) -> &'a AuthConf
     effective_inherited_auth(b, folder.folder_id.as_deref(), from, &folder.auth)
 }
 
-fn effective_inherited_auth<'a>(
+pub(crate) fn effective_inherited_auth<'a>(
     b: &'a Bundle,
     parent_id: Option<&str>,
     from: &InheritSource,
@@ -304,7 +304,7 @@ fn build_url(url: &str, params: &[RequestParameter]) -> Value {
     u
 }
 
-fn contains_path_parameter(url: &str, name: &str) -> bool {
+pub(crate) fn contains_path_parameter(url: &str, name: &str) -> bool {
     let path = url.split(['?', '#']).next().unwrap_or(url);
     let needle = format!(":{name}");
     path.match_indices(&needle).any(|(index, _)| {

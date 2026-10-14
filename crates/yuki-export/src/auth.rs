@@ -9,7 +9,8 @@ use crate::normalize_templates;
 
 /// Postman auth object, or `None` to omit the `auth` key entirely.
 /// `Inherit` omits (so Postman's folder inheritance applies); `None`/disabled emit
-/// explicit `noauth` to override an inherited scheme.
+/// explicit `noauth` to override an inherited scheme — request level only:
+/// folders/workspace omit inactive auth (`postman::scope_auth`).
 pub(crate) fn auth_to_postman(a: &AuthConfig) -> Option<Value> {
     match a {
         AuthConfig::Inherit { .. } => None,
@@ -139,7 +140,7 @@ fn pm(ty: &str, pairs: &[(&str, &str)]) -> Value {
     json!({ "type": ty, ty: params })
 }
 
-fn oauth1_sig(m: &OAuth1Signature) -> &'static str {
+pub(crate) fn oauth1_sig(m: &OAuth1Signature) -> &'static str {
     match m {
         OAuth1Signature::HmacSha1 => "HMAC-SHA1",
         OAuth1Signature::HmacSha256 => "HMAC-SHA256",

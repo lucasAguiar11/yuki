@@ -11,19 +11,26 @@
 
 mod asyncapi;
 mod auth;
+mod insomnia;
 mod postman;
 mod voleeo;
+mod yaak;
 
 use std::{
     borrow::Cow,
     collections::{HashMap, HashSet},
 };
 
-use yuki_core::{ApiFolder, Environment, GrpcRequest, HttpRequest, Workspace, WsConnection};
+use yuki_core::{
+    ApiFolder, AuthConfig, BodyKind, Environment, EnvironmentKind, EnvironmentVariable,
+    GrpcRequest, HttpRequest, RequestParameter, Workspace, WsConnection,
+};
 
 pub use asyncapi::to_asyncapi;
+pub use insomnia::to_insomnia;
 pub use postman::{postman_environments, to_postman, to_postman_with_roots};
 pub use voleeo::to_voleeo;
+pub use yaak::to_yaak;
 
 /// A file the caller should write under a derived name (the command layer slugs
 /// `name` into the final filename). Used for Postman environment exports.
@@ -40,6 +47,31 @@ pub struct Bundle {
     pub ws: Vec<WsConnection>,
     pub grpc: Vec<GrpcRequest>,
     pub environments: Vec<Environment>,
+}
+
+impl Bundle {
+    /// Blank every secret: auth secret fields at every scope and the value of
+    /// each `encrypted` variable (environments + folder variables).
+    pub fn strip_secrets(&mut self) {
+        let auths = std::iter::once(&mut self.workspace.auth)
+            .chain(self.folders.iter_mut().map(|f| &mut f.auth))
+            .chain(self.requests.iter_mut().map(|r| &mut r.auth))
+            .chain(self.ws.iter_mut().map(|w| &mut w.auth))
+            .chain(self.grpc.iter_mut().map(|g| &mut g.auth));
+        for auth in auths {
+            for (secret, _) in auth.secret_fields_mut() {
+                secret.clear();
+            }
+        }
+        let vars = self
+            .environments
+            .iter_mut()
+            .flat_map(|e| e.variables.iter_mut())
+            .chain(self.folders.iter_mut().flat_map(|f| f.variables.iter_mut()));
+        for var in vars.filter(|v| v.encrypted) {
+            var.value.clear();
+        }
+    }
 }
 
 impl Bundle {
@@ -115,6 +147,12 @@ impl Bundle {
 /// Remove whitespace around template expressions for consumers that require the
 /// compact `{{name}}` form. Function arguments inside the expression are kept.
 pub(crate) fn normalize_templates(input: &str) -> Cow<'_, str> {
+    rewrite_templates(input, |expr| format!("{{{{{expr}}}}}"))
+}
+
+/// Rewrite every `{{ expr }}` span via `wrap(trimmed expr)`; text outside spans
+/// (and an unclosed `{{`) is kept verbatim.
+pub(crate) fn rewrite_templates(input: &str, wrap: impl Fn(&str) -> String) -> Cow<'_, str> {
     if !input.contains("{{") {
         return Cow::Borrowed(input);
     }
@@ -128,9 +166,7 @@ pub(crate) fn normalize_templates(input: &str) -> Cow<'_, str> {
             out.push_str(&rest[start..]);
             return Cow::Owned(out);
         };
-        out.push_str("{{");
-        out.push_str(expression[..end].trim());
-        out.push_str("}}");
+        out.push_str(&wrap(expression[..end].trim()));
         rest = &expression[end + 2..];
     }
     out.push_str(rest);
@@ -166,4 +202,141 @@ pub(crate) fn children<'a>(b: &'a Bundle, parent: Option<&str>) -> Vec<Node<'a>>
     }
     out.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
     out.into_iter().map(|(_, n)| n).collect()
+}
+
+/// Global variables of every bundle (last wins on a key clash) plus the named
+/// environments with display names, workspace-prefixed when bundles are combined.
+pub(crate) fn split_envs(
+    bundles: &[Bundle],
+) -> (Vec<&EnvironmentVariable>, Vec<(String, &Environment)>) {
+    let mut globals: Vec<&EnvironmentVariable> = Vec::new();
+    let mut named = Vec::new();
+    for b in bundles {
+        for e in &b.environments {
+            if e.kind == EnvironmentKind::Global {
+                globals.extend(&e.variables);
+            } else if bundles.len() > 1 {
+                named.push((format!("{} / {}", b.workspace.name, e.name), e));
+            } else {
+                named.push((e.name.clone(), e));
+            }
+        }
+    }
+    let mut seen = HashSet::new();
+    globals.reverse();
+    globals.retain(|v| seen.insert(v.key.as_str()));
+    globals.reverse();
+    (globals, named)
+}
+
+/// WebSocket/gRPC items have no place in HTTP-collection formats — say so.
+pub(crate) fn warn_skipped_items(bundles: &[Bundle], target: &str, warnings: &mut Vec<String>) {
+    for b in bundles {
+        if !b.ws.is_empty() {
+            warnings.push(format!(
+                "{} WebSocket connection(s) in '{}' were skipped: {target} export carries HTTP requests only.",
+                b.ws.len(),
+                b.workspace.name
+            ));
+        }
+        if !b.grpc.is_empty() {
+            warnings.push(format!(
+                "{} gRPC request(s) in '{}' were skipped: {target} export carries HTTP requests only.",
+                b.grpc.len(),
+                b.workspace.name
+            ));
+        }
+    }
+}
+
+/// Auth configs that reach an HTTP collection: workspace, folders, requests.
+pub(crate) fn http_auths(bundles: &[Bundle]) -> impl Iterator<Item = &AuthConfig> {
+    bundles.iter().flat_map(|b| {
+        std::iter::once(&b.workspace.auth)
+            .chain(b.folders.iter().map(|f| &f.auth))
+            .chain(b.requests.iter().map(|r| &r.auth))
+    })
+}
+
+/// Push `"{count} {what}"` when `count > 0` — one warning per lossy kind.
+pub(crate) fn warn_count(warnings: &mut Vec<String>, count: usize, what: &str) {
+    if count > 0 {
+        warnings.push(format!("{count} {what}"));
+    }
+}
+
+/// A Content-Type override only drives the wire header for binary bodies in
+/// yuki-http; elsewhere the exported header may differ from what Yuki sends.
+pub(crate) fn warn_content_type_overrides(bundles: &[Bundle], warnings: &mut Vec<String>) {
+    let count = bundles
+        .iter()
+        .flat_map(|b| &b.requests)
+        .filter_map(|r| r.body.as_ref())
+        .filter(|body| {
+            !matches!(body.kind, BodyKind::None | BodyKind::Binary)
+                && body
+                    .content_type
+                    .as_deref()
+                    .is_some_and(|c| !c.trim().is_empty())
+        })
+        .count();
+    warn_count(
+        warnings,
+        count,
+        "request(s) carry a Content-Type override on a non-binary body; the exported Content-Type may differ from what Yuki sends.",
+    );
+}
+
+/// The Content-Type yuki-http adds at send time when no enabled header in scope
+/// (workspace → folders → request) sets one. Stored requests usually lack it, so
+/// tools that send headers verbatim need it written out. Multipart is left to
+/// the target tool (it owns the boundary).
+pub(crate) fn implied_content_type(b: &Bundle, r: &HttpRequest) -> Option<String> {
+    let body = r.body.as_ref()?;
+    let mime = match body.kind {
+        BodyKind::None | BodyKind::Multipart => return None,
+        _ if body.text.is_empty()
+            && matches!(
+                body.kind,
+                BodyKind::Json
+                    | BodyKind::Xml
+                    | BodyKind::Text
+                    | BodyKind::Html
+                    | BodyKind::Graphql
+            ) =>
+        {
+            return None
+        }
+        BodyKind::Json | BodyKind::Graphql => "application/json",
+        BodyKind::Xml => "application/xml",
+        BodyKind::Html => "text/html",
+        BodyKind::Text => "text/plain",
+        BodyKind::FormUrlEncoded => "application/x-www-form-urlencoded",
+        BodyKind::Binary => "application/octet-stream",
+    };
+
+    let mut scopes: Vec<&[RequestParameter]> = vec![&b.workspace.headers, &r.headers];
+    let mut parent = r.folder_id.as_deref();
+    let mut seen = HashSet::new();
+    while let Some(id) = parent.filter(|id| seen.insert(*id)) {
+        let Some(f) = b.folders.iter().find(|f| f.id == id) else {
+            break;
+        };
+        scopes.push(&f.headers);
+        parent = f.folder_id.as_deref();
+    }
+    let set = scopes
+        .iter()
+        .flat_map(|s| s.iter())
+        .any(|h| h.enabled && h.name.trim().eq_ignore_ascii_case("content-type"));
+    if set {
+        return None;
+    }
+    Some(
+        body.content_type
+            .as_deref()
+            .filter(|c| !c.trim().is_empty())
+            .unwrap_or(mime)
+            .to_string(),
+    )
 }

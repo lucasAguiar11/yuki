@@ -41,6 +41,7 @@ app/              `yuki` binary (GPUI) — the only layer that knows gpui
   src/mcp.rs      MCP: engine server on `mcp.sock` + `mcp-token` (data dir), `yuki mcp` stdio bridge, agent edits reload the tree (not open tabs)
   src/update.rs   self-update: `Updater` global; GitHub `releases/latest` on launch (only from a `.app`) or by hand (about) → `↑ vX` chip → swap bundle, relaunch
   src/ws_folder.rs workspace in a user folder: ⌘O → + open folder… (new, or the one already there) and settings → move…; `workspaces/{id}` becomes a symlink to it
+  src/transfer.rs import (yuki_import::plan → seal → stores) / export (open secrets → Bundle → yuki_export); transfer_ui.rs window glue; import_view.rs + import_render.rs, export_view.rs screens. Imports flatten inherited auth/headers onto requests (ADR-20261013)
   src/auth.rs     auth schemes as data (fields per type) + AuthConfig⇄form via serde; auth_form.rs auth tab; oauth.rs "get token"; secrets.rs secret crypto
   src/draft.rs, tree.rs, ui.rs  pure helpers
 crates/yuki-*     engine inherited from Voleeo (MIT), no gpui/tauri

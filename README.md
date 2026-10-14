@@ -37,6 +37,10 @@ cargo build --release -p yuki
 
 Everything lives in `~/Library/Application Support/dev.yuki` (override with `YUKI_DATA_DIR`) as plain YAML: one folder per workspace, each its own git repository. A workspace can also live in a folder of yours (a repo, a project folder): ⌘O → **+ open folder…** creates a new workspace in an empty folder or opens the one already there (a clone, say); Yuki only keeps a link to it. Settings → workspace shows where it lives and **move…** takes it, `.git` included, to another empty folder. Voleeo workspaces can be imported (copied, never linked) from the command palette.
 
+## Import / export
+
+⌘⇧P → **Import collection…** (or ⌘O → **+ import collection…**) reads a Voleeo bundle, Yaak, Postman (v2.0/2.1), Insomnia (v4 JSON or v5 YAML), OpenAPI/Swagger or Bruno file: pick what comes in from the tree, into a new workspace or into a folder of the open one. Auth and headers set on the collection or a folder are copied onto each request. **Export workspace…** writes the open workspace as Voleeo, Yaak, Postman (environments as sibling files) or Insomnia v4; secret values are left empty unless you tick **include secrets**.
+
 ## MCP
 
 While Yuki is open, AI agents can list, create, edit and send your requests over MCP. Point the client at the `yuki` binary with the `mcp` argument — it bridges stdio to the running app (no token to copy):

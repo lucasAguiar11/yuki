@@ -117,7 +117,7 @@ fn root_folders<'a>(bundle: &'a Bundle, roots: &[(String, String)]) -> Vec<&'a A
 /// their own exporters.
 fn workspace_item(b: &Bundle) -> Value {
     let mut folder = json!({ "name": b.workspace.name, "item": build_items(b, None) });
-    if let Some(a) = auth_to_postman(&b.workspace.auth) {
+    if let Some(a) = scope_auth(&b.workspace.auth) {
         folder["auth"] = a;
     }
     folder
@@ -144,10 +144,16 @@ fn root_folder_item(b: &Bundle, folder: &ApiFolder) -> Value {
 
 fn folder_item_with_auth(b: &Bundle, folder: &ApiFolder, auth: &AuthConfig) -> Value {
     let mut item = json!({ "name": folder.name, "item": build_items(b, Some(&folder.id)) });
-    if let Some(a) = auth_to_postman(auth) {
+    if let Some(a) = scope_auth(auth) {
         item["auth"] = a;
     }
     item
+}
+
+/// A folder/workspace without an active auth passes the outer one through in
+/// Yuki; Postman's `noauth` would stop inheritance instead, so omit it.
+fn scope_auth(auth: &AuthConfig) -> Option<Value> {
+    auth.is_active().then(|| auth_to_postman(auth)).flatten()
 }
 
 fn effective_root_auth<'a>(b: &'a Bundle, folder: &'a ApiFolder) -> &'a AuthConfig {

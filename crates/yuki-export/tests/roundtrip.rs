@@ -435,6 +435,22 @@ fn postman_round_trips_and_keeps_auth_fidelity() {
 }
 
 #[test]
+fn postman_scope_without_auth_passes_the_outer_auth_through() {
+    // Yuki: a folder with no auth of its own hands down the workspace's.
+    let mut b = bundle();
+    b.workspace.auth = AuthConfig::Bearer {
+        token: "ws-token".into(),
+        token_encrypted: false,
+        enabled: true,
+    };
+    b.folders[0].auth = AuthConfig::None;
+    let out = to_postman(&[b]).unwrap();
+    let p = yuki_import::plan(ImportFormat::Postman, &out.content, None, "ws", 0.0).unwrap();
+    let pet = p.requests.iter().find(|r| r.name == "Get Pet").unwrap();
+    assert!(matches!(&pet.auth, AuthConfig::Bearer { token, .. } if token == "ws-token"));
+}
+
+#[test]
 fn voleeo_bundle_round_trips_fully() {
     let out = to_voleeo(&[bundle()]).unwrap();
     let doc: VoleeoBundle = serde_yaml::from_str(&out.content).expect("valid Voleeo Bundle YAML");

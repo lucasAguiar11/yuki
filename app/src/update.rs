@@ -1,5 +1,5 @@
 //! Self-update from GitHub releases. A build running from `Yuki.app` asks for
-//! the latest release on launch; settings → about checks by hand. A newer
+//! the latest release on launch and every few hours; settings → about checks by hand. A newer
 //! release shows as a status-line chip; installing swaps the bundle in place
 //! and relaunches.
 
@@ -7,6 +7,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
     process::Command,
+    time::Duration,
 };
 
 use gpui_kit::*;
@@ -14,6 +15,8 @@ use gpui_kit::*;
 use crate::{settings::Section, workspace::Yuki, CheckUpdates, InstallUpdate, OpenAbout};
 
 const LATEST: &str = "https://api.github.com/repos/lucasAguiar11/yuki/releases/latest";
+/// Re-check while the app stays open; GitHub allows 60 unauthenticated calls/h.
+const RECHECK: Duration = Duration::from_secs(6 * 60 * 60);
 /// What `.github/workflows/release.yml` uploads for this arch: `Yuki.app`,
 /// zipped by `ditto`.
 fn asset() -> String {
@@ -177,11 +180,17 @@ pub(crate) fn on_actions(el: Div, cx: &mut Context<Yuki>) -> Div {
 }
 
 impl Yuki {
-    /// Launch: only from a bundle, where an update can land.
-    pub(crate) fn check_update_on_launch(&self, cx: &mut Context<Self>) {
-        if bundle().is_some() {
-            self.check_update(cx);
+    /// Launch and every `RECHECK`: only from a bundle, where an update can land.
+    pub(crate) fn watch_updates(&self, cx: &mut Context<Self>) {
+        if bundle().is_none() {
+            return;
         }
+        cx.spawn(async move |this, cx| {
+            while this.update(cx, |this, cx| this.check_update(cx)).is_ok() {
+                cx.background_executor().timer(RECHECK).await;
+            }
+        })
+        .detach();
     }
 
     pub(crate) fn check_update(&self, cx: &mut Context<Self>) {

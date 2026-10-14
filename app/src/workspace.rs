@@ -96,7 +96,7 @@ impl Yuki {
         this.init_git_inputs(window, cx);
         this.reload_workspaces(window, cx);
         this.watch_mcp(mcp, window, cx);
-        this.check_update_on_launch(cx);
+        this.watch_updates(cx);
         let weak = cx.entity().downgrade();
         window.on_window_should_close(cx, move |_, cx| {
             if let Some(this) = weak.upgrade() {

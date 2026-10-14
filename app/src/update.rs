@@ -14,8 +14,11 @@ use gpui_kit::*;
 use crate::{settings::Section, workspace::Yuki, CheckUpdates, InstallUpdate, OpenAbout};
 
 const LATEST: &str = "https://api.github.com/repos/lucasAguiar11/yuki/releases/latest";
-/// What `.github/workflows/release.yml` uploads: `Yuki.app`, zipped by `ditto`.
-const ASSET: &str = "Yuki-macos-universal.zip";
+/// What `.github/workflows/release.yml` uploads for this arch: `Yuki.app`,
+/// zipped by `ditto`.
+fn asset() -> String {
+    format!("Yuki-macos-{}.zip", std::env::consts::ARCH)
+}
 
 /// What the status chip and settings → about show.
 #[derive(Default)]
@@ -67,8 +70,8 @@ fn get(url: &str) -> reqwest::RequestBuilder {
         .header("User-Agent", concat!("Yuki/", env!("CARGO_PKG_VERSION")))
 }
 
-/// `/releases/latest` skips drafts and pre-releases: publishing the draft
-/// `release.yml` makes is what ships an update.
+/// `/releases/latest` skips drafts and pre-releases: `release.yml` publishes
+/// only once both arches are uploaded.
 async fn latest() -> Result<Option<Release>, String> {
     let res = get(LATEST).send().await.map_err(|e| e.to_string())?;
     // 404 = nothing published yet.
@@ -85,11 +88,12 @@ async fn latest() -> Result<Option<Release>, String> {
     if !newer(tag, env!("CARGO_PKG_VERSION")) {
         return Ok(None);
     }
+    let asset = asset();
     let url = rel["assets"]
         .as_array()
         .into_iter()
         .flatten()
-        .find(|a| a["name"] == ASSET)
+        .find(|a| a["name"] == asset)
         .and_then(|a| a["browser_download_url"].as_str());
     Ok(url.map(|url| Release {
         version: tag.to_owned(),
@@ -125,7 +129,7 @@ fn install(zip: &[u8], app: &Path) -> Result<(), String> {
     let _ = fs::remove_dir_all(&stage);
     fs::create_dir(&stage).map_err(|e| format!("{}: {e}", stage.display()))?;
     let swap = || -> Result<(), String> {
-        let zip_path = stage.join(ASSET);
+        let zip_path = stage.join("Yuki.zip");
         fs::write(&zip_path, zip).map_err(|e| e.to_string())?;
         run(Command::new("ditto").arg("-xk").arg(&zip_path).arg(&stage))?;
         let new = stage.join("Yuki.app");

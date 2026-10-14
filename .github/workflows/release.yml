@@ -1,46 +1,81 @@
 name: release
 
-# Actions → release → Run workflow (on main) with the version: bumps app/Cargo.toml,
-# builds, then commits + tags that exact tree and opens a draft release.
+# Actions → release → Run workflow (on main). git-cliff (cliff.toml) picks the
+# version from the feat/fix/perf commits since the last tag; none = no release.
+# Each arch builds on its own runner into a draft; only when both land does main
+# get the bump commit + tag and the release go public — which is what the
+# in-app updater (`releases/latest`) sees.
 on:
   workflow_dispatch:
-    inputs:
-      version:
-        description: "version, e.g. 0.2.0"
-        required: true
 
 permissions:
   contents: write
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  GH_TOKEN: ${{ github.token }}
+
 jobs:
-  macos:
-    # GPUI renders through Metal: macOS is the only target we ship.
-    runs-on: macos-latest
+  draft:
+    runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
-    env:
-      VERSION: ${{ inputs.version }}
+    outputs:
+      version: ${{ steps.next.outputs.version }}
+      release_id: ${{ steps.next.outputs.release_id }}
     steps:
-      # Deploy key: the only push identity a personal-repo ruleset can let bypass `main`.
       - uses: actions/checkout@v4
         with:
-          ssh-key: ${{ secrets.RELEASE_DEPLOY_KEY }}
-
-      - name: Bump app version
+          fetch-depth: 0
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: git-cliff
+      - id: next
         run: |
-          [[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "not a version: $VERSION"; exit 1; }
-          if git ls-remote --exit-code --tags origin "v$VERSION" >/dev/null; then
-            echo "v$VERSION already exists"; exit 1
+          current=$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || echo none)
+          next=$(git cliff --bumped-version)
+          if [ "$next" = "$current" ]; then
+            echo "::notice::no feat/fix/perf since $current: nothing to release"
+            exit 0
           fi
-          sed -i '' "s/^version = \".*\"/version = \"$VERSION\"/" app/Cargo.toml
+          git cliff --unreleased --tag "$next" --strip all -o notes.md
+          # A failed earlier run leaves its draft behind; the tag can't exist yet.
+          gh release delete "$next" --yes 2>/dev/null || true
+          id=$(gh api "repos/$GITHUB_REPOSITORY/releases" \
+            -f tag_name="$next" -f name="Yuki $next" -F draft=true -F body=@notes.md --jq .id)
+          echo "version=$next" >> "$GITHUB_OUTPUT"
+          echo "release_id=$id" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: draft
+    if: needs.draft.outputs.version != ''
+    strategy:
+      matrix:
+        arch: [aarch64, x86_64]
+    # GPUI renders through Metal: macOS is the only target we ship. The arm64
+    # runner cross-compiles x86_64.
+    runs-on: macos-latest
+    env:
+      VERSION: ${{ needs.draft.outputs.version }}
+      ARCH: ${{ matrix.arch }}
+      TARGET: ${{ matrix.arch }}-apple-darwin
+    steps:
+      - uses: actions/checkout@v4
+
+      # Only for CARGO_PKG_VERSION; the publish job commits the same bump.
+      - run: sed -i '' "s/^version = \".*\"/version = \"${VERSION#v}\"/" app/Cargo.toml
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-darwin, x86_64-apple-darwin
+          targets: ${{ env.TARGET }}
+      # Matrix jobs share a job id: without the key both arches fight over one cache.
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.arch }}
 
-      # Also rewrites yuki's entry in Cargo.lock.
-      - run: cargo build --release -p yuki --target aarch64-apple-darwin
-      - run: cargo build --release -p yuki --target x86_64-apple-darwin
+      - run: cargo build --release -p yuki --target "$TARGET"
 
       - name: Third-party licenses
         run: |
@@ -51,9 +86,7 @@ jobs:
         run: |
           app=Yuki.app
           mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" icon.iconset
-          lipo -create -output "$app/Contents/MacOS/yuki" \
-            target/aarch64-apple-darwin/release/yuki \
-            target/x86_64-apple-darwin/release/yuki
+          cp "target/$TARGET/release/yuki" "$app/Contents/MacOS/yuki"
           for s in 16 32 128 256 512; do
             sips -z $s $s app/assets/icon.png --out "icon.iconset/icon_${s}x${s}.png"
             sips -z $((s*2)) $((s*2)) app/assets/icon.png --out "icon.iconset/icon_${s}x${s}@2x.png"
@@ -61,25 +94,45 @@ jobs:
           iconutil -c icns icon.iconset -o "$app/Contents/Resources/yuki.icns"
           cp .github/Info.plist "$app/Contents/Info.plist"
           cp LICENSE NOTICE THIRD-PARTY.html "$app/Contents/Resources/"
-          # lipo drops the per-slice signature; arm64 refuses to launch unsigned.
+          # Seals the bundle: the updater verifies it, arm64 refuses to launch unsigned.
           codesign --force --deep --sign - "$app"
-          ditto -c -k --keepParent "$app" Yuki-macos-universal.zip
+          # The zip feeds the updater (update.rs `asset`); the dmg is for people.
+          ditto -c -k --keepParent "$app" "Yuki-macos-$ARCH.zip"
+          ditto "$app" "dmg/$app" && ln -s /Applications dmg/Applications
+          hdiutil create -volname Yuki -srcfolder dmg -format UDZO "Yuki-macos-$ARCH.dmg"
 
-      # Only after a good build, so a failed run leaves no tag behind. If main moved
-      # meanwhile the push is rejected (non-fast-forward): rerun.
+      - name: Upload to the draft
+        run: |
+          files=("Yuki-macos-$ARCH.zip" "Yuki-macos-$ARCH.dmg")
+          # Identical on both arches (about.toml lists both targets): upload once.
+          if [ "$ARCH" = aarch64 ]; then files+=(THIRD-PARTY.html); fi
+          gh release upload "$VERSION" "${files[@]}"
+
+  publish:
+    needs: [draft, build]
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.draft.outputs.version }}
+    steps:
+      # Deploy key: the only push identity a personal-repo ruleset can let bypass `main`.
+      - uses: actions/checkout@v4
+        with:
+          ssh-key: ${{ secrets.RELEASE_DEPLOY_KEY }}
+
+      # The exact tree that was built. If main moved meanwhile the push is
+      # rejected (non-fast-forward): rerun.
       - name: Commit and tag
         run: |
+          v=${VERSION#v}
+          sed -i "s/^version = \".*\"/version = \"$v\"/" app/Cargo.toml
+          sed -i "/^name = \"yuki\"$/{n;s/^version = .*/version = \"$v\"/}" Cargo.lock
           git config user.name "github-actions[bot]"
           git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
-          git diff --quiet || git commit -qam "chore(release): v$VERSION"
-          git tag "v$VERSION"
-          git push --atomic origin HEAD:main "v$VERSION"
+          git diff --quiet || git commit -qam "chore(release): $VERSION"
+          git tag "$VERSION"
+          git push --atomic origin HEAD:main "$VERSION"
 
-      - uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ inputs.version }}
-          draft: true
-          generate_release_notes: true
-          files: |
-            Yuki-macos-universal.zip
-            THIRD-PARTY.html
+      - name: Publish
+        run: |
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/${{ needs.draft.outputs.release_id }}" \
+            -F draft=false --jq .html_url

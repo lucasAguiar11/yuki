@@ -18,6 +18,8 @@ chrono = { workspace = true }
 yuki-oauth = { path = "../crates/yuki-oauth" }
 yuki-auth = { path = "../crates/yuki-auth" }
 yuki-git = { path = "../crates/yuki-git" }
+yuki-import = { path = "../crates/yuki-import" }
+yuki-export = { path = "../crates/yuki-export" }
 reqwest = { workspace = true }
 dirs = "6"
 rust-i18n = "4"

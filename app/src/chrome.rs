@@ -10,8 +10,8 @@ use crate::{
     ui,
     update::{State, Updater},
     workspace::Yuki,
-    ImportVoleeo, InstallUpdate, OpenCommands, OpenEnvs, OpenRequests, OpenSettings,
-    OpenWorkspaces, ToggleEditor, ToggleGit, ToggleSidebar, ToggleVars,
+    ImportCollection, ImportVoleeo, InstallUpdate, OpenCommands, OpenEnvs, OpenRequests,
+    OpenSettings, OpenWorkspaces, ToggleEditor, ToggleGit, ToggleSidebar, ToggleVars,
 };
 
 /// `demo / JSONPlaceholder / photos                         env [Local ▾]`
@@ -312,6 +312,16 @@ pub fn welcome(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
                     ),
             )
         })
+        .child(
+            div()
+                .id("welcome-import-collection")
+                .text_xs()
+                .cursor_pointer()
+                .text_color(muted)
+                .hover(move |s| s.text_color(fg))
+                .child(t!("import a collection (Postman, Insomnia, Yaak, Voleeo)…").into_owned())
+                .on_click(|_, window, cx| window.dispatch_action(Box::new(ImportCollection), cx)),
+        )
         .when(yuki.workspaces.is_empty(), |s| {
             s.child(
                 Button::new("welcome-import")

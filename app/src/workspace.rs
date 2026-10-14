@@ -46,6 +46,8 @@ pub struct Yuki {
     pub(crate) env_screen: Option<(Entity<EnvScreen>, Subscription)>,
     /// The "Settings" screen, same place; one of the two at a time.
     pub(crate) settings: Option<(Entity<SettingsScreen>, Subscription)>,
+    /// Import or export screen, same place as the two above.
+    pub(crate) transfer: Option<(AnyView, Subscription)>,
     pub(crate) palette: Option<Palette>,
     /// Sidebar row being renamed inline.
     pub renaming: Option<Rename>,
@@ -83,6 +85,7 @@ impl Yuki {
             env_sub: None,
             env_screen: None,
             settings: None,
+            transfer: None,
             palette: None,
             renaming: None,
             status: "".into(),
@@ -285,6 +288,9 @@ impl Yuki {
     }
 
     fn render_center(&self, cx: &mut Context<Self>) -> AnyElement {
+        if let Some((screen, _)) = &self.transfer {
+            return screen.clone().into_any_element();
+        }
         if let Some((screen, _)) = &self.settings {
             return screen.clone().into_any_element();
         }
@@ -366,6 +372,7 @@ impl Render for Yuki {
             .key_context("Yuki")
             .track_focus(&self.focus)
             .map(|el| crate::update::on_actions(el, cx))
+            .map(|el| crate::transfer_ui::on_actions(el, cx))
             .on_action(cx.listener(|this, _: &Quit, _, cx| {
                 this.flush_blocking(cx);
                 cx.quit();

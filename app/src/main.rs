@@ -20,9 +20,12 @@ mod editor;
 mod env_screen;
 mod env_view;
 mod envs;
+mod export_view;
 mod git;
 mod git_ops;
 mod git_panel;
+mod import_render;
+mod import_view;
 mod items;
 mod mcp;
 mod moving;
@@ -39,6 +42,8 @@ mod settings_view;
 mod sidebar;
 mod table;
 mod tabs;
+mod transfer;
+mod transfer_ui;
 mod tree;
 mod ui;
 mod update;
@@ -93,7 +98,10 @@ actions!(
         CheckUpdates,
         InstallUpdate,
         OpenFolder,
-        ReportBug
+        ReportBug,
+        ImportCollection,
+        ExportWorkspace,
+        CloseTransfer
     ]
 );
 
@@ -122,6 +130,7 @@ fn bind_keys(cx: &mut App) {
         // ⌘, on macOS, ctrl-, elsewhere.
         KeyBinding::new("secondary-,", OpenSettings, None),
         KeyBinding::new("escape", CloseSettings, Some("SettingsScreen")),
+        KeyBinding::new("escape", CloseTransfer, Some("Transfer")),
         KeyBinding::new("cmd-s", Save, None),
         KeyBinding::new("cmd-enter", Send, None),
         KeyBinding::new("cmd-shift-c", CopyAsCurl, None),

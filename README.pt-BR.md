@@ -6,7 +6,7 @@
 
 Um console de APIs nativo para macOS, feito para o teclado, escrito em Rust sobre GPUI. Um documento por request (`GET ▸ url`), monoespaçado onde há dado, cor só onde ela significa algo.
 
-Pré-lançamento: ainda não há `.app` empacotado; rode a partir do código.
+Baixe o `Yuki-macos-aarch64.dmg` (Apple Silicon) ou o `Yuki-macos-x86_64.dmg` (Intel) do [último release](https://github.com/lucasAguiar11/yuki/releases/latest) e arraste o Yuki para Aplicativos (depois ele se atualiza sozinho), ou rode a partir do código.
 
 ## Rodar
 
@@ -47,13 +47,30 @@ Tudo fica em `~/Library/Application Support/dev.yuki` (troque com `YUKI_DATA_DIR
 
 ## MCP
 
-Com o Yuki aberto, agentes de IA podem listar, criar, editar e enviar seus requests por MCP. Aponte o cliente para o binário `yuki` com o argumento `mcp` — ele liga o stdio ao app aberto (sem token para copiar):
+Com o Yuki aberto, agentes de IA podem listar, criar, editar e enviar seus requests (HTTP, WebSocket, gRPC), ambientes, cookies, histórico e snapshots por MCP. O cliente executa `yuki mcp`, uma ponte stdio para o app aberto — sem token nem porta para configurar.
+
+**1. Ache o binário.** App instalado: `/Applications/Yuki.app/Contents/MacOS/yuki`. Do código-fonte: `target/release/yuki` (depois de `cargo build --release -p yuki`). Use o caminho absoluto.
+
+**2. Adicione ao seu cliente** (compilou do código-fonte? troque pelo seu caminho):
+
+| Cliente | Configuração |
+|---|---|
+| Claude Code | `claude mcp add -s user yuki -- /Applications/Yuki.app/Contents/MacOS/yuki mcp` |
+| Codex | `codex mcp add yuki -- /Applications/Yuki.app/Contents/MacOS/yuki mcp` |
+| Cursor | `~/.cursor/mcp.json` (ou `.cursor/mcp.json` num projeto), JSON abaixo |
+| Claude Desktop | `~/Library/Application Support/Claude/claude_desktop_config.json`, JSON abaixo; reinicie o app |
 
 ```json
-{ "mcpServers": { "yuki": { "command": "/path/to/target/release/yuki", "args": ["mcp"] } } }
+{ "mcpServers": { "yuki": { "command": "/Applications/Yuki.app/Contents/MacOS/yuki", "args": ["mcp"] } } }
 ```
 
-`● mcp` na barra de status fica verde com o servidor no ar (com o número de agentes conectados) e vermelho se ele não subiu. Edições do agente aparecem na barra lateral na hora; um request já aberto numa aba mantém o que tinha até você reabri-lo.
+**3. Deixe o Yuki aberto.** `● mcp` na barra de status fica verde com o servidor no ar (com o número de agentes conectados) e vermelho se ele não subiu. Peça ao agente "liste meus workspaces do Yuki" para testar.
+
+- `open Yuki once` — o app nunca rodou com esse diretório de dados: abra-o e tente de novo.
+- `is Yuki running? no socket` — o app está fechado: abra-o; o cliente reconecta na próxima vez que iniciar.
+- Roda o Yuki com `YUKI_DATA_DIR`? Passe o mesmo valor para a ponte: `"env": { "YUKI_DATA_DIR": "/tmp/yk" }` no JSON, `-e YUKI_DATA_DIR=…` (Claude Code) ou `--env YUKI_DATA_DIR=…` (Codex).
+
+Edições do agente aparecem na barra lateral na hora; um request já aberto numa aba mantém o que tinha até você reabri-lo.
 
 ## Contribuindo
 

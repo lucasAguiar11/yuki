@@ -6,7 +6,7 @@
 
 A native, keyboard-first API console for macOS, written in Rust on GPUI. One document per request (`GET ▸ url`), monospace wherever there's data, color only where it means something.
 
-Pre-release: there's no packaged `.app` yet; run it from source.
+Download `Yuki-macos-aarch64.dmg` (Apple Silicon) or `Yuki-macos-x86_64.dmg` (Intel) from the [latest release](https://github.com/lucasAguiar11/yuki/releases/latest) and drag Yuki to Applications (it updates itself afterwards), or run it from source.
 
 ## Run
 
@@ -47,13 +47,30 @@ Everything lives in `~/Library/Application Support/dev.yuki` (override with `YUK
 
 ## MCP
 
-While Yuki is open, AI agents can list, create, edit and send your requests over MCP. Point the client at the `yuki` binary with the `mcp` argument — it bridges stdio to the running app (no token to copy):
+While Yuki is open, AI agents can list, create, edit and send your requests (HTTP, WebSocket, gRPC), environments, cookies, history and snapshots over MCP. The client launches `yuki mcp`, a stdio bridge to the running app — no token or port to configure.
+
+**1. Find the binary.** Installed app: `/Applications/Yuki.app/Contents/MacOS/yuki`. From source: `target/release/yuki` (after `cargo build --release -p yuki`). Use the absolute path.
+
+**2. Add it to your client** (built from source? swap in your path):
+
+| Client | Setup |
+|---|---|
+| Claude Code | `claude mcp add -s user yuki -- /Applications/Yuki.app/Contents/MacOS/yuki mcp` |
+| Codex | `codex mcp add yuki -- /Applications/Yuki.app/Contents/MacOS/yuki mcp` |
+| Cursor | `~/.cursor/mcp.json` (or `.cursor/mcp.json` in a project), JSON below |
+| Claude Desktop | `~/Library/Application Support/Claude/claude_desktop_config.json`, JSON below; restart it |
 
 ```json
-{ "mcpServers": { "yuki": { "command": "/path/to/target/release/yuki", "args": ["mcp"] } } }
+{ "mcpServers": { "yuki": { "command": "/Applications/Yuki.app/Contents/MacOS/yuki", "args": ["mcp"] } } }
 ```
 
-`● mcp` in the status line is green while the server is up (with the number of connected agents) and red if it couldn't start. Agent edits show up in the sidebar at once; a request already open in a tab keeps what it had until you reopen it.
+**3. Keep Yuki open.** `● mcp` in the status line is green while the server is up (with the number of connected agents) and red if it couldn't start. Ask the agent to "list my Yuki workspaces" to check.
+
+- `open Yuki once` — the app never ran with this data dir: open it, then retry.
+- `is Yuki running? no socket` — the app is closed: open it; the client reconnects on its next start.
+- Running Yuki with `YUKI_DATA_DIR`? Give the bridge the same value: `"env": { "YUKI_DATA_DIR": "/tmp/yk" }` in the JSON, `-e YUKI_DATA_DIR=…` (Claude Code) or `--env YUKI_DATA_DIR=…` (Codex).
+
+Agent edits show up in the sidebar at once; a request already open in a tab keeps what it had until you reopen it.
 
 ## Contributing
 

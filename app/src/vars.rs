@@ -4,7 +4,7 @@
 use std::{collections::BTreeMap, ops::Range};
 
 use gpui_kit::component::input::{InlineToken, InputContent};
-use yuki_mcp::resolve::is_identifier;
+use yuki_mcp::resolve::{funcs, is_identifier};
 
 /// The layer a variable comes from, strongest first.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -42,14 +42,15 @@ pub type Vars = BTreeMap<String, Var>;
 pub enum Kind {
     Defined,
     Missing,
-    /// `{{ uuid.v4() }}` and friends — evaluated at send time.
+    /// `{{ $fake.email() }}` and friends — evaluated at send time.
     Function,
 }
 
+/// Unknown functions are `Missing`: the engine sends them verbatim.
 pub fn kind(expr: &str, vars: &Vars) -> Kind {
-    if !is_identifier(expr) {
+    if funcs::lookup(expr).is_some() {
         Kind::Function
-    } else if vars.contains_key(expr) {
+    } else if is_identifier(expr) && vars.contains_key(expr) {
         Kind::Defined
     } else {
         Kind::Missing
@@ -144,7 +145,7 @@ pub fn used<'a>(texts: impl IntoIterator<Item = &'a str>) -> Vec<String> {
 }
 
 pub fn is_name_char(c: char) -> bool {
-    c.is_alphanumeric() || matches!(c, '_' | '-' | '.')
+    c.is_alphanumeric() || matches!(c, '_' | '-' | '.' | '$')
 }
 
 /// The unfinished `{{ prefix` the cursor sits in: byte offset of the `{{`
@@ -208,7 +209,9 @@ mod tests {
         vars.insert("A".into(), var);
         assert_eq!(kind("A", &vars), Kind::Defined);
         assert_eq!(kind("B", &vars), Kind::Missing);
-        assert_eq!(kind("uuid.v4()", &vars), Kind::Function);
+        assert_eq!(kind("$uuid.v4()", &vars), Kind::Function);
+        assert_eq!(kind("uuid.v4()", &vars), Kind::Missing);
+        assert_eq!(kind("nope.fn()", &vars), Kind::Missing);
         assert_eq!(used(["{{ A }}{{B}}", "{{ A }}"]), ["A", "B"]);
     }
 

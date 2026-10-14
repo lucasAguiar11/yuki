@@ -37,6 +37,10 @@ cargo build --release -p yuki
 
 Everything lives in `~/Library/Application Support/dev.yuki` (override with `YUKI_DATA_DIR`) as plain YAML: one folder per workspace, each its own git repository. A workspace can also live in a folder of yours (a repo, a project folder): ⌘O → **+ open folder…** creates a new workspace in an empty folder or opens the one already there (a clone, say); Yuki only keeps a link to it. Settings → workspace shows where it lives and **move…** takes it, `.git` included, to another empty folder. Voleeo workspaces can be imported (copied, never linked) from the command palette.
 
+## Variables and functions
+
+`{{ NAME }}` in the URL, params, headers, body or auth resolves from the active environment (and folder variables) at send time. Functions start with `$` and generate a fresh value per occurrence: `{{ $fake.fullName() }}`, `firstName`, `lastName`, `email`, `phone`, `cpf`, `cnpj`, `uuid`, `lorem`, `number`, `password`, `date`, `username`, `company`, `street`, `city`, `zipCode`, `jobTitle`, `url` (all `$fake.*`), plus `{{ $uuid.v4() }}` and `{{ $timestamp.iso() }}` / `unix` / `unixMs` / `date` / `time`. Type `{{ $` to pick one; the timeline shows the values that were sent.
+
 ## Import / export
 
 ⌘⇧P → **Import collection…** (or ⌘O → **+ import collection…**) reads a Voleeo bundle, Yaak, Postman (v2.0/2.1), Insomnia (v4 JSON or v5 YAML), OpenAPI/Swagger or Bruno file: pick what comes in from the tree, into a new workspace or into a folder of the open one. Auth and headers set on the collection or a folder are copied onto each request. **Export workspace…** writes the open workspace as Voleeo, Yaak, Postman (environments as sibling files) or Insomnia v4; secret values are left empty unless you tick **include secrets**.

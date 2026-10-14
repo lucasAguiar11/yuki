@@ -19,6 +19,8 @@ serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 tokio = { workspace = true }
 chrono = { workspace = true }
+rand = { workspace = true }
+uuid = { workspace = true }
 subtle = "2"
 
 [dev-dependencies]

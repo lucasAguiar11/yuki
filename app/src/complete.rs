@@ -9,6 +9,7 @@ use gpui_kit::component::{
     v_flex, ActiveTheme as _,
 };
 use gpui_kit::{prelude::FluentBuilder as _, *};
+use yuki_mcp::resolve::funcs::FUNCTIONS;
 
 const MAX_ITEMS: usize = 8;
 
@@ -145,7 +146,8 @@ impl RequestEditor {
         cx.notify();
     }
 
-    /// The focused field and its suggestions, when the popup should show.
+    /// The focused field and its suggestions (variables, then functions), when
+    /// the popup should show.
     fn suggestions(&self, window: &Window, cx: &App) -> Option<(Target, Vec<String>)> {
         let c = self.complete.as_ref()?;
         let (value, cursor, focused) = c.target.snapshot(window, cx);
@@ -153,10 +155,16 @@ impl RequestEditor {
             return None;
         }
         let (_, prefix) = query(&value, cursor, c.anchor)?;
+        let p = prefix.to_lowercase();
+        let fns = FUNCTIONS
+            .iter()
+            .map(|(n, _)| format!("${n}()"))
+            .filter(|n| n.to_lowercase().contains(&p));
         let names: Vec<String> = vars::suggest(&self.vars, prefix)
             .into_iter()
-            .take(MAX_ITEMS)
             .map(|(k, _)| k.clone())
+            .chain(fns)
+            .take(MAX_ITEMS)
             .collect();
         (!names.is_empty()).then(|| (c.target.clone(), names))
     }
@@ -235,7 +243,8 @@ impl RequestEditor {
             .map_or(0, |c| c.selected.min(names.len() - 1));
         let at = target.anchor(window, cx);
         let theme = cx.theme();
-        let (blue, fg, sel) = (theme.blue, theme.foreground, theme.secondary);
+        let (blue, magenta, fg, sel) =
+            (theme.blue, theme.magenta, theme.foreground, theme.secondary);
         let faint = ui::faint(cx);
         let rows = names.into_iter().enumerate().map(|(ix, name)| {
             let var = self.vars.get(&name);
@@ -246,7 +255,7 @@ impl RequestEditor {
                     v.value.clone()
                 }
             });
-            let origin = var.map_or(String::new(), |v| v.source.label());
+            let origin = var.map_or_else(|| t!("function").into_owned(), |v| v.source.label());
             h_flex()
                 .id(ElementId::Name(format!("var-opt-{name}").into()))
                 .h(px(24.))
@@ -256,7 +265,12 @@ impl RequestEditor {
                 .cursor_pointer()
                 .when(ix == selected, |d| d.bg(sel))
                 .hover(|d| d.bg(sel))
-                .child(div().flex_none().text_color(blue).child(name))
+                .child(
+                    div()
+                        .flex_none()
+                        .text_color(if var.is_some() { blue } else { magenta })
+                        .child(name),
+                )
                 .child(
                     div()
                         .flex_1()

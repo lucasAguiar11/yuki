@@ -10130,12 +10130,14 @@ name = "yuki-mcp"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "rand 0.10.2",
  "serde",
  "serde_json",
  "serde_yaml",
  "subtle",
  "tempfile",
  "tokio",
+ "uuid",
  "yuki-cookies",
  "yuki-core",
  "yuki-crypto",

@@ -1,9 +1,10 @@
 //! Backend mirror of `sendResolution.ts`, shared by the Tauri commands and MCP
-//! tools. `vars` loads env/folder variables and resolves `{{ VAR }}` tokens;
-//! `http` applies them to HTTP/WS requests (+ auth); `grpc` does the gRPC
-//! equivalent; `text` holds the pure URL/encoding helpers. Only plain
-//! `{{ VAR }}` tokens resolve — function tokens (`{{ uuid.v4() }}`) pass through.
+//! tools. `vars` loads env/folder variables and resolves `{{ VAR }}` tokens and
+//! `funcs` (`{{ $fake.email() }}`); `http` applies them to HTTP/WS requests
+//! (+ auth); `grpc` does the gRPC equivalent; `text` holds the pure
+//! URL/encoding helpers. Unknown function tokens pass through verbatim.
 
+pub mod funcs;
 mod grpc;
 mod http;
 mod system_env;

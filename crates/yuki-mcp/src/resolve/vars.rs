@@ -1,6 +1,7 @@
 //! Env/folder variable loading and `{{ VAR }}` string resolution — the shared
-//! substrate `http`/`grpc` build request application on top of. Only plain
-//! `{{ VAR }}` tokens resolve; function tokens (`{{ uuid.v4() }}`) pass through.
+//! substrate `http`/`grpc` build request application on top of. Known no-arg
+//! functions (`{{ $fake.email() }}`, see `funcs`) evaluate; other function
+//! tokens (`{{ encrypt(value=…) }}`) pass through.
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -143,8 +144,8 @@ pub fn apply_folder_vars(
     }
 }
 
-/// Resolve `{{ VAR }}` in `text`. Unresolvable tokens stay verbatim so error
-/// messages name them. Transitive resolution with a cycle guard.
+/// Resolve `{{ VAR }}` and `{{ fn() }}` in `text`. Unresolvable tokens stay
+/// verbatim so error messages name them. Transitive resolution with a cycle guard.
 pub fn resolve_str(text: &str, vars: &HashMap<String, String>) -> String {
     resolve_inner(text, vars, &mut HashSet::new())
 }
@@ -181,8 +182,10 @@ fn resolve_inner(
             } else {
                 push_token(&mut result, inner); // missing — keep verbatim
             }
+        } else if let Some(f) = super::funcs::lookup(inner) {
+            result.push_str(&f());
         } else {
-            push_token(&mut result, inner); // function call or unknown — keep verbatim
+            push_token(&mut result, inner); // unknown function — keep verbatim
         }
     }
 
@@ -231,11 +234,25 @@ mod tests {
     }
 
     #[test]
-    fn leaves_function_verbatim() {
-        assert_eq!(
-            resolve_str("{{ uuid.v4() }}", &vars(&[])),
-            "{{ uuid.v4() }}"
-        );
+    fn functions_evaluate_per_occurrence() {
+        let v = vars(&[("ID", "{{ $uuid.v4() }}")]);
+        let out = resolve_str("{{ $fake.uuid() }} {{ $fake.uuid() }} {{ ID }}", &v);
+        let ids: Vec<&str> = out.split(' ').collect();
+        assert_eq!(ids.len(), 3);
+        assert!(ids.iter().all(|id| id.len() == 36 && !id.contains('{')));
+        assert_ne!(ids[0], ids[1]);
+    }
+
+    #[test]
+    fn leaves_unknown_function_verbatim() {
+        for t in [
+            r#"{{ uuid.v3(name="a") }}"#,
+            "{{ nope.fn() }}",
+            "{{ $fake.email }}",
+            "{{ fake.email() }}",
+        ] {
+            assert_eq!(resolve_str(t, &vars(&[])), t);
+        }
     }
 
     #[test]

@@ -37,6 +37,10 @@ cargo build --release -p yuki
 
 Tudo fica em `~/Library/Application Support/dev.yuki` (troque com `YUKI_DATA_DIR`) como YAML legível: uma pasta por workspace, cada uma um repositório git próprio. Um workspace também pode morar numa pasta sua (um repositório, a pasta de um projeto): ⌘O → **+ abrir pasta…** cria um workspace novo numa pasta vazia ou abre o que já existe nela (um clone, por exemplo); o Yuki só guarda um link para ela. Configurações → workspace mostra onde ele está, e **mover…** leva tudo, `.git` incluso, para outra pasta vazia. Workspaces do Voleeo podem ser importados (copiados, nunca linkados) pela paleta de comandos.
 
+## Variáveis e funções
+
+`{{ NOME }}` na URL, params, headers, body ou auth é resolvido no envio a partir do ambiente ativo (e das variáveis da pasta). Funções começam com `$` e geram um valor novo a cada ocorrência: `{{ $fake.fullName() }}`, `firstName`, `lastName`, `email`, `phone`, `cpf`, `cnpj`, `uuid`, `lorem`, `number`, `password`, `date`, `username`, `company`, `street`, `city`, `zipCode`, `jobTitle`, `url` (todas `$fake.*`), além de `{{ $uuid.v4() }}` e `{{ $timestamp.iso() }}` / `unix` / `unixMs` / `date` / `time`. Digite `{{ $` para escolher uma; a timeline mostra os valores enviados.
+
 ## Importar / exportar
 
 ⌘⇧P → **Importar coleção…** (ou ⌘O → **+ importar coleção…**) lê um bundle do Voleeo, Yaak, Postman (v2.0/2.1), Insomnia (v4 JSON ou v5 YAML), OpenAPI/Swagger ou Bruno: escolha na árvore o que entra, num workspace novo ou numa pasta do workspace aberto. Auth e headers definidos na coleção ou numa pasta são copiados para cada request. **Exportar workspace…** grava o workspace aberto como Voleeo, Yaak, Postman (ambientes em arquivos ao lado) ou Insomnia v4; valores secretos saem vazios, a não ser que você marque **incluir segredos**.

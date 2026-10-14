@@ -29,7 +29,7 @@ app/              `yuki` binary (GPUI) — the only layer that knows gpui
   src/body.rs     body panel: type select + per-type input (raw, form/multipart, binary, graphql)
   src/table.rs    name/value table (headers and form/multipart fields); last row always blank
   src/params.rs   path params: one row per URL `:name` (chipped in the URL), stored in `parameters`; the URL keeps its own query
-  src/complete.rs `{{ VAR }}` autocomplete (on typing `{{` or ⌃space) in URL, cells and code editors
+  src/complete.rs `{{` autocomplete (on typing `{{` or ⌃space) in URL, cells and code editors: variables, then `resolve::funcs`
   src/code_vars.rs `{{ VAR }}` "badge" in code editors (decorations; `EditorState` doesn't take tokens)
   src/response.rs status strip (time, local clock), body/headers, history (●●●)
   src/sent.rs     timeline tab: resolved request as sent + engine event log (credentials masked)
@@ -50,7 +50,7 @@ crates/yuki-*     engine inherited from Voleeo (MIT), no gpui/tauri
   yuki-crypto AES-GCM/keychain · yuki-auth/oauth/cookies/ws/grpc/import/export/git
 ```
 
-**Invariants:** `crates/` never depends on gpui. The whole send pipeline goes through `ApiBackend::send_http` (`crates/yuki-mcp/src/api/request/send.rs`) — app and MCP share it; never reimplement env/folder/auth/cookies/history in the UI. Variable resolution: `yuki_mcp::resolve` (`load_env_vars_from`, `apply_folder_vars`, `resolve_str`, `is_identifier`). `send_http` applies the workspace's DNS overrides and shell-env allowlist, but **not** workspace/folder headers or `inherit` auth (Voleeo's frontend resolved those) — a UI to edit them does nothing until the pipeline applies them.
+**Invariants:** `crates/` never depends on gpui. The whole send pipeline goes through `ApiBackend::send_http` (`crates/yuki-mcp/src/api/request/send.rs`) — app and MCP share it; never reimplement env/folder/auth/cookies/history in the UI. Variable resolution: `yuki_mcp::resolve` (`load_env_vars_from`, `apply_folder_vars`, `resolve_str`, `is_identifier`); `resolve_str` also evaluates no-arg template functions from `resolve::funcs::FUNCTIONS` (`{{ $fake.email() }}` — `$` sigil required, fresh per occurrence; unknown/with-args stay verbatim). `send_http` applies the workspace's DNS overrides and shell-env allowlist, but **not** workspace/folder headers or `inherit` auth (Voleeo's frontend resolved those) — a UI to edit them does nothing until the pipeline applies them.
 
 ## Localization
 

@@ -1,16 +1,25 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="72" height="72" viewBox="0 0 512 512">
-  <!-- Yuki, a tuxedo cat, as a line icon. Colors are yuki-console theme tokens:
-       background, muted.foreground (outline), border (white fur), warning (eyes), danger (nose). -->
+  <!-- Yuki as she is: white face, black over ears and eyes, between JSON braces.
+       Colors are yuki-console theme tokens: foreground (tile), background (ink),
+       warning (eyes), danger (nose). -->
+  <rect width="512" height="512" rx="114" fill="#e4e5e8"/>
   <defs>
-    <clipPath id="head"><path d="M140 86 C130 150 116 206 118 258 C120 338 184 400 256 404 C328 400 392 338 394 258 C396 206 382 150 372 86 C344 110 320 134 302 154 Q256 142 210 154 C192 134 168 110 140 86 Z"/></clipPath>
+    <path id="head" d="M140 86 C130 150 116 206 118 258 C120 338 184 400 256 404 C328 400 392 338 394 258 C396 206 382 150 372 86 C344 110 320 134 302 154 Q256 142 210 154 C192 134 168 110 140 86 Z"/>
+    <clipPath id="fur"><use href="#head"/></clipPath>
   </defs>
-  <rect width="512" height="512" rx="114" fill="#17181c"/>
-  <g transform="translate(256 262) scale(1.02) translate(-256 -254)">
-    <path d="M140 86 C130 150 116 206 118 258 C120 338 184 400 256 404 C328 400 392 338 394 258 C396 206 382 150 372 86 C344 110 320 134 302 154 Q256 142 210 154 C192 134 168 110 140 86 Z" fill="#2a2c32"/>
-    <path d="M40 40 L236 40 C236 130 230 200 222 240 C214 282 190 300 160 312 C130 322 90 322 40 316 Z M472 40 L276 40 C278 130 284 200 292 236 C300 266 322 282 352 284 C380 286 420 280 472 272 Z" fill="#17181c" clip-path="url(#head)"/>
-    <path d="M140 86 C130 150 116 206 118 258 C120 338 184 400 256 404 C328 400 392 338 394 258 C396 206 382 150 372 86 C344 110 320 134 302 154 Q256 142 210 154 C192 134 168 110 140 86 Z" fill="none" stroke="#9a9ea6" stroke-width="24" stroke-linejoin="round"/>
-    <ellipse cx="196" cy="263" rx="13" ry="22" fill="#e0b97a"/>
-    <ellipse cx="316" cy="263" rx="13" ry="22" fill="#e0b97a"/>
-    <path d="M246 312 L266 312 L256 324 Z" fill="#f08a8a" stroke="#f08a8a" stroke-width="12" stroke-linejoin="round"/>
+  <g fill="none" stroke="#17181c" stroke-width="32" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M156 112 C116 112 124 160 124 200 C124 236 116 256 88 256 C116 256 124 276 124 312 C124 352 116 400 156 400"/>
+    <path d="M356 112 C396 112 388 160 388 200 C388 236 396 256 424 256 C396 256 388 276 388 312 C388 352 396 400 356 400"/>
+  </g>
+  <g transform="translate(256 262) scale(0.76) translate(-256 -246)">
+    <use href="#head" fill="#e4e5e8"/>
+    <g clip-path="url(#fur)" fill="#0c0d10">
+      <path d="M100 60 L248 60 L246 140 C240 190 226 230 214 262 C200 300 170 316 120 318 Z"/>
+      <path d="M412 60 L264 60 L266 140 C272 190 286 230 298 262 C312 300 342 316 392 318 Z"/>
+    </g>
+    <use href="#head" fill="none" stroke="#17181c" stroke-width="14" stroke-linejoin="round"/>
+    <ellipse cx="190" cy="262" rx="15" ry="24" fill="#e0b97a"/>
+    <ellipse cx="322" cy="262" rx="15" ry="24" fill="#e0b97a"/>
+    <path d="M240 318 L272 318 L256 338 Z" fill="#f08a8a" stroke="#f08a8a" stroke-width="14" stroke-linejoin="round"/>
   </g>
 </svg>

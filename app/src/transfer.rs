@@ -6,7 +6,7 @@ use yuki_core::{AuthConfig, Workspace, YukiError};
 use yuki_export::{Bundle, NamedFile};
 use yuki_import::ImportFormat;
 
-use crate::{backend::Backend, secrets};
+use crate::{backend::Backend, prefs::Prefs, secrets};
 
 /// Where an import lands.
 pub enum Dest {
@@ -81,7 +81,13 @@ impl Backend {
     ) -> Result<Imported, YukiError> {
         let api = &self.api;
         let (workspace, parent) = match dest {
-            Dest::New(name) => (api.workspaces.create(name.clone(), false)?, None),
+            Dest::New(name) => {
+                let ws = api.workspaces.create(name.clone(), false)?;
+                if let Some(base) = Prefs::load().workspaces_dir {
+                    self.move_into(&ws, &base)?;
+                }
+                (ws, None)
+            }
             Dest::Existing { ws_id, folder } => (api.workspaces.get(ws_id)?, folder.clone()),
         };
         let ws_id = workspace.id.clone();

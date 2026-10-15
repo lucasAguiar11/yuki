@@ -75,6 +75,7 @@ impl SettingsScreen {
             theme.sidebar,
         );
         let rows = [
+            Section::General,
             Section::Workspace,
             Section::Appearance,
             Section::Mcp,
@@ -117,6 +118,7 @@ impl SettingsScreen {
 
     fn render_section(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let body = match self.section {
+            Section::General => self.render_general(cx),
             Section::Workspace => self.render_workspace(cx),
             Section::Appearance => self.render_appearance(cx),
             Section::Mcp => self.render_mcp(cx),
@@ -216,6 +218,44 @@ impl SettingsScreen {
                 t!("shell env").into_owned(),
                 Input::new(&self.env).small(),
                 Some(t!("variables from your shell that requests can use as {{ NAME }}, below environments. this machine only.").into_owned()),
+                cx,
+            ))
+            .into_any_element()
+    }
+
+    fn render_general(&self, cx: &mut Context<Self>) -> AnyElement {
+        let (fg, blue) = (cx.theme().foreground, cx.theme().blue);
+        let base = cx.global::<Prefs>().workspaces_dir.clone();
+        let base_text = base.as_ref().map_or_else(
+            || t!("each one where it is").into_owned(),
+            |b| b.display().to_string(),
+        );
+        let base_row = h_flex()
+            .gap_3()
+            .child(
+                div()
+                    .id("ws-base")
+                    .when_some(base, |s, base| {
+                        s.cursor_pointer()
+                            .text_color(blue)
+                            .hover(move |s| s.text_color(fg))
+                            .on_click(move |_, _, cx| cx.reveal_path(&base))
+                    })
+                    .child(base_text),
+            )
+            .child(
+                Button::new("ws-move-all")
+                    .xsmall()
+                    .outline()
+                    .label(t!("move…").into_owned())
+                    .on_click(cx.listener(|this, _, window, cx| this.move_all(window, cx))),
+            );
+        v_flex()
+            .gap_4()
+            .child(field(
+                t!("workspaces folder").into_owned(),
+                base_row,
+                Some(t!("one folder each, named after the workspace · move takes them all · new imports land here too").into_owned()),
                 cx,
             ))
             .into_any_element()
@@ -335,6 +375,7 @@ impl SettingsScreen {
 impl Section {
     fn id(self) -> &'static str {
         match self {
+            Section::General => "section-general",
             Section::Workspace => "section-workspace",
             Section::Appearance => "section-appearance",
             Section::Mcp => "section-mcp",
@@ -344,6 +385,7 @@ impl Section {
 
     fn label(self) -> SharedString {
         match self {
+            Section::General => t!("general"),
             Section::Workspace => t!("workspace"),
             Section::Appearance => t!("appearance"),
             Section::Mcp => t!("agents (mcp)"),

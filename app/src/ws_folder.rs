@@ -12,7 +12,7 @@ use std::{
 use gpui_kit::*;
 use yuki_core::{Workspace, YukiError};
 
-use crate::{backend::Backend, settings::SettingsScreen, workspace::Yuki};
+use crate::{backend::Backend, prefs::Prefs, settings::SettingsScreen, workspace::Yuki};
 
 fn io(e: impl std::fmt::Display) -> YukiError {
     YukiError::Storage(e.to_string())
@@ -31,15 +31,16 @@ impl Backend {
             match link.canonicalize() {
                 Ok(at) if at == dir => {}
                 // Same id elsewhere: a second clone, or a copy of a local one.
-                Ok(at) => {
+                Ok(at) if at.join("workspace.yaml").is_file() => {
                     return Err(io(t!(
                         "workspace “%{name}” is already open from %{path}",
                         name = ws.name,
                         path = at.display()
                     )))
                 }
-                // A link left dangling (the folder moved) gets re-pointed.
-                Err(_) => {
+                // A link left dangling or pointing at a folder the workspace
+                // was moved out of gets re-pointed.
+                _ => {
                     if link.is_symlink() {
                         fs::remove_file(&link).map_err(io)?;
                     }
@@ -73,21 +74,14 @@ impl Backend {
         if to.starts_with(&from) {
             return Err(io(t!("a folder can't go inside itself")));
         }
-        let yaml = to.join("workspace.yaml");
-        if yaml.is_file() {
-            let ws: Workspace =
-                serde_yaml::from_str(&fs::read_to_string(&yaml).map_err(io)?).map_err(io)?;
+        if to.join("workspace.yaml").is_file() {
             // A real dir in the data dir would be orphaned (not deleted) by
             // re-linking; only a link can just be re-pointed.
-            if ws.id != id || !link.is_symlink() {
+            if !holds(&to, id) || !link.is_symlink() {
                 return Err(io(t!("pick an empty folder")));
             }
         } else {
-            let busy = fs::read_dir(&to)
-                .map_err(io)?
-                .flatten()
-                .any(|e| e.file_name() != ".DS_Store");
-            if busy {
+            if busy(&to) {
                 return Err(io(t!("pick an empty folder")));
             }
             // One `mv` of the whole dir: a rename on the same volume, a copy
@@ -111,6 +105,43 @@ impl Backend {
         symlink(&to, &link).map_err(io)?;
         Ok(to)
     }
+
+    /// `ws` into its own folder under `base`: its name, or `name-id` when
+    /// another workspace's files already sit there.
+    pub fn move_into(&self, ws: &Workspace, base: &Path) -> Result<PathBuf, YukiError> {
+        let name = match ws.name.trim().replace(['/', ':'], "-") {
+            n if n.is_empty() || n.starts_with('.') => ws.id.clone(),
+            n => n,
+        };
+        let mut to = base.join(&name);
+        if busy(&to) && !holds(&to, &ws.id) {
+            to = base.join(format!("{name}-{}", ws.id));
+        }
+        fs::create_dir_all(&to).map_err(io)?;
+        self.move_folder(&ws.id, &to)
+    }
+
+    /// Every workspace under `base`; stops at the first that fails (the ones
+    /// before it stay moved — their links already point there).
+    pub fn move_all(&self, base: &Path) -> Result<(), YukiError> {
+        for ws in self.workspaces() {
+            self.move_into(&ws, base)?;
+        }
+        Ok(())
+    }
+}
+
+/// Anything in `dir` but Finder's `.DS_Store`.
+fn busy(dir: &Path) -> bool {
+    fs::read_dir(dir).is_ok_and(|d| d.flatten().any(|e| e.file_name() != ".DS_Store"))
+}
+
+/// `dir` holds workspace `id` (its `workspace.yaml`).
+fn holds(dir: &Path, id: &str) -> bool {
+    fs::read_to_string(dir.join("workspace.yaml"))
+        .ok()
+        .and_then(|t| serde_yaml::from_str::<Workspace>(&t).ok())
+        .is_some_and(|ws| ws.id == id)
 }
 
 impl Yuki {
@@ -179,6 +210,52 @@ impl SettingsScreen {
                     }
                     Err(e) => {
                         this.error = t!("couldn't move the workspace: %{e}", e = e)
+                            .into_owned()
+                            .into()
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Pick the folder every workspace lives in: all move there now, new
+    /// ones are created there (`Prefs::workspaces_dir`).
+    pub(crate) fn move_all(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let paths = cx.prompt_for_paths(PathPromptOptions {
+            files: false,
+            directories: true,
+            multiple: false,
+            prompt: Some(t!("move here").into_owned().into()),
+        });
+        let (backend, id) = (self.backend.clone(), self.ws.id.clone());
+        cx.spawn_in(window, async move |this, cx| {
+            let Ok(Ok(Some(paths))) = paths.await else {
+                return;
+            };
+            let Some(dir) = paths.into_iter().next() else {
+                return;
+            };
+            let result = cx
+                .background_spawn(async move {
+                    backend.move_all(&dir)?;
+                    Ok::<_, YukiError>((dir, backend.ws_dir(&id)))
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                match result {
+                    Ok((dir, folder)) => {
+                        this.folder = folder;
+                        this.error = "".into();
+                        let prefs = cx.global_mut::<Prefs>();
+                        prefs.workspaces_dir = Some(dir);
+                        let prefs = prefs.clone();
+                        this.save_prefs(prefs, cx);
+                    }
+                    Err(e) => {
+                        this.error = t!("couldn't move the workspaces: %{e}", e = e)
                             .into_owned()
                             .into()
                     }

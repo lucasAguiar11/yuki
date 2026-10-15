@@ -30,6 +30,10 @@ pub struct Prefs {
     /// Response beside the request editor instead of below it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub response_beside: bool,
+    /// The folder every workspace lives in, one subfolder each. `None` =
+    /// wherever each one is (the data dir by default).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspaces_dir: Option<PathBuf>,
 }
 
 impl Global for Prefs {}
@@ -58,12 +62,18 @@ fn path() -> PathBuf {
 }
 
 impl Prefs {
-    /// Startup: read the file (a broken one means defaults), apply, keep global.
-    pub fn init(cx: &mut App) {
-        let prefs: Prefs = std::fs::read_to_string(path())
+    /// The file as saved; a broken or missing one means defaults. Read
+    /// directly where the global isn't reachable (background imports).
+    pub fn load() -> Prefs {
+        std::fs::read_to_string(path())
             .ok()
             .and_then(|t| serde_yaml::from_str(&t).ok())
-            .unwrap_or_default();
+            .unwrap_or_default()
+    }
+
+    /// Startup: read the file, apply, keep global.
+    pub fn init(cx: &mut App) {
+        let prefs = Self::load();
         let theme = cx.theme();
         let _ = DEFAULTS.set(Defaults {
             size: theme.font_size,
@@ -104,6 +114,7 @@ impl Prefs {
         *prefs = Prefs {
             language: prefs.language.take(),
             response_beside: prefs.response_beside,
+            workspaces_dir: prefs.workspaces_dir.take(),
             ..Prefs::default()
         };
         let prefs = prefs.clone();

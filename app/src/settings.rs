@@ -1,5 +1,6 @@
-//! "Configurações" screen (⌘,): the workspace (name, DNS overrides, shell env
-//! allowlist), the app's appearance (font sizes, language) and about (version,
+//! "Configurações" screen (⌘,): general (workspaces folder), the workspace
+//! (name, DNS overrides, shell env allowlist), the app's appearance (font
+//! sizes, language) and about (version,
 //! updates). Workspace edits go to disk 400 ms after typing stops; appearance
 //! applies and saves on click.
 
@@ -25,6 +26,7 @@ const AUTOSAVE_DELAY: Duration = Duration::from_millis(400);
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Section {
+    General,
     Workspace,
     Appearance,
     Mcp,

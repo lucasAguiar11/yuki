@@ -44,7 +44,7 @@ cargo build --release -p yuki
 
 ## Dados
 
-Tudo fica em `~/Library/Application Support/dev.yuki` (troque com `YUKI_DATA_DIR`) como YAML legível: uma pasta por workspace, cada uma um repositório git próprio. Um workspace também pode morar numa pasta sua (um repositório, a pasta de um projeto): ⌘O → **+ abrir pasta…** cria um workspace novo numa pasta vazia ou abre o que já existe nela (um clone, por exemplo); o Yuki só guarda um link para ela. Configurações → workspace mostra onde ele está, e **mover…** leva tudo, `.git` incluso, para outra pasta vazia. Workspaces do Voleeo podem ser importados (copiados, nunca linkados) pela paleta de comandos.
+Tudo fica em `~/Library/Application Support/dev.yuki` (troque com `YUKI_DATA_DIR`) como YAML legível: uma pasta por workspace, cada uma um repositório git próprio. Um workspace também pode morar numa pasta sua (um repositório, a pasta de um projeto): ⌘O → **+ abrir pasta…** cria um workspace novo numa pasta vazia ou abre o que já existe nela (um clone, por exemplo); o Yuki só guarda um link para ela. Configurações → workspace mostra onde ele está, e **mover…** leva tudo, `.git` incluso, para outra pasta vazia. Configurações → geral → **pasta dos workspaces** coloca todos numa pasta sua (uma subpasta para cada, com o nome do workspace); imports novos também caem lá. Workspaces do Voleeo podem ser importados (copiados, nunca linkados) pela paleta de comandos.
 
 ## Variáveis e funções
 

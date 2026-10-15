@@ -538,7 +538,18 @@ impl Render for Yuki {
                 this.new_item(true, parent, window, cx)
             }))
             .on_action(cx.listener(|this, _: &RenameItem, window, cx| {
-                if let Some(id) = this.active_request_id(cx) {
+                let id = match this.scope.as_ref().filter(|_| this.scope_active) {
+                    Some((view, _)) => {
+                        let view = view.read(cx);
+                        // A field inside the tab propagates its ↵ (submit): not a rename.
+                        let in_field = view.focus.contains_focused(window, cx)
+                            && !view.focus.is_focused(window);
+                        let folder = view.folder.clone().filter(|_| !in_field);
+                        folder.map(SharedString::from)
+                    }
+                    None => this.active_request_id(cx),
+                };
+                if let Some(id) = id {
                     this.sidebar = true;
                     this.start_rename(id, window, cx);
                 }

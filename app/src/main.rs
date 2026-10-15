@@ -177,6 +177,8 @@ fn bind_keys(cx: &mut App) {
         KeyBinding::new("cmd-shift-n", NewFolder, None),
         // Same trick as the popup keys: beats the Input's own escape.
         KeyBinding::new("escape", CancelRename, Some("Rename > Input")),
+        // Clicking a folder focuses its tab; the handler ignores ↵ from fields inside it.
+        KeyBinding::new("enter", RenameItem, Some("ScopeTab")),
     ]);
     // Fallback when nothing is focused; the root view handles Quit with a flush.
     cx.on_action(|_: &Quit, cx| cx.quit());

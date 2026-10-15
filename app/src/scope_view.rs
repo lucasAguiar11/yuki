@@ -423,6 +423,7 @@ impl Render for ScopeView {
         let theme = cx.theme();
         let root = v_flex()
             .id("scope-view")
+            .key_context("ScopeTab")
             .track_focus(&self.focus)
             .size_full()
             .font_family(theme.mono_font_family.clone());

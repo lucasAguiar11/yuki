@@ -131,16 +131,18 @@ impl Palette {
 impl Yuki {
     pub(crate) fn open_palette(&mut self, kind: Kind, window: &mut Window, cx: &mut Context<Self>) {
         let items: Vec<(CommandItem, Target)> = match &kind {
+            // Every request, not just the sidebar's visible rows: a collapsed
+            // folder must not hide its requests from the finder.
             Kind::Requests => self
-                .rows
-                .iter()
+                .data
+                .as_ref()
+                .map(|d| crate::tree::rows(&d.folders, &d.requests, &Default::default()))
+                .unwrap_or_default()
+                .into_iter()
                 .filter(|r| r.method.is_some())
                 .map(|r| {
                     let label = format!("{}  {}", r.method.as_deref().unwrap_or(""), r.name);
-                    (
-                        CommandItem::new().label(label),
-                        Target::Request(r.id.clone()),
-                    )
+                    (CommandItem::new().label(label), Target::Request(r.id))
                 })
                 .collect(),
             Kind::Commands => {

@@ -49,6 +49,7 @@ app/              `yuki` binary (GPUI) — the only layer that knows gpui
 crates/yuki-*     engine inherited from Voleeo (MIT), no gpui/tauri
   yuki-core types+errors · yuki-storage YAML · yuki-http executor · yuki-mcp ApiBackend+resolve
   yuki-crypto AES-GCM/keychain · yuki-auth/oauth/cookies/ws/grpc/import/export/git
+site/             GitHub Pages landing (static HTML/CSS/JS, real app screenshots); `.github/workflows/pages.yml` deploys it on push to main
 ```
 
 **Invariants:** `crates/` never depends on gpui. The whole send pipeline goes through `ApiBackend::send_http` (`crates/yuki-mcp/src/api/request/send.rs`) — app and MCP share it; never reimplement env/folder/auth/cookies/history in the UI. Variable resolution: `yuki_mcp::resolve` (`load_env_vars_from`, `apply_folder_vars`, `resolve_str`, `is_identifier`); `resolve_str` also evaluates no-arg template functions from `resolve::funcs::FUNCTIONS` (`{{ $fake.email() }}` — `$` sigil required, fresh per occurrence; unknown/with-args stay verbatim). `send_http` applies the workspace's DNS overrides and shell-env allowlist, but **not** workspace/folder headers or `inherit` auth (Voleeo's frontend resolved those) — a UI to edit them does nothing until the pipeline applies them.

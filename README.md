@@ -4,9 +4,17 @@
 
 **English** · [Português](README.pt-BR.md)
 
-A native, keyboard-first API console for macOS, written in Rust on GPUI. One document per request (`GET ▸ url`), monospace wherever there's data, color only where it means something.
+A native, keyboard-first API console for macOS, written in Rust on GPUI. One document per request (`GET ▸ url`), monospace wherever there's data, color only where it means something. Website: [lucasaguiar11.github.io/yuki](https://lucasaguiar11.github.io/yuki/).
 
 Download `Yuki-macos-aarch64.dmg` (Apple Silicon) or `Yuki-macos-x86_64.dmg` (Intel) from the [latest release](https://github.com/lucasAguiar11/yuki/releases/latest) and drag Yuki to Applications (it updates itself afterwards), or run it from source.
+
+**First launch.** Yuki isn't signed with an Apple Developer certificate or notarized yet, so macOS refuses to open it the first time ("Apple could not verify…"). Allow it once by hand: try to open it, then System Settings → Privacy & Security → **Open Anyway**. Or from a terminal:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Yuki.app
+```
+
+Updates installed by Yuki itself don't need this step.
 
 ## Run
 

@@ -541,6 +541,8 @@ mod tests {
             order: 0.0,
             created_at: "2024-01-01T00:00:00.000000".into(),
             updated_at: "2024-01-01T00:00:00.000000".into(),
+            variations: vec![],
+            active_variation: None,
         };
         assert_eq!(effective_method(&req).unwrap(), reqwest::Method::GET);
 

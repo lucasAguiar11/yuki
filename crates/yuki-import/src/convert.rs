@@ -121,6 +121,8 @@ fn convert_items(
                     order: this_order,
                     created_at: now.clone(),
                     updated_at: now,
+                    variations: vec![],
+                    active_variation: None,
                 });
             }
         }

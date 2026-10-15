@@ -61,7 +61,10 @@ pub struct EditorChanged;
 /// response with its stored history. Rendering lives in `document.rs`.
 pub struct RequestEditor {
     pub(crate) backend: Arc<Backend>,
+    /// On-disk shape: base, variations, active one.
     pub saved: HttpRequest,
+    /// `saved` with its active variation laid over: what the form shows.
+    pub shown: HttpRequest,
     pub dirty: bool,
     pub method: Entity<MethodSelect>,
     pub url: Entity<InputState>,
@@ -102,9 +105,11 @@ pub struct RequestEditor {
     /// URL length at the last change: a jump of more than one char is a paste.
     pub(crate) url_len: usize,
     /// Pending autosave; replacing it (next keystroke) cancels the old one.
-    autosave: Option<Task<()>>,
+    pub(crate) autosave: Option<Task<()>>,
     /// A write is in flight: the next one waits, so disk never ends up older.
-    saving: bool,
+    pub(crate) saving: bool,
+    /// The variation name box (`variation.rs`), when open.
+    pub(crate) naming: Option<crate::variation::Naming>,
     _subs: Vec<Subscription>,
 }
 
@@ -121,6 +126,24 @@ impl RequestEditor {
     ) -> Self {
         // The editor's form: the query lives in the params tab, not the URL bar.
         crate::query::normalize(&mut req);
+        // Variations are independent copies: fill what one doesn't hold (older
+        // files) and normalize it the same way. In memory only: written once
+        // edited, so opening the tab alone never rewrites it.
+        req.detach_variations();
+        for ix in 0..req.variations.len() {
+            let (id, name) = (
+                req.variations[ix].id.clone(),
+                req.variations[ix].name.clone(),
+            );
+            let mut eff = HttpRequest {
+                active_variation: Some(id.clone()),
+                ..req.clone()
+            }
+            .shown();
+            crate::query::normalize(&mut eff);
+            req.variations[ix] = yuki_core::Variation::copy_of(&eff, id, name);
+        }
+        let shown = req.shown();
         let mut methods: Vec<SharedString> =
             METHODS.iter().map(|m| SharedString::from(*m)).collect();
         if !METHODS.contains(&req.method.as_str()) {
@@ -138,17 +161,17 @@ impl RequestEditor {
         let url = cx.new(|cx| {
             let mut s = InputState::new(window, cx)
                 .placeholder(t!("https://api.example.com/resource").into_owned());
-            s.set_value(vars::url_content(&req.url), window, cx);
+            s.set_value(vars::url_content(&shown.url), window, cx);
             s
         });
         let headers = Table::new(
             Which::Headers,
-            req.headers.iter().map(param_field).collect(),
+            shown.headers.iter().map(param_field).collect(),
             window,
             cx,
         );
-        let (body, body_subs) = BodyInputs::new(req.body.as_ref(), window, cx);
-        let (auth, auth_sub) = AuthForm::new(&req.auth, Owner::Request, window, cx);
+        let (body, body_subs) = BodyInputs::new(shown.body.as_ref(), window, cx);
+        let (auth, auth_sub) = AuthForm::new(&shown.auth, Owner::Request, window, cx);
         let notes = cx.new(|cx| {
             EditorState::new(window, cx)
                 .language("markdown")
@@ -189,19 +212,23 @@ impl RequestEditor {
         _subs.push(auth_sub);
         _subs.push(cx.subscribe_in(&notes, window, Self::on_input));
         _subs.push(cx.observe(&response_body, |this, _, cx| this.track_caret(cx)));
-        let has_body = req.body.as_ref().is_some_and(|b| b.kind != BodyKind::None);
-        let was_path = yuki_mcp::resolve::path_params(&req.url);
-        let query_rows = req
+        let has_body = shown
+            .body
+            .as_ref()
+            .is_some_and(|b| b.kind != BodyKind::None);
+        let was_path = yuki_mcp::resolve::path_params(&shown.url);
+        let query_rows = shown
             .parameters
             .iter()
             .filter(|p| !was_path.contains(&p.name))
             .map(param_field)
             .collect();
         let query = Table::new(Which::Query, query_rows, window, cx);
-        let url_len = req.url.len();
+        let url_len = shown.url.len();
         let mut this = Self {
             backend,
             saved: req,
+            shown,
             dirty: false,
             method,
             url,
@@ -237,6 +264,7 @@ impl RequestEditor {
             url_len,
             autosave: None,
             saving: false,
+            naming: None,
             _subs,
         };
         this.sync_path_params(window, cx);
@@ -262,7 +290,14 @@ impl RequestEditor {
         self.url.read(cx).focus_handle(cx)
     }
 
+    /// What the editor holds, on disk's shape: edits to the active variation
+    /// land in it, the base untouched.
     pub fn draft(&self, cx: &App) -> HttpRequest {
+        draft::fold(&self.saved, self.edited(cx))
+    }
+
+    /// The request as the form shows it (active variation applied, none kept).
+    pub fn edited(&self, cx: &App) -> HttpRequest {
         let method = self
             .method
             .read(cx)
@@ -271,20 +306,20 @@ impl RequestEditor {
             .unwrap_or_else(|| "GET".into());
         let url_text = self.url.read(cx).value();
         let mut req = draft::build(
-            &self.saved,
+            &self.shown,
             &method,
             &crate::query::without_query(&url_text),
             self.headers.params(cx),
             &self.body.draft(cx),
         );
         // Path params, then the query rows, then a query still typed in the URL.
-        let was_path = yuki_mcp::resolve::path_params(&self.saved.url);
-        let saved_path: Vec<_> = (self.saved.parameters.iter())
+        let was_path = yuki_mcp::resolve::path_params(&self.shown.url);
+        let saved_path: Vec<_> = (self.shown.parameters.iter())
             .filter(|p| was_path.contains(&p.name))
             .cloned()
             .collect();
         req.parameters =
-            draft::merge_path_params(&self.saved.url, &saved_path, &self.params.values(cx));
+            draft::merge_path_params(&self.shown.url, &saved_path, &self.params.values(cx));
         req.parameters.extend(self.query.params(cx));
         req.parameters
             .extend(crate::query::as_params(crate::query::pairs(&url_text)));
@@ -354,6 +389,7 @@ impl RequestEditor {
     }
 
     fn mark_saved(&mut self, req: HttpRequest, notes: String, cx: &mut Context<Self>) {
+        self.shown = req.shown();
         self.saved = req;
         self.notes_saved = notes;
         self.refresh_dirty(cx);

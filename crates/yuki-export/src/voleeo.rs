@@ -37,7 +37,8 @@ fn workspace_doc(b: &Bundle) -> VoleeoWorkspace {
     }
     let mut requests = b.requests.clone();
     for r in &mut requests {
-        r.auth.mark_secrets_plaintext();
+        r.auths_mut()
+            .for_each(yuki_core::AuthConfig::mark_secrets_plaintext);
     }
     let mut websockets = b.ws.clone();
     for w in &mut websockets {

@@ -148,7 +148,7 @@ fn summary(expires_at: i64) -> String {
 impl RequestEditor {
     pub(crate) fn fetch_token(&mut self, _: &mut Window, cx: &mut Context<Self>) {
         let (url_tx, url_rx) = oneshot::channel::<String>();
-        let (backend, req, env) = (self.backend.clone(), self.draft(cx), self.env_id.clone());
+        let (backend, req, env) = (self.backend.clone(), self.edited(cx), self.env_id.clone());
         self.auth.status = t!("fetching token…").into_owned().into();
         cx.notify();
         cx.spawn(async move |this, cx| {

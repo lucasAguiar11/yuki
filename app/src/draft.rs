@@ -1,7 +1,7 @@
 //! Editor state -> model mapping: what the request would look like if saved.
 
 use yuki_core::{
-    new_id, BodyField, BodyKind, DnsOverride, HttpRequest, RequestBody, RequestParameter,
+    new_id, BodyField, BodyKind, DnsOverride, HttpRequest, RequestBody, RequestParameter, Variation,
 };
 
 /// Table cells are single-line inputs: line breaks show as spaces.
@@ -81,6 +81,27 @@ pub fn build(
         body: apply_body(saved.body.as_ref(), body),
         ..saved.clone()
     }
+}
+
+/// `edited` (what the editor shows) as it goes to disk over `saved`: into the
+/// active variation (all five fields — each variation is an independent copy),
+/// else into the base. Identity (name, folder, order…) always comes from `saved`.
+pub fn fold(saved: &HttpRequest, edited: HttpRequest) -> HttpRequest {
+    let mut out = HttpRequest {
+        method: edited.method.clone(),
+        ..saved.clone()
+    };
+    match out.active_mut() {
+        Some(v) => *v = Variation::copy_of(&edited, v.id.clone(), v.name.clone()),
+        None => {
+            out.url = edited.url;
+            out.parameters = edited.parameters;
+            out.headers = edited.headers;
+            out.body = edited.body;
+            out.auth = edited.auth;
+        }
+    }
+    out
 }
 
 /// The stored params with the URL's `:name` values applied. Params whose
@@ -236,6 +257,73 @@ mod tests {
         for bad in [r#"{"a":1"#, r#"{"a":"1}"#, r#"{"a":[1}"#, "]"] {
             assert_eq!(pretty_json(bad), None, "{bad}");
         }
+    }
+
+    #[test]
+    fn variations_are_independent_copies() {
+        let bearer = |t: &str| yuki_core::AuthConfig::Bearer {
+            token: t.into(),
+            token_encrypted: false,
+            enabled: true,
+        };
+        let base: HttpRequest = serde_json::from_value(serde_json::json!({
+            "id": "r", "type": "api", "model": "http_request", "workspaceId": "w",
+            "folderId": null, "method": "GET", "name": "n", "url": "https://base",
+            "createdAt": "", "updatedAt": ""
+        }))
+        .unwrap();
+        // An older file: the variation holds only auth.
+        let mut saved = HttpRequest {
+            auth: bearer("base"),
+            variations: vec![yuki_core::Variation {
+                id: "v".into(),
+                name: "admin".into(),
+                auth: Some(bearer("admin")),
+                ..Default::default()
+            }],
+            active_variation: Some("v".into()),
+            ..base
+        };
+        saved.detach_variations();
+        assert_eq!(saved.variations[0].url.as_deref(), Some("https://base"));
+        let shown = saved.shown();
+        // Untouched form: same on disk (no phantom save).
+        assert_eq!(fold(&saved, shown.clone()), saved);
+
+        // URL edited while `admin` is active: only the variation changes.
+        let out = fold(
+            &saved,
+            HttpRequest {
+                url: "https://admin".into(),
+                ..shown.clone()
+            },
+        );
+        assert_eq!(
+            (out.url.as_str(), &out.auth),
+            ("https://base", &bearer("base"))
+        );
+        assert_eq!(out.variations[0].url.as_deref(), Some("https://admin"));
+        assert_eq!(out.variations[0].auth, Some(bearer("admin")));
+
+        // Base active: edits go to the base and never reach the variation;
+        // identity always from `saved`.
+        let on_base = HttpRequest {
+            active_variation: None,
+            name: "renamed on disk".into(),
+            ..saved.clone()
+        };
+        let out = fold(
+            &on_base,
+            HttpRequest {
+                url: "https://new".into(),
+                ..on_base.shown()
+            },
+        );
+        assert_eq!(
+            (out.url.as_str(), out.name.as_str()),
+            ("https://new", "renamed on disk")
+        );
+        assert_eq!(out.variations, saved.variations);
     }
 
     #[test]

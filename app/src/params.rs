@@ -119,7 +119,7 @@ impl RequestEditor {
 
     fn param_row(&self, name: String, window: &mut Window, cx: &mut Context<Self>) -> Row {
         let stored = self
-            .saved
+            .shown
             .parameters
             .iter()
             .find(|p| p.name == name)

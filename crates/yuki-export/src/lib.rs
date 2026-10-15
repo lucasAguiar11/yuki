@@ -40,6 +40,7 @@ pub struct NamedFile {
 }
 
 /// One workspace's fully-loaded, already-decrypted contents.
+#[derive(Clone)]
 pub struct Bundle {
     pub workspace: Workspace,
     pub folders: Vec<ApiFolder>,
@@ -55,7 +56,7 @@ impl Bundle {
     pub fn strip_secrets(&mut self) {
         let auths = std::iter::once(&mut self.workspace.auth)
             .chain(self.folders.iter_mut().map(|f| &mut f.auth))
-            .chain(self.requests.iter_mut().map(|r| &mut r.auth))
+            .chain(self.requests.iter_mut().flat_map(|r| r.auths_mut()))
             .chain(self.ws.iter_mut().map(|w| &mut w.auth))
             .chain(self.grpc.iter_mut().map(|g| &mut g.auth));
         for auth in auths {
@@ -247,6 +248,33 @@ pub(crate) fn warn_skipped_items(bundles: &[Bundle], target: &str, warnings: &mu
             ));
         }
     }
+}
+
+/// HTTP collection formats have no variations: each becomes a request of its
+/// own right after its base, named `{request} · {variation}`, same `order`.
+pub(crate) fn variations_as_requests(bundles: &[Bundle]) -> Vec<Bundle> {
+    let expand = |r: &HttpRequest| {
+        let base = HttpRequest {
+            variations: vec![],
+            active_variation: None,
+            ..r.clone()
+        };
+        let variations = r.variations.iter().filter_map(|v| {
+            Some(HttpRequest {
+                id: format!("{}-{}", r.id, v.id),
+                name: format!("{} · {}", r.name, v.name),
+                ..r.effective(Some(&v.id)).ok()?
+            })
+        });
+        std::iter::once(base).chain(variations).collect::<Vec<_>>()
+    };
+    bundles
+        .iter()
+        .map(|b| Bundle {
+            requests: b.requests.iter().flat_map(expand).collect(),
+            ..b.clone()
+        })
+        .collect()
 }
 
 /// Auth configs that reach an HTTP collection: workspace, folders, requests.

@@ -58,6 +58,7 @@ mod tree;
 mod ui;
 mod update;
 mod var_view;
+mod variation;
 mod vars;
 mod vars_panel;
 mod workspace;

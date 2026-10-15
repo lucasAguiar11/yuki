@@ -27,6 +27,7 @@ pub fn to_postman_with_roots(
     bundles: &[Bundle],
     roots: &[(String, String)],
 ) -> Result<ExportResult, YukiError> {
+    let bundles: &[Bundle] = &crate::variations_as_requests(bundles);
     let name = if bundles.len() == 1 {
         let selected = root_folders(&bundles[0], roots);
         if selected.len() == 1 {

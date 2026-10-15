@@ -371,6 +371,8 @@ mod tests {
             order: 0.0,
             created_at: "2024-01-01T00:00:00.000000".into(),
             updated_at: "2024-01-01T00:00:00.000000".into(),
+            variations: vec![],
+            active_variation: None,
         };
         b.responses
             .append(ws, req, response, resolved_request, 20)
@@ -1369,6 +1371,87 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn variation_secrets_are_masked_and_unknown_variation_fails_send() {
+        let dir = tempfile::tempdir().unwrap();
+        let b = make_backend(&dir);
+        let ws_id = ws(&b).await;
+        let call = |tool: &'static str, a: Vec<(&'static str, Value)>| {
+            let b = &b;
+            async move { b.call_tool(tool, args(&a)).await }
+        };
+        let created: Value = serde_json::from_str(
+            &call(
+                "request.create",
+                vec![
+                    ("workspaceId", Value::String(ws_id.clone())),
+                    ("name", Value::String("R".into())),
+                    ("method", Value::String("GET".into())),
+                    ("url", Value::String("https://example.com".into())),
+                ],
+            )
+            .await
+            .content[0]
+                .text,
+        )
+        .unwrap();
+        let req_id = created["id"].as_str().unwrap().to_string();
+        let mut req = b.requests.get_request(&ws_id, &req_id).unwrap();
+        req.variations = vec![yuki_core::Variation {
+            id: "v1".into(),
+            name: "admin".into(),
+            auth: Some(
+                serde_json::from_value(serde_json::json!({ "kind": "bearer", "token": "adm1n" }))
+                    .unwrap(),
+            ),
+            ..Default::default()
+        }];
+        b.requests.put_request(&req).unwrap();
+        let ids = || {
+            vec![
+                ("workspaceId", Value::String(ws_id.clone())),
+                ("requestId", Value::String(req_id.clone())),
+            ]
+        };
+        let token = |r: &crate::protocol::ToolResult| -> Value {
+            let v: Value = serde_json::from_str(&r.content[0].text).unwrap();
+            v["variations"][0]["auth"]["token"].clone()
+        };
+
+        assert_eq!(
+            token(&call("request.get", ids()).await),
+            super::redact::MASK
+        );
+        let list: Value =
+            serde_json::from_str(&call("request.list", ids()).await.content[0].text).unwrap();
+        assert_eq!(
+            list["requests"][0]["variations"][0]["auth"]["token"],
+            super::redact::MASK
+        );
+        let mut upd = ids();
+        upd.push(("url", Value::String("https://other".into())));
+        assert_eq!(
+            token(&call("request.update", upd).await),
+            super::redact::MASK
+        );
+        assert_eq!(
+            token(&call("request.duplicate", ids()).await),
+            super::redact::MASK
+        );
+        let mut rev = ids();
+        rev.push(("reveal", Value::Bool(true)));
+        assert_eq!(token(&call("request.get", rev).await), "adm1n");
+
+        let mut send = ids();
+        send.push(("variation", Value::String("nope".into())));
+        let res = call("request.send", send).await;
+        assert!(
+            res.content[0].text.contains("variation nope"),
+            "{}",
+            res.content[0].text
+        );
+    }
+
+    #[tokio::test]
     async fn request_get_masks_auth_and_survives_masked_roundtrip() {
         let dir = tempfile::tempdir().unwrap();
         let b = make_backend(&dir);
@@ -1739,6 +1822,8 @@ mod tests {
             order: 0.0,
             created_at: "2024-01-01T00:00:00.000000".into(),
             updated_at: "2024-01-01T00:00:00.000000".into(),
+            variations: vec![],
+            active_variation: None,
         };
         let response = HttpResponse {
             request_id: req.id.clone(),

@@ -200,16 +200,27 @@ fn ingest_captured_blocking(
     Ok(())
 }
 
+/// What the caller picks over the stored request: a URL (MCP `urlOverride`)
+/// and a variation (id or name; `None` = the active one).
+#[derive(Default)]
+struct Pick {
+    url_override: Option<String>,
+    variation: Option<String>,
+}
+
 impl ApiBackend {
     pub(in crate::api) async fn request_send(&self, args: &Value) -> ToolResult {
         let ws_id = require!(args, "workspaceId");
         let req_id = require!(args, "requestId");
         let env_id = args["environmentId"].as_str().map(str::to_string);
         let url_override = args["urlOverride"].as_str().map(str::to_string);
-        eprintln!("[mcp] request.send ws={ws_id} req={req_id} env={env_id:?}");
+        let variation = args["variation"].as_str().map(str::to_string);
+        eprintln!(
+            "[mcp] request.send ws={ws_id} req={req_id} env={env_id:?} variation={variation:?}"
+        );
 
         // 30s cap so the MCP client never hangs indefinitely.
-        let send = self.send_http(ws_id, req_id, env_id, url_override, true);
+        let send = self.send_http(ws_id, req_id, env_id, url_override, variation, true);
         match tokio::time::timeout(std::time::Duration::from_secs(30), send).await {
             Err(_) => ToolResult::error(
                 "Request timed out after 30 seconds. \
@@ -229,15 +240,23 @@ impl ApiBackend {
     /// reads (through its fields or the variables it uses) is sent first, so the
     /// value is the current one. A source already being sent up the chain (a
     /// cycle) is read from history instead.
+    ///
+    /// `variation` (id or name) picks which variation of the request is sent;
+    /// `None` = its active one. Sources always send their own active one.
     pub async fn send_http(
         &self,
         ws_id: String,
         req_id: String,
         env_id: Option<String>,
         url_override: Option<String>,
+        variation: Option<String>,
         agent: bool,
     ) -> Result<HttpResponse, String> {
-        self.send_chain(ws_id, req_id, env_id, url_override, agent, Vec::new())
+        let pick = Pick {
+            url_override,
+            variation,
+        };
+        self.send_chain(ws_id, req_id, env_id, pick, agent, Vec::new())
             .await
     }
 
@@ -246,7 +265,7 @@ impl ApiBackend {
         ws_id: String,
         req_id: String,
         env_id: Option<String>,
-        url_override: Option<String>,
+        pick: Pick,
         agent: bool,
         chain: Vec<String>,
     ) -> Pin<Box<dyn Future<Output = Result<HttpResponse, String>> + Send + '_>> {
@@ -254,7 +273,12 @@ impl ApiBackend {
             let mut chain = chain;
             chain.push(req_id.clone());
             for src in self
-                .response_sources(&ws_id, &req_id, env_id.as_deref())
+                .response_sources(
+                    &ws_id,
+                    &req_id,
+                    env_id.as_deref(),
+                    pick.variation.as_deref(),
+                )
                 .await
             {
                 if chain.contains(&src) {
@@ -268,15 +292,14 @@ impl ApiBackend {
                     ws_id.clone(),
                     src,
                     env_id.clone(),
-                    None,
+                    Pick::default(),
                     agent,
                     chain.clone(),
                 )
                 .await
                 .map_err(|e| format!("{name} (read by $response.body): {e}"))?;
             }
-            self.send_once(ws_id, req_id, env_id, url_override, agent)
-                .await
+            self.send_once(ws_id, req_id, env_id, pick, agent).await
         })
     }
 
@@ -286,17 +309,22 @@ impl ApiBackend {
         ws_id: &str,
         req_id: &str,
         env_id: Option<&str>,
+        variation: Option<&str>,
     ) -> Vec<String> {
         let (requests, environments) = (self.requests.clone(), self.environments.clone());
         let app_data_dir = self.app_data_dir.clone();
-        let (ws, id, env) = (
+        let (ws, id, env, variation) = (
             ws_id.to_string(),
             req_id.to_string(),
             env_id.map(str::to_string),
+            variation.map(str::to_string),
         );
         let workspaces = self.workspaces.clone();
         tokio::task::spawn_blocking(move || {
-            let Ok(mut req) = requests.get_request(&ws, &id) else {
+            let Ok(mut req) = requests
+                .get_request(&ws, &id)
+                .and_then(|r| r.effective(variation.as_deref()))
+            else {
                 return Vec::new();
             };
             let envs = environments.list(&ws).unwrap_or_default();
@@ -317,9 +345,13 @@ impl ApiBackend {
         ws_id: String,
         req_id: String,
         env_id: Option<String>,
-        url_override: Option<String>,
+        pick: Pick,
         agent: bool,
     ) -> Result<HttpResponse, String> {
+        let Pick {
+            url_override,
+            variation,
+        } = pick;
         let environments = self.environments.clone();
         let requests = self.requests.clone();
         let workspaces = self.workspaces.clone();
@@ -335,6 +367,7 @@ impl ApiBackend {
         let prepared = tokio::task::spawn_blocking(move || -> Result<_, String> {
             let mut req = requests
                 .get_request(&ws_id2, &req_id2)
+                .and_then(|r| r.effective(variation.as_deref()))
                 .map_err(|e| e.to_string())?;
             let envs = environments.list(&ws_id2).unwrap_or_default();
 
@@ -594,14 +627,15 @@ impl ApiBackend {
     }
 
     /// `req` (a draft, need not be saved) as `send_http` would put it on the
-    /// wire, without sending: literal URL/headers/body. Dynamic auth (SigV4,
-    /// Digest…) stays on `req.auth` — only the executor can apply it. The
-    /// cookie jar isn't attached.
+    /// wire, without sending: literal URL/headers/body, its active variation
+    /// applied. Dynamic auth (SigV4, Digest…) stays on `req.auth` — only the
+    /// executor can apply it. The cookie jar isn't attached.
     pub async fn resolve_http(
         &self,
-        mut req: HttpRequest,
+        req: HttpRequest,
         env_id: Option<String>,
     ) -> Result<HttpRequest, String> {
+        let mut req = req.shown();
         let (requests, environments) = (self.requests.clone(), self.environments.clone());
         let workspaces = self.workspaces.clone();
         let responses = self.responses.clone();

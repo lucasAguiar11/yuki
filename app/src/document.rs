@@ -57,7 +57,7 @@ impl AuthHost for RequestEditor {
         &mut self.auth
     }
     fn stored_auth(&self) -> &yuki_core::AuthConfig {
-        &self.saved.auth
+        &self.shown.auth
     }
     fn auth_edited(&mut self, cx: &mut Context<Self>) {
         self.refresh_dirty(cx);
@@ -205,7 +205,7 @@ impl RequestEditor {
     /// `headers 2 · body json · auth bearer          ▸ request ⌘E`
     fn render_meta(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let body_kind = self
-            .draft(cx)
+            .edited(cx)
             .body
             .map_or("—".into(), |b| ui::kind_name(&b.kind));
         let segment = |id: &'static str, label: String, tab: ReqTab, cx: &mut Context<Self>| {
@@ -244,6 +244,7 @@ impl RequestEditor {
         );
         let notes = segment("meta-notes", self.notes_label(cx).into(), ReqTab::Notes, cx);
         let vars_segment = self.render_vars_segment(cx);
+        let variation = self.render_variation(cx);
         let beside = cx.global::<crate::prefs::Prefs>().response_beside;
         let theme = cx.theme();
         let (fg, muted, selected_bg) = (theme.foreground, theme.muted_foreground, theme.secondary);
@@ -291,6 +292,8 @@ impl RequestEditor {
             .text_color(theme.muted_foreground)
             .border_b_1()
             .border_color(theme.border)
+            .child(variation)
+            .child(dot())
             .when_some(params, |s, p| s.child(p).child(dot()))
             .child(headers)
             .child(dot())

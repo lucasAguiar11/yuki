@@ -66,6 +66,8 @@ pub fn http(name: &str, method: &str, url: &str, auth: AuthConfig, order: f64) -
         order,
         created_at: ts(),
         updated_at: ts(),
+        variations: vec![],
+        active_variation: None,
     }
 }
 

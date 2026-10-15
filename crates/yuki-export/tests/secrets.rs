@@ -105,6 +105,12 @@ fn strip_secrets_blanks_every_secret_and_nothing_else() {
         ];
         for r in &mut b.requests {
             r.auth = auth.clone();
+            r.variations = vec![yuki_core::Variation {
+                id: s("v1"),
+                name: s("admin"),
+                auth: Some(auth.clone()),
+                ..Default::default()
+            }];
         }
         b.ws[0].auth = auth.clone();
         b.grpc.push(GrpcRequest {

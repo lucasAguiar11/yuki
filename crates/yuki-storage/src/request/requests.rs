@@ -128,6 +128,8 @@ impl RequestStore {
             order,
             created_at: now.clone(),
             updated_at: now,
+            variations: vec![],
+            active_variation: None,
         };
         let content = serde_yaml::to_string(&req).map_err(|e| YukiError::Storage(e.to_string()))?;
         crate::write_atomic(self.req_path(&workspace_id, &id)?, content)?;
@@ -161,6 +163,8 @@ impl RequestStore {
             order,
             created_at: now.clone(),
             updated_at: now,
+            variations: src.variations.clone(),
+            active_variation: src.active_variation.clone(),
         };
         let content = serde_yaml::to_string(&req).map_err(|e| YukiError::Storage(e.to_string()))?;
         crate::write_atomic(self.req_path(&req.workspace_id, &id)?, content)?;
@@ -228,6 +232,29 @@ impl RequestStore {
         next.body = body;
         next.auth = auth;
         save_request_if_changed(&path, &req, next)
+    }
+
+    /// Save every editable field of `req` (variations included); identity,
+    /// placement and timestamps stay as on disk.
+    pub fn put_request(&self, req: &HttpRequest) -> Result<(), YukiError> {
+        let path = self.req_path(&req.workspace_id, &req.id)?;
+        let content =
+            std::fs::read_to_string(&path).map_err(|e| YukiError::Storage(e.to_string()))?;
+        let disk: HttpRequest =
+            serde_yaml::from_str(&content).map_err(|e| YukiError::Storage(e.to_string()))?;
+        let next = HttpRequest {
+            id: disk.id.clone(),
+            request_type: disk.request_type.clone(),
+            model: disk.model.clone(),
+            workspace_id: disk.workspace_id.clone(),
+            folder_id: disk.folder_id.clone(),
+            name: disk.name.clone(),
+            order: disk.order,
+            created_at: disk.created_at.clone(),
+            updated_at: disk.updated_at.clone(),
+            ..req.clone()
+        };
+        save_request_if_changed(&path, &disk, next)
     }
 
     pub fn delete_request(&self, workspace_id: &str, id: &str) -> Result<(), YukiError> {

@@ -10,7 +10,8 @@ use yuki_core::{
     VoleeoBundle, Workspace, WsConnection,
 };
 use yuki_export::{
-    postman_environments, to_asyncapi, to_postman, to_postman_with_roots, to_voleeo, Bundle,
+    postman_environments, to_asyncapi, to_insomnia, to_postman, to_postman_with_roots, to_voleeo,
+    to_yaak, Bundle,
 };
 use yuki_import::{ImportFormat, ImportedItem};
 
@@ -51,6 +52,8 @@ fn http(
         order: 0.0,
         created_at: ts(),
         updated_at: ts(),
+        variations: vec![],
+        active_variation: None,
     }
 }
 
@@ -451,8 +454,62 @@ fn postman_scope_without_auth_passes_the_outer_auth_through() {
 }
 
 #[test]
+fn http_formats_export_each_variation_as_a_request_after_its_base() {
+    let mut b = bundle();
+    let pet = b.requests.iter_mut().find(|r| r.name == "Get Pet").unwrap();
+    pet.variations = vec![yuki_core::Variation {
+        id: "v1".into(),
+        name: "staging".into(),
+        url: Some("https://staging.example.com/pets/:id".into()),
+        ..Default::default()
+    }];
+    pet.active_variation = Some("v1".into());
+
+    fn flat(items: &[ImportedItem], out: &mut Vec<(String, String)>) {
+        for i in items {
+            match i {
+                ImportedItem::Folder(f) => flat(&f.items, out),
+                ImportedItem::Request(r) => out.push((r.name.clone(), r.url.clone())),
+            }
+        }
+    }
+    let cases = [
+        (ImportFormat::Postman, to_postman(&[b.clone()]).unwrap()),
+        (ImportFormat::Insomnia, to_insomnia(&[b.clone()]).unwrap()),
+        (ImportFormat::Yaak, to_yaak(&[b.clone()]).unwrap()),
+    ];
+    for (format, out) in cases {
+        let col = yuki_import::parse(format, &out.content).expect("reparse");
+        let mut reqs = vec![];
+        flat(&col.items, &mut reqs);
+        let ix = reqs
+            .iter()
+            .position(|(n, _)| n == "Get Pet")
+            .expect("base kept");
+        // Base keeps its own URL even though the variation was the active one.
+        assert!(
+            reqs[ix].1.contains("api.example.com"),
+            "{format:?}: {reqs:?}"
+        );
+        assert_eq!(reqs[ix + 1].0, "Get Pet · staging", "{format:?}: {reqs:?}");
+        assert!(reqs[ix + 1].1.contains("staging.example.com"), "{format:?}");
+    }
+}
+
+#[test]
 fn voleeo_bundle_round_trips_fully() {
-    let out = to_voleeo(&[bundle()]).unwrap();
+    let mut b = bundle();
+    let signed = b.requests.iter_mut().find(|r| r.name == "Signed").unwrap();
+    let mut admin = signed.auth.clone();
+    admin.mark_secrets_encrypted();
+    signed.variations = vec![yuki_core::Variation {
+        id: "v1".into(),
+        name: "admin".into(),
+        auth: Some(admin),
+        ..Default::default()
+    }];
+    signed.active_variation = Some("v1".into());
+    let out = to_voleeo(&[b]).unwrap();
     let doc: VoleeoBundle = serde_yaml::from_str(&out.content).expect("valid Voleeo Bundle YAML");
 
     assert_eq!(doc.voleeo_bundle, "1.0");
@@ -494,6 +551,15 @@ fn voleeo_bundle_round_trips_fully() {
             assert!(!secret_key_encrypted, "auth secret flag cleared");
         }
         _ => panic!("expected SigV4 auth to survive"),
+    }
+    // Variations ride along, their secrets marked plaintext too.
+    assert_eq!(signed.active_variation.as_deref(), Some("v1"));
+    match &signed.variations[0].auth {
+        Some(AuthConfig::AwsSigV4 {
+            secret_key_encrypted,
+            ..
+        }) => assert!(!secret_key_encrypted, "variation secret flag cleared"),
+        other => panic!("variation auth lost: {other:?}"),
     }
 }
 

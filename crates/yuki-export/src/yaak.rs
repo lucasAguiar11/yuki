@@ -15,7 +15,8 @@ use yuki_core::{
 use crate::postman::{contains_path_parameter, effective_inherited_auth};
 use crate::{
     children, http_auths, implied_content_type, rewrite_templates, split_envs,
-    warn_content_type_overrides, warn_count, warn_skipped_items, Bundle, ExportResult, Node,
+    variations_as_requests, warn_content_type_overrides, warn_count, warn_skipped_items, Bundle,
+    ExportResult, Node,
 };
 
 struct Out<'a> {
@@ -26,6 +27,7 @@ struct Out<'a> {
 }
 
 pub fn to_yaak(bundles: &[Bundle]) -> Result<ExportResult, YukiError> {
+    let bundles: &[Bundle] = &variations_as_requests(bundles);
     let mut warnings = Vec::new();
     warn_skipped_items(bundles, "Yaak", &mut warnings);
     warn_content_type_overrides(bundles, &mut warnings);

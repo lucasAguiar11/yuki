@@ -62,7 +62,7 @@ impl ApiBackend {
                 (Ok(mut reqs), Ok(mut folders)) => {
                     if !reveal {
                         for r in reqs.iter_mut() {
-                            redact::mask_auth(&mut r.auth);
+                            redact::mask_request(r);
                         }
                         for f in folders.iter_mut() {
                             redact::mask_auth(&mut f.auth);
@@ -88,7 +88,7 @@ impl ApiBackend {
             match result {
                 Ok((notes, mut req)) => {
                     if !reveal {
-                        redact::mask_auth(&mut req.auth);
+                        redact::mask_request(&mut req);
                     }
                     ToolResult::json(&with_notes(&req, notes))
                 }
@@ -233,6 +233,7 @@ impl ApiBackend {
             if let Some(n) = &notes {
                 requests.save_notes(&ws, &req_id, n)?;
             }
+            redact::mask_variations(&mut req);
             Ok(with_notes(&req, requests.get_notes(&ws, &req_id)?))
         })
         .await;
@@ -252,7 +253,8 @@ impl ApiBackend {
         let requests = self.requests.clone();
         let ws = ws_id.clone();
         match super::super::blocking(move || requests.duplicate_request(&ws, &req_id)).await {
-            Ok(req) => {
+            Ok(mut req) => {
+                redact::mask_variations(&mut req);
                 self.notify_requests(&ws_id);
                 ToolResult::json(&req)
             }

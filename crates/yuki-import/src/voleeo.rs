@@ -12,7 +12,7 @@ use crate::{ImportError, ImportFormat, ImportPreview};
 use std::collections::{HashMap, HashSet};
 use yuki_core::{
     new_id, ApiFolder, AuthConfig, EnvironmentKind, HttpRequest, InheritSource, RequestParameter,
-    VoleeoBundle, VoleeoWorkspace, VOLEEO_BUNDLE_VERSION,
+    Variation, VoleeoBundle, VoleeoWorkspace, VOLEEO_BUNDLE_VERSION,
 };
 
 /// Parse and mark every auth secret plaintext: a bundle file is plaintext, and
@@ -27,7 +27,7 @@ fn parse(content: &str) -> Result<VoleeoBundle, ImportError> {
     for w in &mut b.workspaces {
         let auths = std::iter::once(&mut w.workspace.auth)
             .chain(w.folders.iter_mut().map(|f| &mut f.auth))
-            .chain(w.requests.iter_mut().map(|r| &mut r.auth))
+            .chain(w.requests.iter_mut().flat_map(|r| r.auths_mut()))
             .chain(w.websockets.iter_mut().map(|c| &mut c.auth))
             .chain(w.grpc.iter_mut().map(|g| &mut g.auth));
         auths.for_each(AuthConfig::mark_secrets_plaintext);
@@ -335,6 +335,17 @@ impl Walk<'_> {
                         headers: merge_headers(scope.1, &r.headers),
                         auth: resolve(&r.auth, scope.0, w),
                         order,
+                        // Overrides replace the base whole, so they get the
+                        // same flattening of inherited headers and auth.
+                        variations: r
+                            .variations
+                            .iter()
+                            .map(|v| Variation {
+                                headers: v.headers.as_ref().map(|h| merge_headers(scope.1, h)),
+                                auth: v.auth.as_ref().map(|a| resolve(a, scope.0, w)),
+                                ..v.clone()
+                            })
+                            .collect(),
                         ..(*r).clone()
                     });
                 }

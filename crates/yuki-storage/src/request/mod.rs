@@ -183,6 +183,8 @@ mod tests {
             order: 5001.0,
             created_at: now.clone(),
             updated_at: now,
+            variations: vec![],
+            active_variation: None,
         };
         s.write_bulk(std::slice::from_ref(&folder), std::slice::from_ref(&req))
             .unwrap();
@@ -387,6 +389,37 @@ mod tests {
         assert_eq!(copy.name, format!("Copy of {}", req.name));
         assert_ne!(copy.id, req.id);
         assert!(copy.order > req.order);
+    }
+
+    #[test]
+    fn put_request_saves_variations_keeps_identity_and_skips_noop() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = store(&dir);
+        let req = mk_req(&s, "ws1");
+        let before = s.get_request("ws1", &req.id).unwrap();
+        s.put_request(&before).unwrap();
+        assert_eq!(s.get_request("ws1", &req.id).unwrap(), before);
+
+        let mut next = before.clone();
+        next.name = "renamed elsewhere".into();
+        next.order = 99.0;
+        next.variations = vec![yuki_core::Variation {
+            id: "v1".into(),
+            name: "admin".into(),
+            headers: Some(vec![]),
+            ..Default::default()
+        }];
+        next.active_variation = Some("v1".into());
+        s.put_request(&next).unwrap();
+        let loaded = s.get_request("ws1", &req.id).unwrap();
+        assert_eq!((loaded.name, loaded.order), (before.name, before.order));
+        assert_eq!(loaded.variations, next.variations);
+        assert_eq!(loaded.active_variation.as_deref(), Some("v1"));
+
+        let copy = s.duplicate_request("ws1", &req.id).unwrap();
+        let copy = s.get_request("ws1", &copy.id).unwrap();
+        assert_eq!(copy.variations, next.variations);
+        assert_eq!(copy.active_variation.as_deref(), Some("v1"));
     }
 
     #[test]

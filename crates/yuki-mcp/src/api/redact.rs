@@ -6,7 +6,7 @@
 //! directly, so masking the read tools never affects request execution.
 
 use serde_json::Value;
-use yuki_core::{AuthConfig, CookieJar, Environment};
+use yuki_core::{AuthConfig, CookieJar, Environment, HttpRequest};
 
 /// Sentinel returned in place of a secret. Distinctive so a read→write
 /// round-trip that echoes it back can be detected (see `restore_masked`).
@@ -21,6 +21,20 @@ pub(super) fn mask_auth(auth: &mut AuthConfig) {
     for (secret, _) in auth.secret_fields_mut() {
         if !secret.is_empty() {
             *secret = MASK.to_string();
+        }
+    }
+}
+
+/// The base auth and every variation's.
+pub(super) fn mask_request(req: &mut HttpRequest) {
+    req.auths_mut().for_each(mask_auth);
+}
+
+/// Write tools echo the request back; its variations' secrets stay hidden.
+pub(super) fn mask_variations(req: &mut HttpRequest) {
+    for v in req.variations.iter_mut() {
+        if let Some(a) = v.auth.as_mut() {
+            mask_auth(a);
         }
     }
 }

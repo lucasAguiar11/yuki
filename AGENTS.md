@@ -26,6 +26,7 @@ app/              `yuki` binary (GPUI) — the only layer that knows gpui
   src/workspace.rs  root view `Yuki`: workspaces, tabs, panels, palettes, actions
   src/editor.rs   `RequestEditor` (state/logic of one tab)
   src/document.rs RequestEditor render: prompt, meta line, request editor
+  src/variation.rs request variations: `base ▾` chip in the meta line (switch/new/rename/delete); each variation is an independent copy of the five sendable fields (`Variation::copy_of`; older partial ones filled by `detach_variations` on load, in memory); the editor shows `saved.shown()` and `draft()` folds edits back into the active variation or the base (`draft::fold`); any change saves then rebuilds the editor
   src/body.rs     body panel: type select + per-type input (raw, form/multipart, binary, graphql)
   src/table.rs    name/value table (headers, form/multipart fields, query params); last row always blank
   src/params.rs   params tab: path params (one row per URL `:name`, chipped in the URL) + query rows, all stored in `parameters`; the URL bar holds no query — a pasted one (or one left on blur) moves to the rows; `query.rs` normalizes requests that still have it in the URL (no write until edited)
@@ -69,6 +70,7 @@ site/             GitHub Pages landing (static HTML/CSS/JS, real app screenshots
 - Import: `backend::import_voleeo` **copies** (never links) workspaces, local envs and key files; skips `.git` and existing ids.
 - Local-first: edits hit the disk 400 ms after the last keystroke (`editor::refresh_dirty` → `save`; one write at a time). ⌘S, send, closing a tab and quitting only bring it forward. Saving writes only if changed (`save_request_if_changed`); header ids are preserved by position (`draft::text_to_headers`) — fresh ids = phantom diff in the user's git.
 - Encrypted workspace: auth secrets and secret env variables are opened on load, sealed on save (`secrets.rs`). An unchanged secret reuses the stored ciphertext — re-encrypting draws a new nonce = phantom diff.
+- Request variations (`variations` + `activeVariation` in `req_{id}.yaml`, ADR-20261015): independent copies of url/params/headers/body/auth (a missing field falls back to the base). `HttpRequest::effective`/`shown` is the only overlay — `send_http` applies it after loading, so history and snapshots never hold variations; secret walkers use `auths_mut()`.
 - Environments: `shared: false` lives in `envs-local/` (never in git); `shared: true` goes to the workspace folder (gets committed). On the screen, never save rows that weren't loaded from the current environment (`EnvScreen::show` vs `select`) — it overwrites its variables.
 - Keychain service: `yuki`. The key file is the fallback (and what import brings).
 - Git: each `workspaces/{id}` is its own repository (Voleeo model), via `yuki-git` (libgit2, no git install needed). Panel ⌘⇧G (`git.rs` state/background ops, `git_ops.rs` actions, `git_panel.rs` UI). Pull conflict: pick one side's whole file; the disk never holds `<<<<<<<`.

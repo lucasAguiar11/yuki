@@ -4,7 +4,7 @@
 
 use std::mem::discriminant;
 
-use yuki_core::{AuthConfig, EnvironmentVariable, YukiError};
+use yuki_core::{AuthConfig, EnvironmentVariable, HttpRequest, YukiError};
 use yuki_mcp::api::ApiBackend;
 
 /// The workspace key when the workspace is encrypted, `Ok(None)` when it isn't.
@@ -57,6 +57,27 @@ pub fn seal(
     Ok(out)
 }
 
+/// `seal` for the base auth and each variation's, a variation matched to its
+/// stored self by id.
+pub fn seal_request(
+    req: &mut HttpRequest,
+    stored: &HttpRequest,
+    key: &[u8; 32],
+) -> Result<(), YukiError> {
+    req.auth = seal(&req.auth, &stored.auth, key)?;
+    for v in &mut req.variations {
+        let Some(auth) = &v.auth else { continue };
+        let prev = stored
+            .variations
+            .iter()
+            .find(|s| s.id == v.id)
+            .and_then(|s| s.auth.clone())
+            .unwrap_or_default();
+        v.auth = Some(seal(auth, &prev, key)?);
+    }
+    Ok(())
+}
+
 /// Encrypt `plain` in place, reusing `old` when it already decrypts to the
 /// same text: re-encrypting draws a fresh nonce, which would rewrite the file
 /// (and the user's git history) on every save.
@@ -100,8 +121,8 @@ pub fn seal_vars(
 
 #[cfg(test)]
 mod tests {
-    use super::{open, open_vars, seal, seal_vars};
-    use yuki_core::{AuthConfig, EnvironmentVariable};
+    use super::{open, open_vars, seal, seal_request, seal_vars};
+    use yuki_core::{AuthConfig, EnvironmentVariable, HttpRequest, Variation};
 
     fn basic(user: &str, pass: &str) -> AuthConfig {
         AuthConfig::Basic {
@@ -141,6 +162,55 @@ mod tests {
         // Changed secret → fresh ciphertext of the new value.
         let changed = seal(&basic("u", "new"), &stored, &key).unwrap();
         let AuthConfig::Basic { password, .. } = open(changed, &key) else {
+            unreachable!()
+        };
+        assert_eq!(password, "new");
+    }
+
+    #[test]
+    fn seal_request_keeps_variation_ciphertext_matched_by_id() {
+        let key = [7u8; 32];
+        let variation = |id: &str, pass: &str| Variation {
+            id: id.into(),
+            name: id.into(),
+            auth: Some(basic("u", pass)),
+            ..Default::default()
+        };
+        let plain: HttpRequest = serde_json::from_value(serde_json::json!({
+            "id": "r", "type": "api", "model": "http_request", "workspaceId": "w",
+            "folderId": null, "method": "GET", "name": "n", "url": "u",
+            "createdAt": "", "updatedAt": ""
+        }))
+        .unwrap();
+        let mut stored = HttpRequest {
+            variations: vec![variation("a", "pa"), variation("b", "pb")],
+            ..plain
+        };
+        let empty = stored.clone();
+        seal_request(
+            &mut stored,
+            &HttpRequest {
+                variations: vec![],
+                ..empty
+            },
+            &key,
+        )
+        .unwrap();
+        let cipher = |r: &HttpRequest, ix: usize| match &r.variations[ix].auth {
+            Some(AuthConfig::Basic { password, .. }) => password.clone(),
+            other => panic!("{other:?}"),
+        };
+        assert!(yuki_crypto::is_encrypted(&cipher(&stored, 0)));
+
+        // Reordered, `b` changed: `a` keeps its ciphertext, `b` gets a new one.
+        let mut edited = stored.clone();
+        edited.variations = vec![variation("b", "new"), variation("a", "pa")];
+        seal_request(&mut edited, &stored, &key).unwrap();
+        assert_eq!(cipher(&edited, 1), cipher(&stored, 0));
+        assert_ne!(cipher(&edited, 0), cipher(&stored, 1));
+        let Some(AuthConfig::Basic { password, .. }) =
+            edited.variations[0].auth.clone().map(|a| open(a, &key))
+        else {
             unreachable!()
         };
         assert_eq!(password, "new");

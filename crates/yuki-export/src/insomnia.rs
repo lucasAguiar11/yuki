@@ -17,10 +17,12 @@ use crate::auth::oauth1_sig;
 use crate::postman::{contains_path_parameter, effective_inherited_auth};
 use crate::{
     children, http_auths, implied_content_type, rewrite_templates, split_envs,
-    warn_content_type_overrides, warn_count, warn_skipped_items, Bundle, ExportResult, Node,
+    variations_as_requests, warn_content_type_overrides, warn_count, warn_skipped_items, Bundle,
+    ExportResult, Node,
 };
 
 pub fn to_insomnia(bundles: &[Bundle]) -> Result<ExportResult, YukiError> {
+    let bundles: &[Bundle] = &variations_as_requests(bundles);
     let mut warnings = Vec::new();
     warn_skipped_items(bundles, "Insomnia", &mut warnings);
     warn_content_type_overrides(bundles, &mut warnings);

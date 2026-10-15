@@ -125,7 +125,9 @@ impl Backend {
                 secrets::seal_vars(&mut f.variables, &[], &key)?;
             }
             for r in &mut plan.requests {
-                r.auth = secrets::seal(&r.auth, &AuthConfig::None, &key)?;
+                for auth in r.auths_mut() {
+                    *auth = secrets::seal(auth, &AuthConfig::None, &key)?;
+                }
             }
             for w in &mut plan.websockets {
                 w.auth = secrets::seal(&w.auth, &AuthConfig::None, &key)?;

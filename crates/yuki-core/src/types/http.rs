@@ -92,6 +92,126 @@ pub struct HttpRequest {
     pub order: f64,
     pub created_at: String,
     pub updated_at: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub variations: Vec<Variation>,
+    /// Id of the variation sent by default; `None` = the base.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_variation: Option<String>,
+}
+
+/// A named alternative of a request: an independent copy of its sendable
+/// fields. Yuki writes all five; a `None` (hand-written, or older Yuki) falls
+/// back to the base's. `Some(vec![])` = none at all.
+#[derive(Type, Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Variation {
+    pub id: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parameters: Option<Vec<RequestParameter>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub headers: Option<Vec<RequestParameter>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body: Option<RequestBody>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth: Option<AuthConfig>,
+}
+
+impl Variation {
+    /// A variation holding every sendable field of `req`.
+    pub fn copy_of(req: &HttpRequest, id: String, name: String) -> Self {
+        Variation {
+            id,
+            name,
+            url: Some(req.url.clone()),
+            parameters: Some(req.parameters.clone()),
+            headers: Some(req.headers.clone()),
+            body: Some(req.body.clone().unwrap_or_default()),
+            auth: Some(req.auth.clone()),
+        }
+    }
+}
+
+impl HttpRequest {
+    /// The request as sent: `pick` (variation id or name), else the active
+    /// variation, laid over the base. The result carries no variations, so
+    /// history and snapshots never hold the inactive ones (or their secrets).
+    /// An unknown `pick` is an error; a dangling `active_variation` is the base.
+    pub fn effective(&self, pick: Option<&str>) -> Result<HttpRequest, crate::YukiError> {
+        let Some(p) = pick else {
+            return Ok(self.shown());
+        };
+        let v = self
+            .variations
+            .iter()
+            .find(|v| v.id == p)
+            .or_else(|| self.variations.iter().find(|v| v.name == p))
+            .ok_or_else(|| crate::YukiError::NotFound(format!("variation {p}")))?;
+        Ok(self.overlay(Some(v)))
+    }
+
+    /// `effective(None)`: the active variation (if any) over the base.
+    pub fn shown(&self) -> HttpRequest {
+        self.overlay(self.active())
+    }
+
+    /// The variation `active_variation` names, if it exists.
+    pub fn active(&self) -> Option<&Variation> {
+        let id = self.active_variation.as_deref()?;
+        self.variations.iter().find(|v| v.id == id)
+    }
+
+    pub fn active_mut(&mut self) -> Option<&mut Variation> {
+        let id = self.active_variation.clone()?;
+        self.variations.iter_mut().find(|v| v.id == id)
+    }
+
+    fn overlay(&self, v: Option<&Variation>) -> HttpRequest {
+        let mut req = HttpRequest {
+            variations: vec![],
+            active_variation: None,
+            ..self.clone()
+        };
+        let Some(v) = v.cloned() else { return req };
+        if let Some(url) = v.url {
+            req.url = url;
+        }
+        if let Some(p) = v.parameters {
+            req.parameters = p;
+        }
+        if let Some(h) = v.headers {
+            req.headers = h;
+        }
+        if let Some(b) = v.body {
+            req.body = Some(b);
+        }
+        if let Some(a) = v.auth {
+            req.auth = a;
+        }
+        req
+    }
+
+    /// The base auth and every variation's override, for code that seals,
+    /// opens or masks secrets.
+    pub fn auths_mut(&mut self) -> impl Iterator<Item = &mut AuthConfig> {
+        std::iter::once(&mut self.auth)
+            .chain(self.variations.iter_mut().filter_map(|v| v.auth.as_mut()))
+    }
+
+    /// Fill every field a variation doesn't hold with the base's, so it stops
+    /// following later base edits.
+    pub fn detach_variations(&mut self) {
+        let base = Variation::copy_of(self, String::new(), String::new());
+        for v in &mut self.variations {
+            v.url = v.url.take().or_else(|| base.url.clone());
+            v.parameters = v.parameters.take().or_else(|| base.parameters.clone());
+            v.headers = v.headers.take().or_else(|| base.headers.clone());
+            v.body = v.body.take().or_else(|| base.body.clone());
+            v.auth = v.auth.take().or_else(|| base.auth.clone());
+        }
+    }
 }
 
 #[derive(Type, Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -330,5 +450,97 @@ mod tests {
         };
         let v: serde_json::Value = serde_json::from_str(&no_vars.graphql_payload()).unwrap();
         assert!(v["variables"].is_null());
+    }
+}
+
+#[cfg(test)]
+mod variation_tests {
+    use super::*;
+
+    fn param(name: &str) -> RequestParameter {
+        RequestParameter {
+            id: name.into(),
+            name: name.into(),
+            value: "v".into(),
+            enabled: true,
+        }
+    }
+
+    fn req() -> HttpRequest {
+        serde_json::from_value(serde_json::json!({
+            "id": "r", "type": "http_request", "model": "http_request", "workspaceId": "w",
+            "folderId": null, "method": "GET", "name": "n", "url": "https://base",
+            "headers": [{"id": "h", "name": "h", "value": "v", "enabled": true}],
+            "auth": {"kind": "bearer", "token": "base", "tokenEncrypted": false, "enabled": true},
+            "createdAt": "", "updatedAt": ""
+        }))
+        .unwrap()
+    }
+
+    fn bearer(t: &str) -> AuthConfig {
+        AuthConfig::Bearer {
+            token: t.into(),
+            token_encrypted: false,
+            enabled: true,
+        }
+    }
+
+    #[test]
+    fn effective_overlays_whole_fields_and_drops_variations() {
+        let mut r = req();
+        r.variations = vec![
+            Variation {
+                id: "a".into(),
+                name: "admin".into(),
+                auth: Some(bearer("admin")),
+                headers: Some(vec![]),
+                ..Default::default()
+            },
+            Variation {
+                id: "u".into(),
+                name: "user".into(),
+                url: Some("https://user".into()),
+                ..Default::default()
+            },
+        ];
+        r.active_variation = Some("u".into());
+
+        // Active one by default; untouched fields stay the base's.
+        let e = r.effective(None).unwrap();
+        assert_eq!(e.url, "https://user");
+        assert_eq!(e.auth, bearer("base"));
+        assert_eq!(e.headers, vec![param("h")]);
+        assert!(e.variations.is_empty() && e.active_variation.is_none());
+
+        // An explicit pick (by name or id) beats the active one; `Some(vec![])` clears.
+        for pick in ["admin", "a"] {
+            let e = r.effective(Some(pick)).unwrap();
+            assert_eq!(
+                (e.url.as_str(), &e.auth),
+                ("https://base", &bearer("admin"))
+            );
+            assert!(e.headers.is_empty());
+        }
+
+        assert!(r.effective(Some("nope")).is_err());
+        r.active_variation = Some("gone".into());
+        assert_eq!(r.effective(None).unwrap().url, "https://base");
+    }
+
+    #[test]
+    fn empty_override_survives_round_trip_and_none_is_omitted() {
+        let mut r = req();
+        let plain = serde_json::to_value(&r).unwrap();
+        assert!(plain.get("variations").is_none() && plain.get("activeVariation").is_none());
+
+        r.variations = vec![Variation {
+            id: "a".into(),
+            name: "admin".into(),
+            headers: Some(vec![]),
+            ..Default::default()
+        }];
+        let back: HttpRequest = serde_json::from_value(serde_json::to_value(&r).unwrap()).unwrap();
+        assert_eq!(back.variations[0].headers, Some(vec![]));
+        assert_eq!(back.variations[0].url, None);
     }
 }

@@ -72,7 +72,9 @@ impl Backend {
         let mut requests = self.api.requests.list_requests(ws_id)?;
         if let Ok(Some(key)) = secrets::key(&self.api, ws_id) {
             for r in &mut requests {
-                r.auth = secrets::open(std::mem::take(&mut r.auth), &key);
+                for auth in r.auths_mut() {
+                    *auth = secrets::open(std::mem::take(auth), &key);
+                }
             }
         }
         Ok(WorkspaceData {
@@ -111,7 +113,7 @@ impl Backend {
                     .await
                     .map_err(|e| e.to_string())?
                     .map_err(|e| e.to_string())?;
-                api.send_http(req.workspace_id, req.id, env_id, None, false)
+                api.send_http(req.workspace_id, req.id, env_id, None, None, false)
                     .await
             })
             .await
@@ -296,24 +298,12 @@ impl Backend {
 }
 
 fn save(api: &ApiBackend, req: &HttpRequest) -> Result<(), YukiError> {
-    let ws = &req.workspace_id;
-    let auth = match secrets::key(api, ws)? {
-        Some(key) => {
-            let stored = api.requests.get_request(ws, &req.id)?.auth;
-            secrets::seal(&req.auth, &stored, &key)?
-        }
-        None => req.auth.clone(),
-    };
-    api.requests.update_request(
-        ws,
-        &req.id,
-        req.method.clone(),
-        req.url.clone(),
-        req.parameters.clone(),
-        req.headers.clone(),
-        req.body.clone(),
-        auth,
-    )
+    let mut req = req.clone();
+    if let Some(key) = secrets::key(api, &req.workspace_id)? {
+        let stored = api.requests.get_request(&req.workspace_id, &req.id)?;
+        secrets::seal_request(&mut req, &stored, &key)?;
+    }
+    api.requests.put_request(&req)
 }
 
 /// Copy Voleeo workspaces (+ their machine-local envs and key files) into the

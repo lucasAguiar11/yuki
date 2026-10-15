@@ -46,7 +46,7 @@ pub(super) fn request_tools() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "request.update".into(),
-            description: "Update an existing request's method, URL, name, headers, query params, body, auth, or markdown notes (any subset; omitted fields are left unchanged). Setting `graphqlQuery` turns it into a GraphQL request — a plain HTTP POST with a `{ query, variables }` JSON body; send it with request.send.".into(),
+            description: "Update an existing request's method, URL, name, headers, query params, body, auth, or markdown notes (any subset; omitted fields are left unchanged). Edits the base request only: a field its active variation overrides keeps sending the variation's value (see `variations` in request.get). Setting `graphqlQuery` turns it into a GraphQL request — a plain HTTP POST with a `{ query, variables }` JSON body; send it with request.send.".into(),
             input_schema: obj_schema(
                 &[
                     ("workspaceId", "Workspace ID", str_schema()),
@@ -99,6 +99,7 @@ pub(super) fn request_tools() -> Vec<ToolDef> {
                 &[
                     ("environmentId", "Personal environment ID whose variables resolve {{ VAR }} tokens. Global variables are always included. Use env.list to find IDs.", str_schema()),
                     ("urlOverride", "Override the resolved URL for this send only", str_schema()),
+                    ("variation", "Variation (id or name, from request.get `variations`) to send instead of the request's active one", str_schema()),
                 ],
             ),
         },

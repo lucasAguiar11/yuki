@@ -123,7 +123,7 @@ impl Yuki {
         self.watch_agent_edits(edits, window, cx);
     }
 
-    /// Open tabs keep their own copy; only the tree, envs and count reload.
+    /// Tree, envs and count reload; open tabs follow (`reload_clean_tabs`).
     fn watch_agent_edits(
         &self,
         mut changes: mpsc::UnboundedReceiver<String>,
@@ -151,10 +151,8 @@ impl Yuki {
                         return;
                     }
                     this.set_envs(&data.environments, None, window, cx);
-                    this.status = t!("%{n} requests", n = data.requests.len())
-                        .into_owned()
-                        .into();
                     this.data = Some(data);
+                    this.reload_clean_tabs(window, cx);
                     this.refresh_rows();
                     cx.notify();
                 });
@@ -164,5 +162,38 @@ impl Yuki {
             }
         })
         .detach();
+    }
+
+    /// After an agent's edit: tabs of deleted requests close, and a tab with no
+    /// unsaved edits shows its request as it is on disk now. A tab with edits
+    /// keeps them (its next save wins).
+    fn reload_clean_tabs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(requests) = self.data.as_ref().map(|d| d.requests.clone()) else {
+            return;
+        };
+        let before = self.tabs.len();
+        self.tabs
+            .retain(|t| requests.iter().any(|r| r.id == t.read(cx).saved.id));
+        for tab in self.tabs.clone() {
+            let id = tab.read(cx).saved.id.clone();
+            let Some(disk) = requests.iter().find(|r| r.id == id).cloned() else {
+                continue;
+            };
+            tab.update(cx, |e, cx| {
+                let busy = e.dirty || e.sending || e.saving;
+                if busy || e.saved.updated_at == disk.updated_at {
+                    return;
+                }
+                let refocus = e.url_focus(cx).is_focused(window);
+                e.rebuild(disk, window, cx);
+                if refocus {
+                    e.url_focus(cx).focus(window, cx);
+                }
+            });
+        }
+        if self.tabs.len() != before {
+            self.active = self.active.min(self.tabs.len().saturating_sub(1));
+            self.focus_active(window, cx);
+        }
     }
 }

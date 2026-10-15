@@ -6,7 +6,9 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-use yuki_core::{ApiFolder, Environment, EnvironmentKind, RequestParameter};
+use yuki_core::{
+    ApiFolder, AuthConfig, Environment, EnvironmentKind, InheritSource, RequestParameter,
+};
 use yuki_storage::EnvironmentStore;
 
 /// Globals merged with the personal env at `env_id` (personal shadows). Undecryptable
@@ -117,6 +119,31 @@ pub fn merge_inherited_metadata(
     }
     add(workspace_headers);
     out
+}
+
+/// The auth a request actually sends. `Inherit` takes the nearest ancestor
+/// folder's active auth, else the workspace's (`from: workspace` skips the
+/// folders); nothing active up the chain sends no auth. Any other auth is its own.
+pub fn effective_auth(
+    auth: &AuthConfig,
+    folder_id: Option<&str>,
+    folders: &[ApiFolder],
+    workspace: &AuthConfig,
+) -> AuthConfig {
+    let AuthConfig::Inherit { from } = auth else {
+        return auth.clone();
+    };
+    let folder = match from {
+        InheritSource::Folder => ancestor_chain_root_first(folder_id, folders)
+            .into_iter()
+            .rev()
+            .find(|f| f.auth.is_active())
+            .map(|f| f.auth),
+        InheritSource::Workspace => None,
+    };
+    folder
+        .or_else(|| workspace.is_active().then(|| workspace.clone()))
+        .unwrap_or(AuthConfig::None)
 }
 
 /// Layer folder vars over `vars`. Chain inserted root→nearest, so nearest wins.
@@ -423,5 +450,47 @@ mod tests {
             Some("r"),
             "ancestor-only var still inherited"
         );
+    }
+
+    #[test]
+    fn inherit_takes_nearest_active_folder_then_workspace() {
+        let bearer = |t: &str, enabled| AuthConfig::Bearer {
+            token: t.into(),
+            token_encrypted: false,
+            enabled,
+        };
+        let with_auth = |mut f: ApiFolder, a| {
+            f.auth = a;
+            f
+        };
+        let folders = vec![
+            with_auth(folder("root", None, &[]), bearer("root", true)),
+            with_auth(folder("mid", Some("root"), &[]), bearer("off", false)),
+            folder("leaf", Some("mid"), &[]),
+        ];
+        let ws = bearer("ws", true);
+        let inherit = |from| AuthConfig::Inherit { from };
+        let leaf = Some("leaf");
+
+        // Leaf has none, mid is toggled off: root is the nearest active one.
+        let got = effective_auth(&inherit(InheritSource::Folder), leaf, &folders, &ws);
+        assert_eq!(got, bearer("root", true));
+        // `from: workspace` skips the folders.
+        let got = effective_auth(&inherit(InheritSource::Workspace), leaf, &folders, &ws);
+        assert_eq!(got, ws);
+        // No folder auth up the chain: the workspace's.
+        let got = effective_auth(&inherit(InheritSource::Folder), None, &folders, &ws);
+        assert_eq!(got, ws);
+        // Nothing active anywhere: no auth (not the `Inherit` marker).
+        let got = effective_auth(
+            &inherit(InheritSource::Folder),
+            None,
+            &[],
+            &AuthConfig::None,
+        );
+        assert_eq!(got, AuthConfig::None);
+        // A request's own auth wins, even `None` (explicit opt-out).
+        let got = effective_auth(&AuthConfig::None, leaf, &folders, &ws);
+        assert_eq!(got, AuthConfig::None);
     }
 }

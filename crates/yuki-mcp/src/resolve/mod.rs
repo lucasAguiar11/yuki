@@ -23,6 +23,6 @@ pub use system_env::{
 };
 pub use text::path_params;
 pub use vars::{
-    apply_folder_vars, is_identifier, load_env_vars, load_env_vars_from, merge_inherited_metadata,
-    resolve_str,
+    apply_folder_vars, effective_auth, is_identifier, load_env_vars, load_env_vars_from,
+    merge_inherited_metadata, resolve_str,
 };

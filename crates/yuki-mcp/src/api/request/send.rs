@@ -294,8 +294,9 @@ impl ApiBackend {
             req_id.to_string(),
             env_id.map(str::to_string),
         );
+        let workspaces = self.workspaces.clone();
         tokio::task::spawn_blocking(move || {
-            let Ok(req) = requests.get_request(&ws, &id) else {
+            let Ok(mut req) = requests.get_request(&ws, &id) else {
                 return Vec::new();
             };
             let envs = environments.list(&ws).unwrap_or_default();
@@ -303,6 +304,8 @@ impl ApiBackend {
             let mut vars = resolve::load_env_vars_from(&envs, &ws, env.as_deref(), &app_data_dir);
             let folders = requests.list_folders(&ws).unwrap_or_default();
             resolve::apply_folder_vars(&mut vars, req.folder_id.as_deref(), &folders, key.as_ref());
+            // Folder/workspace auth and headers can read a response too.
+            inherit(&mut req, &folders, &workspaces, key.as_ref());
             resolve::response_sources(&vars, &req)
         })
         .await
@@ -357,6 +360,7 @@ impl ApiBackend {
 
             let (vars, var_key, stored_auth) = resolve_request(
                 &requests,
+                &workspaces,
                 &envs,
                 &responses,
                 &app_data_dir,
@@ -493,11 +497,13 @@ impl ApiBackend {
     }
 }
 
-/// The blocking half of resolution: env + folder vars, decrypted auth secrets,
-/// `{{ }}` applied (static auth folded into a header). Returns the vars and the
-/// workspace key (cookies reuse both) and the pre-fold auth.
+/// The blocking half of resolution: env + folder vars, inherited headers and
+/// auth, decrypted auth secrets, `{{ }}` applied (static auth folded into a
+/// header). Returns the vars and the workspace key (cookies reuse both) and the
+/// pre-fold auth.
 fn resolve_request(
     requests: &RequestStore,
+    workspaces: &WorkspaceStore,
     envs: &[Environment],
     responses: &ResponseStore,
     app_data_dir: &Path,
@@ -518,11 +524,33 @@ fn resolve_request(
         &folders,
         var_key.as_ref(),
     );
+    inherit(req, &folders, workspaces, var_key.as_ref());
+    // After `inherit`: folder/workspace auth and headers can read a response.
     resolve::prefill_responses(&mut vars, Some(req), &ws_id, responses);
-    // Auth secrets are stored as `enc:v1:` ciphertext; the store hands them
-    // back raw. Decrypt in place so static schemes inject plaintext and
-    // dynamic schemes (SigV4) sign with the real key.
-    if let Some(k) = var_key.as_ref() {
+    // Original (resolved, secrets-decrypted) auth, captured before
+    // `apply_to_request` folds static schemes into a header and clears
+    // `req.auth` — kept for the snapshot's AUTH tab.
+    let stored_auth = req.auth.clone();
+    resolve::apply_to_request(req, &vars);
+    (vars, var_key, stored_auth)
+}
+
+/// What a request inherits, in place: headers merged by name (own, then the
+/// nearest folder up to the workspace), `inherit` auth resolved, auth secrets
+/// decrypted (folder/workspace secrets are sealed with the same key; static
+/// schemes must inject plaintext, SigV4 sign with it).
+fn inherit(
+    req: &mut HttpRequest,
+    folders: &[yuki_core::ApiFolder],
+    workspaces: &WorkspaceStore,
+    key: Option<&[u8; 32]>,
+) {
+    let ws = workspaces.get(&req.workspace_id).ok();
+    let (ws_headers, ws_auth) = ws.map(|w| (w.headers, w.auth)).unwrap_or_default();
+    let folder = req.folder_id.as_deref();
+    req.headers = resolve::merge_inherited_metadata(&req.headers, folder, folders, &ws_headers);
+    req.auth = resolve::effective_auth(&req.auth, folder, folders, &ws_auth);
+    if let Some(k) = key {
         for (secret, encrypted) in req.auth.secret_fields_mut() {
             if encrypted && yuki_crypto::is_encrypted(secret) {
                 if let Ok(plain) = yuki_crypto::decrypt(secret, k) {
@@ -531,12 +559,6 @@ fn resolve_request(
             }
         }
     }
-    // Original (resolved, secrets-decrypted) auth, captured before
-    // `apply_to_request` folds static schemes into a header and clears
-    // `req.auth` — kept for the snapshot's AUTH tab.
-    let stored_auth = req.auth.clone();
-    resolve::apply_to_request(req, &vars);
-    (vars, var_key, stored_auth)
 }
 
 impl ApiBackend {
@@ -581,12 +603,14 @@ impl ApiBackend {
         env_id: Option<String>,
     ) -> Result<HttpRequest, String> {
         let (requests, environments) = (self.requests.clone(), self.environments.clone());
+        let workspaces = self.workspaces.clone();
         let responses = self.responses.clone();
         let app_data_dir = self.app_data_dir.clone();
         req = tokio::task::spawn_blocking(move || {
             let envs = environments.list(&req.workspace_id).unwrap_or_default();
             resolve_request(
                 &requests,
+                &workspaces,
                 &envs,
                 &responses,
                 &app_data_dir,

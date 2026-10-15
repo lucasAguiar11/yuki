@@ -141,9 +141,8 @@ pub fn apply_to_request(req: &mut HttpRequest, vars: &HashMap<String, String>) {
                     }
                 }
             }
-            // Inherit is resolved by the frontend before sending. When the MCP
-            // server sends a stored request directly it has no folder/workspace
-            // context, so treat unresolved inherit as "no auth".
+            // Resolved before this point (`effective_auth`); a leftover marker
+            // means nothing up the chain has an auth.
             AuthConfig::None | AuthConfig::Inherit { .. } => {}
             // Dynamic schemes are handled above; unreachable here.
             AuthConfig::AwsSigV4 { .. }

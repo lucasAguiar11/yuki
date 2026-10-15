@@ -59,6 +59,52 @@ fn resolve_url_and_query(
     (resolved_base, query_parts)
 }
 
+/// JSON with comments (`//`, `/* */`) as plain JSON: comments outside strings
+/// go, and so does a comma left before `}`/`]` (a commented-out last field).
+/// Strings — `"https://…"` — and `{{ }}` templates pass through untouched.
+pub fn strip_json_comments(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    let mut in_string = false;
+    while let Some(c) = chars.next() {
+        if in_string {
+            out.push(c);
+            match c {
+                '\\' => out.extend(chars.next()),
+                '"' => in_string = false,
+                _ => {}
+            }
+            continue;
+        }
+        match (c, chars.peek()) {
+            ('"', _) => {
+                in_string = true;
+                out.push(c);
+            }
+            ('/', Some('/')) => while chars.next_if(|&n| n != '\n').is_some() {},
+            ('/', Some('*')) => {
+                chars.next();
+                let mut prev = ' ';
+                for n in chars.by_ref() {
+                    if prev == '*' && n == '/' {
+                        break;
+                    }
+                    prev = n;
+                }
+            }
+            ('}' | ']', _) => {
+                let end = out.trim_end().len();
+                if out[..end].ends_with(',') {
+                    out.remove(end - 1);
+                }
+                out.push(c);
+            }
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
 /// Apply full template resolution to a request in-place before execution.
 pub fn apply_to_request(req: &mut HttpRequest, vars: &HashMap<String, String>) {
     // 1–3: substitute :params, resolve {{ }} in the base URL, build the query.
@@ -77,6 +123,9 @@ pub fn apply_to_request(req: &mut HttpRequest, vars: &HashMap<String, String>) {
     // (multipart file fields, binary) are left untouched.
     if let Some(body) = &mut req.body {
         if !matches!(body.kind, yuki_core::BodyKind::None) {
+            if matches!(body.kind, yuki_core::BodyKind::Json) {
+                body.text = strip_json_comments(&body.text);
+            }
             body.text = resolve_str(&body.text, vars);
             if let Some(vars_text) = body.graphql_variables.as_mut() {
                 *vars_text = resolve_str(vars_text, vars);
@@ -348,6 +397,20 @@ mod tests {
             .iter()
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect()
+    }
+
+    #[test]
+    fn json_comments_and_dangling_commas_are_stripped_outside_strings() {
+        let src = "{\n  \"email\": \"a@b.com\",\n  //teste\n  \"url\": \"https://x/*y*/\", /* inline */\n  \"t\": {{ ID }},\n  \"q\": \"say \\\"//hi\\\"\",\n  // \"password\": \"x\"\n}";
+        let out = strip_json_comments(src);
+        let v: serde_json::Value = serde_json::from_str(&out.replace("{{ ID }}", "1"))
+            .unwrap_or_else(|e| panic!("{e}: {out}"));
+        assert_eq!(v["url"], "https://x/*y*/");
+        assert_eq!(v["q"], "say \"//hi\"");
+        assert!(v.get("password").is_none() && out.contains("{{ ID }}"));
+        // Arrays too; plain JSON is left as is.
+        assert_eq!(strip_json_comments("[1, 2, // 3\n]"), "[1, 2 \n]");
+        assert_eq!(strip_json_comments(r#"{"a":[1,2]}"#), r#"{"a":[1,2]}"#);
     }
 
     fn bare_request(url: &str) -> HttpRequest {

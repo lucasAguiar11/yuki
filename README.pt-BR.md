@@ -58,6 +58,8 @@ Sem variável: em qualquer campo de template — inclusive o auth de uma pasta o
 
 **Variações.** Um request, vários jeitos de enviar — tokens de `admin` e de `user`, por exemplo — em vez de duplicar. O chip `base ▾` à esquerda das abas do request lista as variações: **nova variação…** copia o que está na tela (URL, params, headers, body, auth) para uma variação nova e a deixa ativa. Cada variação é independente: editar uma nunca muda a base nem as outras, e editar a base nunca muda as variações. Escolha uma variação para enviá-la. A variação ativa fica salva no arquivo do request, então o time compartilha a escolha. Via MCP, `request.send` aceita `variation` (nome ou id). Exportar para Postman, Insomnia ou Yaak transforma cada variação num request próprio logo depois da base (`me · admin`); um bundle do Voleeo as mantém como variações.
 
+**Comentários no body JSON.** `// …` e `/* … */` num body JSON ficam salvos no request mas saem no envio (junto com uma vírgula que sobrar antes de `}` ou `]`), então dá para comentar um campo.
+
 ## Importar / exportar
 
 ⌘⇧P → **Importar coleção…** (ou ⌘O → **+ importar coleção…**) lê um bundle do Voleeo, Yaak, Postman (v2.0/2.1), Insomnia (v4 JSON ou v5 YAML), OpenAPI/Swagger ou Bruno: escolha na árvore o que entra, num workspace novo ou numa pasta do workspace aberto. Auth e headers definidos na coleção ou numa pasta são copiados para cada request. **Exportar workspace…** grava o workspace aberto como Voleeo, Yaak, Postman (ambientes em arquivos ao lado) ou Insomnia v4; valores secretos saem vazios, a não ser que você marque **incluir segredos**.

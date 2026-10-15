@@ -58,6 +58,8 @@ No variable needed: in any template field — a folder's or the workspace's auth
 
 **Variations.** One request, several ways to send it — say `admin` and `user` tokens — instead of duplicates. The `base ▾` chip left of the request tabs lists them: **new variation…** copies what's on screen (URL, params, headers, body, auth) into a new variation and makes it active. Each variation is independent: editing one never changes the base or the others, and editing the base never changes them. Pick a variation to send it. The active variation is saved in the request file, so the team shares it. Over MCP, `request.send` takes `variation` (name or id). Exporting to Postman, Insomnia or Yaak turns each variation into its own request right after the base (`me · admin`); a Voleeo bundle keeps them as variations.
 
+**Comments in JSON bodies.** `// …` and `/* … */` in a JSON body stay in the request but are removed when it's sent (a comma left before `}` or `]` too), so you can comment out a field.
+
 ## Import / export
 
 ⌘⇧P → **Import collection…** (or ⌘O → **+ import collection…**) reads a Voleeo bundle, Yaak, Postman (v2.0/2.1), Insomnia (v4 JSON or v5 YAML), OpenAPI/Swagger or Bruno file: pick what comes in from the tree, into a new workspace or into a folder of the open one. Auth and headers set on the collection or a folder are copied onto each request. **Export workspace…** writes the open workspace as Voleeo, Yaak, Postman (environments as sibling files) or Insomnia v4; secret values are left empty unless you tick **include secrets**.

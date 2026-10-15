@@ -1,3 +1,4 @@
+use gpui_kit::base::text::TextView;
 use gpui_kit::component::{h_flex, input::Editor, tooltip::Tooltip, v_flex, ActiveTheme as _};
 use gpui_kit::{prelude::FluentBuilder as _, *};
 use yuki_core::HttpResponse;
@@ -34,6 +35,22 @@ pub fn body_for_editor(resp: &HttpResponse) -> (String, &'static str) {
     (resp.body.clone(), if markup { "html" } else { "text" })
 }
 
+fn is_html(resp: &HttpResponse) -> bool {
+    resp.body_is_text
+        && resp
+            .headers
+            .iter()
+            .any(|h| h.name.eq_ignore_ascii_case("content-type") && h.value.contains("text/html"))
+}
+
+/// The tab actually shown: preview falls back to body when the response isn't HTML.
+fn shown_tab(editor: &RequestEditor, resp: &HttpResponse) -> RespTab {
+    match editor.resp_tab {
+        RespTab::Preview if !is_html(resp) => RespTab::Body,
+        t => t,
+    }
+}
+
 pub fn render(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> AnyElement {
     let theme = cx.theme();
     let content =
@@ -52,7 +69,7 @@ pub fn render(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> AnyEle
                         .child(t!("check the URL and the selected environment")),
                 )
                 .into_any_element(),
-            Some(Ok(resp)) => match editor.resp_tab {
+            Some(Ok(resp)) => match shown_tab(editor, resp) {
                 RespTab::Body => div()
                     .size_full()
                     .pl_2()
@@ -67,6 +84,12 @@ pub fn render(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> AnyEle
                             .h_full(),
                     )
                     .into_any_element(),
+                RespTab::Preview => TextView::html("resp-html", resp.body.clone())
+                    .scrollable(true)
+                    .selectable(true)
+                    .size_full()
+                    .px_4()
+                    .into_any_element(),
                 RespTab::Headers => headers_table(resp, cx),
                 RespTab::Timeline => {
                     sent::render(resp, editor.sent.as_ref(), &editor.timeline_focus, cx)
@@ -76,9 +99,13 @@ pub fn render(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> AnyEle
     v_flex()
         .size_full()
         .child(strip(editor, cx))
-        .when(editor.resp_tab == RespTab::Body, |r| {
-            r.children(editor.render_capture_bar(cx))
-        })
+        .when(
+            match &editor.response {
+                Some(Ok(r)) => shown_tab(editor, r),
+                _ => editor.resp_tab,
+            } == RespTab::Body,
+            |r| r.children(editor.render_capture_bar(cx)),
+        )
         .child(div().flex_1().min_h_0().child(content))
         .into_any_element()
 }
@@ -101,7 +128,7 @@ fn strip(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> impl IntoEl
     // While a send is in flight the strip shows its clock, not the old result.
     if let Some(Ok(resp)) = editor.response.as_ref().filter(|_| !editor.sending) {
         let tab = |id: &'static str, label: String, t: RespTab, cx: &mut Context<RequestEditor>| {
-            let active = editor.resp_tab == t;
+            let active = shown_tab(editor, resp) == t;
             div()
                 .id(id)
                 .px_1p5()
@@ -143,6 +170,14 @@ fn strip(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> impl IntoEl
             .children(at.map(|t| div().text_color(ui::faint(cx)).child(t)))
             .child(div().w(px(16.)))
             .child(tab("resp-body", "body".into(), RespTab::Body, cx))
+            .when(is_html(resp), |r| {
+                r.child(tab(
+                    "resp-preview",
+                    t!("preview").into_owned(),
+                    RespTab::Preview,
+                    cx,
+                ))
+            })
             .child(tab(
                 "resp-headers",
                 format!("headers {}", resp.headers.len()),

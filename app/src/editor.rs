@@ -47,6 +47,8 @@ pub enum ReqTab {
 #[derive(Clone, Copy, PartialEq)]
 pub enum RespTab {
     Body,
+    /// Rendered HTML (only offered for `text/html` responses).
+    Preview,
     Headers,
     /// What was actually sent + the engine's event log.
     Timeline,

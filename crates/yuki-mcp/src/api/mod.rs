@@ -129,8 +129,9 @@ impl ApiBackend {
 
     pub async fn call_tool(&self, name: &str, args: Value) -> ToolResult {
         match name {
-            "workspace.list" => self.workspace_list().await,
+            "workspace.list" => self.workspace_list(&args).await,
             "workspace.create" => self.workspace_create(&args).await,
+            "workspace.set_auth" => self.workspace_set_auth(&args).await,
             "request.list" => self.request_list(&args).await,
             "request.get" => self.request_get(&args).await,
             "request.create" => self.request_create(&args).await,
@@ -140,6 +141,7 @@ impl ApiBackend {
             "request.send" => self.request_send(&args).await,
             "folder.create" => self.folder_create(&args).await,
             "folder.rename" => self.folder_rename(&args).await,
+            "folder.set_auth" => self.folder_set_auth(&args).await,
             "folder.delete" => self.folder_delete(&args).await,
             "response.list" => self.response_list(&args).await,
             "response.get" => self.response_get(&args).await,

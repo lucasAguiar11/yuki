@@ -3,4 +3,5 @@
 //! handlers to the shared `impl ApiBackend` block.
 
 mod crud;
+pub(super) use crud::{auth_arg, auth_to_store};
 mod send;

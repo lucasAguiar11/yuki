@@ -24,6 +24,11 @@ pub(super) fn map_schema() -> Value {
     serde_json::json!({ "type": "object", "additionalProperties": { "type": "string" } })
 }
 
+/// Schema for an `auth` object keyed by `kind` (request/folder/workspace).
+pub(super) fn auth_schema() -> Value {
+    serde_json::json!({ "type": "object", "properties": { "kind": { "type": "string", "description": "Auth kind" } }, "required": ["kind"], "additionalProperties": true })
+}
+
 /// Schema for a free-form request `body` object.
 pub(super) fn body_schema() -> Value {
     serde_json::json!({ "type": "object" })
@@ -46,7 +51,18 @@ fn workspace_tools() -> Vec<ToolDef> {
         ToolDef {
             name: "workspace.list".into(),
             description: "List all API workspaces.".into(),
-            input_schema: obj_schema(&[], &[]),
+            input_schema: obj_schema(&[], &[reveal_arg()]),
+        },
+        ToolDef {
+            name: "workspace.set_auth".into(),
+            description: "Set the workspace's auth: the fallback for requests whose auth is `inherit` when no ancestor folder has one. Returns the workspace (secrets masked).".into(),
+            input_schema: obj_schema(
+                &[
+                    ("workspaceId", "Workspace ID", str_schema()),
+                    ("auth", "Auth config keyed by `kind`: none (clear), bearer {token}, basic {username,password}, api_key {key,value,location}, aws_sig_v4, o_auth1, o_auth2, digest {username,password}, ntlm. Send plaintext secrets — they're encrypted at rest on encrypted workspaces.", auth_schema()),
+                ],
+                &[],
+            ),
         },
         ToolDef {
             name: "workspace.create".into(),

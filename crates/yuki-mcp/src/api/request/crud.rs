@@ -2,7 +2,9 @@ use super::super::{redact, ApiBackend};
 use super::send::{parse_body, parse_params};
 use crate::protocol::ToolResult;
 use serde_json::Value;
+use std::path::Path;
 use yuki_core::{AuthConfig, HttpRequest, YukiError};
+use yuki_storage::WorkspaceStore;
 
 /// A request as the agent sees it: the YAML fields plus its markdown notes
 /// (`req_{id}.md`, `""` when none).
@@ -10,6 +12,42 @@ fn with_notes(req: &HttpRequest, notes: String) -> Value {
     let mut v = serde_json::to_value(req).unwrap_or_default();
     v["notes"] = Value::String(notes);
     v
+}
+
+/// The `auth` tool arg. Parsed up front (cheap, sync) so a bad-JSON error is
+/// immediate and serde never runs on the blocking pool. `None` = absent.
+pub(in crate::api) fn auth_arg(args: &Value) -> Result<Option<AuthConfig>, String> {
+    if args["auth"].is_null() {
+        return Ok(None);
+    }
+    serde_json::from_value(args["auth"].clone())
+        .map(Some)
+        .map_err(|e| format!("invalid auth: {e}"))
+}
+
+/// `new` as it should replace `old` on disk (request, folder or workspace):
+/// secrets echoed back masked keep `old`'s value, and they're sealed when the
+/// workspace is encrypted.
+pub(in crate::api) fn auth_to_store(
+    workspaces: &WorkspaceStore,
+    app_data_dir: &Path,
+    ws: &str,
+    mut new: AuthConfig,
+    old: &mut AuthConfig,
+) -> Result<AuthConfig, YukiError> {
+    redact::restore_masked(&mut new, old);
+    if workspaces.get(ws).map(|w| w.encrypted).unwrap_or(false) {
+        new.mark_secrets_encrypted();
+        if new.secret_fields_mut().iter().any(|(_, enc)| *enc) {
+            let key = yuki_crypto::load_key(ws, app_data_dir)?;
+            for (secret, enc) in new.secret_fields_mut() {
+                if enc && !yuki_crypto::is_encrypted(secret) {
+                    *secret = yuki_crypto::encrypt(secret, &key)?;
+                }
+            }
+        }
+    }
+    Ok(new)
 }
 
 impl ApiBackend {
@@ -21,10 +59,13 @@ impl ApiBackend {
             let reqs = requests.list_requests(&ws_id);
             let folders = requests.list_folders(&ws_id);
             match (reqs, folders) {
-                (Ok(mut reqs), Ok(folders)) => {
+                (Ok(mut reqs), Ok(mut folders)) => {
                     if !reveal {
                         for r in reqs.iter_mut() {
                             redact::mask_auth(&mut r.auth);
+                        }
+                        for f in folders.iter_mut() {
+                            redact::mask_auth(&mut f.auth);
                         }
                     }
                     ToolResult::json(&serde_json::json!({ "requests": reqs, "folders": folders }))
@@ -114,15 +155,9 @@ impl ApiBackend {
         let ws_id = require!(args, "workspaceId");
         let req_id = require!(args, "requestId");
 
-        // Parse auth up front (cheap, sync) so a bad-JSON error is immediate and
-        // serde never runs on the blocking pool. `None` = leave auth untouched.
-        let new_auth: Option<AuthConfig> = if args["auth"].is_null() {
-            None
-        } else {
-            match serde_json::from_value(args["auth"].clone()) {
-                Ok(a) => Some(a),
-                Err(e) => return ToolResult::error(format!("invalid auth: {e}")),
-            }
+        let new_auth = match auth_arg(args) {
+            Ok(a) => a,
+            Err(e) => return ToolResult::error(e),
         };
 
         let name = args["name"].as_str().map(str::to_string);
@@ -182,24 +217,8 @@ impl ApiBackend {
             if let Some(b) = body {
                 req.body = Some(b);
             }
-            if let Some(mut auth) = new_auth {
-                // A masked read (request.get without reveal) echoed back here must
-                // not overwrite the stored secret with the placeholder.
-                redact::restore_masked(&mut auth, &mut req.auth);
-
-                let ws_encrypted = workspaces.get(&ws).map(|w| w.encrypted).unwrap_or(false);
-                if ws_encrypted {
-                    auth.mark_secrets_encrypted();
-                    if auth.secret_fields_mut().iter().any(|(_, enc)| *enc) {
-                        let key = yuki_crypto::load_key(&ws, &app_data_dir)?;
-                        for (secret, enc) in auth.secret_fields_mut() {
-                            if enc && !yuki_crypto::is_encrypted(secret) {
-                                *secret = yuki_crypto::encrypt(secret, &key)?;
-                            }
-                        }
-                    }
-                }
-                req.auth = auth;
+            if let Some(auth) = new_auth {
+                req.auth = auth_to_store(&workspaces, &app_data_dir, &ws, auth, &mut req.auth)?;
             }
             requests.update_request(
                 &ws,

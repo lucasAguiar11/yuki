@@ -1,7 +1,7 @@
 //! Schemas for the HTTP request domain: requests, folders, response history,
 //! and the SSE readers.
 
-use super::{body_schema, map_schema, reveal_arg};
+use super::{auth_schema, body_schema, map_schema, reveal_arg};
 use crate::protocol::{num_schema, obj_schema, str_schema, ToolDef};
 
 pub(super) fn request_tools() -> Vec<ToolDef> {
@@ -62,7 +62,7 @@ pub(super) fn request_tools() -> Vec<ToolDef> {
                     ("body", "Replace the body: {\"kind\":\"json|xml|text|html|none\",\"text\":\"…\"} or {\"kind\":\"form_url_encoded\",\"fields\":{\"k\":\"v\"}}. Omit to leave unchanged.", body_schema()),
                     ("graphqlQuery", "GraphQL query/mutation document; sets a GraphQL body (auto-switches a GET to POST)", str_schema()),
                     ("graphqlVariables", "GraphQL variables as a JSON object string; updates the variables of an existing GraphQL body", str_schema()),
-                    ("auth", "Auth config object keyed by `kind`. kinds: none, inherit, bearer {token}, basic {username,password}, api_key {key,value,location}, aws_sig_v4, o_auth1, o_auth2, digest {username,password}, ntlm. Send plaintext secrets — they're encrypted at rest on encrypted workspaces. Example: {\"kind\":\"bearer\",\"token\":\"abc\"}.", serde_json::json!({ "type": "object", "properties": { "kind": { "type": "string", "description": "Auth kind" } }, "required": ["kind"], "additionalProperties": true })),
+                    ("auth", "Auth config object keyed by `kind`. kinds: none, inherit {from: folder|workspace}, bearer {token}, basic {username,password}, api_key {key,value,location}, aws_sig_v4, o_auth1, o_auth2, digest {username,password}, ntlm. `inherit` sends the nearest ancestor folder's auth, else the workspace's (`from: workspace` skips folders). Send plaintext secrets — they're encrypted at rest on encrypted workspaces. Example: {\"kind\":\"bearer\",\"token\":\"abc\"}.", auth_schema()),
                 ],
             ),
         },
@@ -121,6 +121,18 @@ pub(super) fn request_tools() -> Vec<ToolDef> {
                     ("workspaceId", "Workspace ID", str_schema()),
                     ("folderId", "Folder ID to rename", str_schema()),
                     ("name", "New name", str_schema()),
+                ],
+                &[],
+            ),
+        },
+        ToolDef {
+            name: "folder.set_auth".into(),
+            description: "Set a folder's auth, sent by requests (in it or its subfolders) whose auth is `inherit`. `none` passes inheritance up to the parent folder / workspace. Returns the folder (secrets masked).".into(),
+            input_schema: obj_schema(
+                &[
+                    ("workspaceId", "Workspace ID", str_schema()),
+                    ("folderId", "Folder ID", str_schema()),
+                    ("auth", "Auth config keyed by `kind`: none, bearer {token}, basic {username,password}, api_key {key,value,location}, aws_sig_v4, o_auth1, o_auth2, digest {username,password}, ntlm. Send plaintext secrets — they're encrypted at rest on encrypted workspaces.", auth_schema()),
                 ],
                 &[],
             ),

@@ -16,6 +16,7 @@ use crate::{
     git_panel,
     palette::{Kind, Palette},
     rename::Rename,
+    session::Session,
     settings::SettingsScreen,
     sidebar, tabs, tree, vars_panel, *,
 };
@@ -33,9 +34,9 @@ pub struct Yuki {
     pub tree_scroll: ScrollHandle,
     pub tabs: Vec<Entity<RequestEditor>>,
     pub active: usize,
-    sidebar: bool,
-    vars_panel: bool,
-    git_panel: bool,
+    pub(crate) sidebar: bool,
+    pub(crate) vars_panel: bool,
+    pub(crate) git_panel: bool,
     pub git: Git,
     /// Show secret values in the variables panel.
     pub reveal: bool,
@@ -64,6 +65,8 @@ impl Yuki {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        let s = cx.global::<Session>();
+        let (sidebar, vars_panel, git_panel) = (s.sidebar, s.vars_panel, s.git_panel);
         let mut this = Self {
             backend,
             focus: cx.focus_handle(),
@@ -75,9 +78,9 @@ impl Yuki {
             tree_scroll: ScrollHandle::new(),
             tabs: vec![],
             active: 0,
-            sidebar: true,
-            vars_panel: false,
-            git_panel: false,
+            sidebar,
+            vars_panel,
+            git_panel,
             git: Git::default(),
             reveal: false,
             env: None,
@@ -97,6 +100,7 @@ impl Yuki {
         this.reload_workspaces(window, cx);
         this.watch_mcp(mcp, window, cx);
         this.watch_updates(cx);
+        Session::track_window(window, cx);
         let weak = cx.entity().downgrade();
         window.on_window_should_close(cx, move |_, cx| {
             if let Some(this) = weak.upgrade() {
@@ -113,7 +117,12 @@ impl Yuki {
         cx.spawn_in(window, async move |this, cx| {
             let list = task.await;
             this.update_in(cx, |this, window, cx| {
-                let first = list.first().cloned();
+                let last = cx.global::<Session>().workspace.clone();
+                let first = list
+                    .iter()
+                    .find(|w| Some(&w.id) == last.as_ref())
+                    .or(list.first())
+                    .cloned();
                 this.workspaces = list;
                 if this.ws.is_none() {
                     if let Some(ws) = first {
@@ -135,6 +144,7 @@ impl Yuki {
             this.update_in(cx, |this, window, cx| match data {
                 Ok(data) => {
                     // Switching never loses edits: flush dirty tabs first.
+                    this.remember_ws(cx);
                     for tab in std::mem::take(&mut this.tabs) {
                         tab.update(cx, |e, cx| e.save(cx));
                     }
@@ -146,7 +156,14 @@ impl Yuki {
                     if let Some((screen, _)) = this.settings.take() {
                         screen.update(cx, |s, cx| s.flush(cx));
                     }
-                    this.set_envs(&data.environments, None, window, cx);
+                    let saved = cx
+                        .global::<Session>()
+                        .workspaces
+                        .get(&ws.id)
+                        .cloned()
+                        .unwrap_or_default();
+                    this.collapsed = saved.collapsed;
+                    this.set_envs(&data.environments, saved.env, window, cx);
                     this.status = t!("%{n} requests", n = data.requests.len())
                         .into_owned()
                         .into();
@@ -155,6 +172,7 @@ impl Yuki {
                     this.git.view = None;
                     this.refresh_git(cx);
                     this.refresh_rows();
+                    this.open_tabs(&saved.tabs, saved.active.as_deref(), window, cx);
                     // The old tab's URL bar held focus; without a focused
                     // element no keybinding fires.
                     this.focus_active(window, cx);
@@ -251,6 +269,7 @@ impl Yuki {
                 }
             }
         }
+        self.save_session(cx);
     }
 
     pub fn close_tab(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
@@ -326,17 +345,33 @@ impl Yuki {
     /// panels then fight over the gap while dragging (visible flicker). Each
     /// visibility combo gets its own state key so indices never shift.
     fn render_panels(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let s = cx.global::<Session>();
+        let (sidebar_w, panel_w) = (px(s.sidebar_width), px(s.panel_width));
+        let side = self.sidebar;
+        let right_on = self.vars_panel || self.git_panel;
         let right = if self.git_panel {
             2
         } else {
             self.vars_panel as u8
         };
         let id = SharedString::from(format!("main-{}-{right}", self.sidebar as u8));
-        let mut group = h_resizable(id);
+        let mut group = h_resizable(id).on_resize(move |state, _, cx| {
+            let (first, last) = {
+                let sizes = state.read(cx).sizes();
+                (sizes.first().copied(), sizes.last().copied())
+            };
+            let s = cx.global_mut::<Session>();
+            if let (true, Some(w)) = (side, first) {
+                s.sidebar_width = w.as_f32();
+            }
+            if let (true, Some(w)) = (right_on, last) {
+                s.panel_width = w.as_f32();
+            }
+        });
         if self.sidebar {
             group = group.child(
                 resizable_panel()
-                    .size(px(240.))
+                    .size(sidebar_w)
                     .size_range(px(160.)..px(560.))
                     .flex_none()
                     .child(sidebar::render(self, cx)),
@@ -347,7 +382,7 @@ impl Yuki {
                 .size_range(px(320.)..Pixels::MAX)
                 .child(self.render_center(cx)),
         );
-        if self.vars_panel || self.git_panel {
+        if right_on {
             let panel = if self.git_panel {
                 git_panel::render(self, cx).into_any_element()
             } else {
@@ -355,7 +390,7 @@ impl Yuki {
             };
             group = group.child(
                 resizable_panel()
-                    .size(px(300.))
+                    .size(panel_w)
                     .size_range(px(220.)..px(600.))
                     .flex_none()
                     .child(panel),

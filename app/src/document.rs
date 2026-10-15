@@ -8,13 +8,14 @@ use gpui_kit::component::{
     select::Select,
     spinner::Spinner,
     tooltip::Tooltip,
-    v_flex, v_resizable, ActiveTheme as _, Icon, IconName, Sizable as _,
+    v_flex, v_resizable, ActiveTheme as _, Icon, IconName, ResizableState, Sizable as _,
 };
 use gpui_kit::{prelude::FluentBuilder as _, *};
 
 use crate::{
     editor::{ReqTab, RequestEditor},
     response,
+    session::Session,
     table::Which,
     ui, var_view, CompleteAccept, CompleteDismiss, CompleteNext, CompleteOpen, CompletePrev, Send,
     ToggleEditor, ToggleLayout, ToggleVars,
@@ -27,12 +28,23 @@ impl Render for RequestEditor {
         // One resizable group per layout: a group reused across directions
         // would keep the other one's sizes.
         let id = |dir: &str| SharedString::from(format!("doc-{dir}-{}", self.saved.id));
+        let s = cx.global::<Session>();
+        let (height, width) = (px(s.editor_height), px(s.editor_width));
+        // The editor is the first panel; its size is what a new group starts at.
+        let first = |state: &Entity<ResizableState>, cx: &App| {
+            state.read(cx).sizes().first().map(|p| p.as_f32())
+        };
         let body = match (self.editor_open, beside) {
             (false, _) => response,
             (true, false) => v_resizable(id("v"))
+                .on_resize(move |state, _, cx| {
+                    if let Some(h) = first(state, cx) {
+                        cx.global_mut::<Session>().editor_height = h;
+                    }
+                })
                 .child(
                     resizable_panel()
-                        .size(px(240.))
+                        .size(height)
                         .size_range(px(80.)..Pixels::MAX)
                         .flex_none()
                         .child(self.render_editor(cx)),
@@ -40,9 +52,14 @@ impl Render for RequestEditor {
                 .child(resizable_panel().child(response))
                 .into_any_element(),
             (true, true) => h_resizable(id("h"))
+                .on_resize(move |state, _, cx| {
+                    if let Some(w) = first(state, cx) {
+                        cx.global_mut::<Session>().editor_width = w;
+                    }
+                })
                 .child(
                     resizable_panel()
-                        .size(px(520.))
+                        .size(width)
                         .size_range(px(280.)..Pixels::MAX)
                         .flex_none()
                         .child(self.render_editor(cx)),

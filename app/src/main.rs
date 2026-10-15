@@ -42,6 +42,7 @@ mod rename;
 mod response;
 mod secrets;
 mod sent;
+mod session;
 mod settings;
 mod settings_view;
 mod sidebar;
@@ -301,7 +302,7 @@ fn main() {
         #[cfg(target_os = "macos")]
         set_dock_icon();
         let options = WindowOptions {
-            window_bounds: Some(WindowBounds::centered(size(px(1280.), px(800.)), cx)),
+            window_bounds: Some(session::Session::init(cx)),
             ..TitleBar::window_options()
         };
         gpui_kit::open_window(options, cx, |window, cx| {

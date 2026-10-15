@@ -38,6 +38,7 @@ app/              `yuki` binary (GPUI) — the only layer that knows gpui
   src/vars_panel.rs ⌘⇧E panel;  src/sidebar.rs, tabs.rs, chrome.rs, palette.rs
   src/env_screen.rs "environments" screen ⌘⌥E (state, autosave, create/rename/delete); env_view.rs render; envs.rs title-bar `env` select
   src/settings.rs "settings" screen ⌘, (workspace name, DNS overrides as hosts lines, shell-env allowlist); settings_view.rs render; prefs.rs font sizes + language; about.rs "about" section
+  src/session.rs  `Session` global ↔ `session.yaml`: window bounds, panel visibility/sizes (`on_resize`), per workspace open tabs, collapsed folders, env; restored on launch and workspace switch, written in `flush_blocking` (quit/close)
   src/items.rs    tree CRUD (create/duplicate/delete); moving.rs drag & drop + "move to…"; rename.rs inline rename
   src/backend.rs  bridge to the engine: tokio runtime, load/save/send, Voleeo import
   src/mcp.rs      MCP: engine server on `mcp.sock` + `mcp-token` (data dir), `yuki mcp` stdio bridge, agent edits reload the tree (not open tabs); mcp_view.rs settings → agents (mcp): per-client setup snippet (this binary's path, no token), opened by the `● mcp` chip
@@ -63,7 +64,7 @@ site/             GitHub Pages landing (static HTML/CSS/JS, real app screenshots
 
 ## Data
 
-- Directory: `~/Library/Application Support/dev.yuki` (override `YUKI_DATA_DIR`). Same layout as Voleeo (`workspaces/{id}/req_*.yaml`, `envs-local/{id}/`, `keys/{id}.key`, `responses-local/`, machine-local `workspace-settings.yaml` — edit as a YAML tree, Voleeo keys ride along). App prefs: `settings.yaml`.
+- Directory: `~/Library/Application Support/dev.yuki` (override `YUKI_DATA_DIR`). Same layout as Voleeo (`workspaces/{id}/req_*.yaml`, `envs-local/{id}/`, `keys/{id}.key`, `responses-local/`, machine-local `workspace-settings.yaml` — edit as a YAML tree, Voleeo keys ride along). App prefs: `settings.yaml`; UI session: `session.yaml`.
 - Import: `backend::import_voleeo` **copies** (never links) workspaces, local envs and key files; skips `.git` and existing ids.
 - Local-first: edits hit the disk 400 ms after the last keystroke (`editor::refresh_dirty` → `save`; one write at a time). ⌘S, send, closing a tab and quitting only bring it forward. Saving writes only if changed (`save_request_if_changed`); header ids are preserved by position (`draft::text_to_headers`) — fresh ids = phantom diff in the user's git.
 - Encrypted workspace: auth secrets and secret env variables are opened on load, sealed on save (`secrets.rs`). An unchanged secret reuses the stored ciphertext — re-encrypting draws a new nonce = phantom diff.

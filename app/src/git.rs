@@ -286,12 +286,7 @@ impl Yuki {
         self.tabs.clear();
         self.data = Some(data);
         self.refresh_rows();
-        for id in &ids {
-            self.open_request(id, window, cx);
-        }
-        let ix = active.and_then(|a| self.tabs.iter().position(|t| t.read(cx).saved.id == a));
-        self.active = ix.unwrap_or(0);
-        self.focus_active(window, cx);
+        self.open_tabs(&ids, active.as_deref(), window, cx);
     }
 
     /// `GET list posts` / `folder auth` / the file name, for a changed path.

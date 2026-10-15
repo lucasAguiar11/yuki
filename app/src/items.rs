@@ -65,10 +65,15 @@ impl Yuki {
             .filter(|t| t.read(cx).dirty)
             .map(|t| t.read(cx).draft(cx))
             .collect();
+        // Duplicate copies folder notes/auth from disk too.
+        let scope = self.scope_pending(cx);
         let backend = self.backend.clone();
         let task = cx.background_spawn(async move {
             for d in &drafts {
                 backend.save(d)?;
+            }
+            if let Some((scope_ws, folder, data)) = &scope {
+                backend.save_scope(scope_ws, folder.as_deref(), data)?;
             }
             let id = op(&backend.api.requests, &ws)?;
             Ok::<_, YukiError>((id, backend.load(&ws)?))
@@ -122,6 +127,7 @@ impl Yuki {
             });
         }
         self.data = Some(data);
+        self.prune_scope(cx);
         self.refresh_rows();
         self.refresh_git(cx);
         if self.tabs.len() != before {

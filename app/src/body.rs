@@ -16,6 +16,7 @@ use yuki_core::{BodyKind, RequestBody};
 
 use crate::{
     code_vars::CodeVars,
+    complete::CompleteHost as _,
     draft,
     editor::RequestEditor,
     table::{Table, Which},

@@ -52,6 +52,10 @@ Tudo fica em `~/Library/Application Support/dev.yuki` (troque com `YUKI_DATA_DIR
 
 **Valores de uma resposta.** Clique num valor de uma resposta JSON (o `access_token` de um login, por exemplo) e use `→ variável` (⌥↵): dê um nome e o ambiente ativo ganha `TOKEN = {{ $response.body(requestId="…", selector="$.data.access_token") }}`. Funciona como ponteiro: enviar qualquer request que use `{{ TOKEN }}` envia o login antes e pega o campo dessa resposta nova, então o token está sempre atual (uma origem que voltaria em ciclo é lida da última resposta). A barra abaixo da resposta lista as variáveis que a leem (✕ remove).
 
+Sem variável: em qualquer campo de template — inclusive o auth de uma pasta ou do workspace — digite `$response.` e o autocomplete lista os campos da última resposta JSON de cada request (`login › $.accessToken`); continue digitando para filtrar, `$response.login.token` (nome do request, depois o campo). Só `$` oferece `$response.…` no topo, e `$token` sozinho também acha os campos. Escolher um insere o mesmo ponteiro `$response.body(…)`.
+
+**Pastas e o workspace.** Clique numa pasta para abri-la numa aba: auth, variáveis, headers e notas valem para todos os requests dela e das subpastas (a seta só expande/recolhe). Um request com auth `herdar` envia a auth da pasta mais próxima, senão a do workspace; headers se somam workspace → pastas → request, e o mais próximo vence quando o nome se repete. Botão direito na área vazia da barra lateral → **auth e headers do workspace…** edita o nível do workspace.
+
 ## Importar / exportar
 
 ⌘⇧P → **Importar coleção…** (ou ⌘O → **+ importar coleção…**) lê um bundle do Voleeo, Yaak, Postman (v2.0/2.1), Insomnia (v4 JSON ou v5 YAML), OpenAPI/Swagger ou Bruno: escolha na árvore o que entra, num workspace novo ou numa pasta do workspace aberto. Auth e headers definidos na coleção ou numa pasta são copiados para cada request. **Exportar workspace…** grava o workspace aberto como Voleeo, Yaak, Postman (ambientes em arquivos ao lado) ou Insomnia v4; valores secretos saem vazios, a não ser que você marque **incluir segredos**.

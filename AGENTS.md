@@ -29,7 +29,7 @@ app/              `yuki` binary (GPUI) — the only layer that knows gpui
   src/body.rs     body panel: type select + per-type input (raw, form/multipart, binary, graphql)
   src/table.rs    name/value table (headers, form/multipart fields, query params); last row always blank
   src/params.rs   params tab: path params (one row per URL `:name`, chipped in the URL) + query rows, all stored in `parameters`; the URL bar holds no query — a pasted one (or one left on blur) moves to the rows; `query.rs` normalizes requests that still have it in the URL (no write until edited)
-  src/complete.rs `{{` autocomplete (on typing `{{` or ⌃space) in URL, cells and code editors: variables, then `resolve::funcs`
+  src/complete.rs `{{` autocomplete (on `{{`, `$` or ⌃space), generic over `CompleteHost` (request editor, scope tab): variables, `resolve::funcs`, then latest-response JSON fields as `$response.body`; complete_view.rs the popup + keys
   src/code_vars.rs `{{ VAR }}` "badge" in code editors (decorations; `EditorState` doesn't take tokens)
   src/response.rs status strip (time, local clock), body/headers, history (●●●)
   src/capture.rs  response field → variable (pure: JSONPath under the caret, name, `$response.body` formula, readers); capture_view.rs the bar under a JSON response (⌥↵, name in place, readers ✕). The engine prefills `$response.body` (`resolve::prefill_responses`) before `resolve_str`
@@ -45,7 +45,8 @@ app/              `yuki` binary (GPUI) — the only layer that knows gpui
   src/update.rs   self-update: `Updater` global; GitHub `releases/latest` on launch (only from a `.app`) or by hand (about) → `↑ vX` chip → swap bundle, relaunch
   src/ws_folder.rs workspace in a user folder: ⌘O → + open folder… (new, or the one already there), settings → move…, and settings → general → workspaces folder (all of them, `<base>/<name>`; `Prefs::workspaces_dir`, new imports too); `workspaces/{id}` becomes a symlink to it
   src/transfer.rs import (yuki_import::plan → seal → stores) / export (open secrets → Bundle → yuki_export); transfer_ui.rs window glue; import_view.rs + import_render.rs, export_view.rs screens. Imports flatten inherited auth/headers onto requests (ADR-20261013)
-  src/auth.rs     auth schemes as data (fields per type) + AuthConfig⇄form via serde; auth_form.rs auth tab; oauth.rs "get token"; secrets.rs secret crypto
+  src/auth.rs     auth schemes as data (fields per type) + AuthConfig⇄form via serde; auth_form.rs auth pane, generic over `AuthHost` (request editor, scope tab); oauth.rs "get token"; secrets.rs secret crypto
+  src/scope_view.rs folder/workspace tab (click a folder; empty-sidebar menu for the workspace): auth · variables · headers · notes (`folder_{id}.md`), autosave; scopes.rs the one scope tab slot on `Yuki` (`scope`, `scope_active`); kv.rs name/value rows (variables, headers)
   src/draft.rs, tree.rs, ui.rs  pure helpers
 crates/yuki-*     engine inherited from Voleeo (MIT), no gpui/tauri
   yuki-core types+errors · yuki-storage YAML · yuki-http executor · yuki-mcp ApiBackend+resolve

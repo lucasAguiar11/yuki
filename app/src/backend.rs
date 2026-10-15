@@ -140,6 +140,30 @@ impl Backend {
         self.api.responses.list(ws_id, req_id).unwrap_or_default()
     }
 
+    /// Scalar fields of each request's latest JSON response, for the
+    /// `$response.body` suggestions.
+    pub fn response_fields(&self, ws_id: &str) -> Vec<crate::complete::Field> {
+        let responses = &self.api.responses;
+        let reqs = self.api.requests.list_requests(ws_id).unwrap_or_default();
+        reqs.into_iter()
+            .filter_map(|r| {
+                let stored = responses.latest(ws_id, &r.id).ok()??;
+                let body = responses.read_full_body(ws_id, &stored).ok()?;
+                Some(
+                    crate::capture::leaves(&body)
+                        .into_iter()
+                        .map(move |(path, value)| crate::complete::Field {
+                            req_id: r.id.clone(),
+                            req: r.name.clone(),
+                            path,
+                            value,
+                        }),
+                )
+            })
+            .flatten()
+            .collect()
+    }
+
     /// A stored response with its body inlined (large bodies live in a side
     /// file), plus the resolved request that produced it, when recorded.
     pub fn stored_response(

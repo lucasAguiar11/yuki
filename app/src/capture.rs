@@ -89,15 +89,55 @@ pub fn json_path_at(text: &str, offset: usize) -> Option<String> {
     None
 }
 
+/// `.key`, or `['a b']` when it isn't an identifier.
+fn key_seg(k: &str) -> String {
+    if is_identifier(k) {
+        format!(".{k}")
+    } else {
+        format!("['{}']", k.replace('\'', "\\'"))
+    }
+}
+
 fn path(stack: &[Frame]) -> String {
     let mut out = String::from("$");
     for frame in stack {
         match frame {
-            Frame::Obj(Some(k)) if is_identifier(k) => out += &format!(".{k}"),
-            Frame::Obj(Some(k)) => out += &format!("['{}']", k.replace('\'', "\\'")),
+            Frame::Obj(Some(k)) => out += &key_seg(k),
             Frame::Obj(None) => {}
             Frame::Arr(ix) => out += &format!("[{ix}]"),
         }
+    }
+    out
+}
+
+/// Most scalar fields offered per response body.
+// ponytail: first 64 in document order; a big list response hides its tail,
+// filter by path in the popup if that ever matters.
+const LEAVES_CAP: usize = 64;
+
+/// Scalar fields of a JSON body as (JSONPath, text), document order; empty
+/// when the body isn't JSON.
+pub fn leaves(body: &str) -> Vec<(String, String)> {
+    fn walk(v: &serde_json::Value, path: String, out: &mut Vec<(String, String)>) {
+        use serde_json::Value;
+        if out.len() >= LEAVES_CAP {
+            return;
+        }
+        match v {
+            Value::Object(o) => o
+                .iter()
+                .for_each(|(k, v)| walk(v, path.clone() + &key_seg(k), out)),
+            Value::Array(a) => a
+                .iter()
+                .enumerate()
+                .for_each(|(i, v)| walk(v, format!("{path}[{i}]"), out)),
+            Value::String(s) => out.push((path, s.clone())),
+            other => out.push((path, other.to_string())),
+        }
+    }
+    let mut out = Vec::new();
+    if let Ok(v) = serde_json::from_str(body) {
+        walk(&v, "$".into(), &mut out);
     }
     out
 }
@@ -130,12 +170,17 @@ fn quote(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
-pub fn formula(req_id: &str, path: &str) -> String {
+/// `$response.body(…)`: the template expression, braces excluded.
+pub fn call(req_id: &str, path: &str) -> String {
     format!(
-        "{{{{ $response.body(requestId=\"{}\", selector=\"{}\") }}}}",
+        "$response.body(requestId=\"{}\", selector=\"{}\")",
         quote(req_id),
         quote(path)
     )
+}
+
+pub fn formula(req_id: &str, path: &str) -> String {
+    format!("{{{{ {} }}}}", call(req_id, path))
 }
 
 /// Variables whose value reads `req_id`'s response.
@@ -160,7 +205,7 @@ pub fn readers(vars: &Vars, req_id: &str) -> Vec<Reader> {
 
 #[cfg(test)]
 mod tests {
-    use super::{json_path_at, suggest_name};
+    use super::{json_path_at, leaves, suggest_name};
 
     #[test]
     fn path_at_caret() {
@@ -203,5 +248,17 @@ mod tests {
         assert_eq!(suggest_name("$.items[0]"), "ITEMS");
         assert_eq!(suggest_name("$['a b']"), "A_B");
         assert_eq!(suggest_name("$"), "VALUE");
+    }
+
+    #[test]
+    fn scalar_leaves() {
+        let got = leaves(r#"{"data":{"token":"abc","n":3},"a b":[true,null],"e":{}}"#);
+        let got: Vec<_> = got.iter().map(|(p, v)| (p.as_str(), v.as_str())).collect();
+        assert!(got.contains(&("$.data.token", "abc")));
+        assert!(got.contains(&("$.data.n", "3")));
+        assert!(got.contains(&("$['a b'][0]", "true")));
+        assert!(got.contains(&("$['a b'][1]", "null")));
+        assert_eq!(got.len(), 4);
+        assert!(leaves("not json").is_empty());
     }
 }

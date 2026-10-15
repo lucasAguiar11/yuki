@@ -52,6 +52,10 @@ Everything lives in `~/Library/Application Support/dev.yuki` (override with `YUK
 
 **Values from a response.** Click a value in a JSON response (say `access_token` of a login) and press `→ variable` (⌥↵): name it and the active environment gets `TOKEN = {{ $response.body(requestId="…", selector="$.data.access_token") }}`. It's a pointer: sending any request that uses `{{ TOKEN }}` sends the login first and takes the field from that fresh response, so the token is always current (a source that would loop back is read from its last response instead). The bar under the response lists the variables that read it (✕ removes one).
 
+No variable needed: in any template field — a folder's or the workspace's auth included — type `$response.` and the autocomplete lists the fields of each request's latest JSON response (`login › $.accessToken`); keep typing to narrow it, `$response.login.token` (request name, then field). Plain `$` offers `$response.…` at the top, and `$token` alone also finds matching fields. Picking one inserts the same `$response.body(…)` pointer.
+
+**Folders and the workspace.** Click a folder to open it as a tab: auth, variables, headers and notes for every request inside it and its subfolders (the chevron only expands/collapses). A request with auth `inherit` sends the nearest folder's auth, else the workspace's; headers stack workspace → folders → request, the nearer one winning on the same name. Right-click the empty sidebar → **workspace auth & headers…** edits the workspace level.
+
 ## Import / export
 
 ⌘⇧P → **Import collection…** (or ⌘O → **+ import collection…**) reads a Voleeo bundle, Yaak, Postman (v2.0/2.1), Insomnia (v4 JSON or v5 YAML), OpenAPI/Swagger or Bruno file: pick what comes in from the tree, into a new workspace or into a folder of the open one. Auth and headers set on the collection or a folder are copied onto each request. **Export workspace…** writes the open workspace as Voleeo, Yaak, Postman (environments as sibling files) or Insomnia v4; secret values are left empty unless you tick **include secrets**.

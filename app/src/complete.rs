@@ -1,29 +1,20 @@
-//! `{{` autocomplete for every text field of a request — URL, table cells and
-//! body code editors: a popup of defined variables at the cursor. Opens on `{{`
-//! or ⌃space; ↑↓ choose, ↵/⇥ insert, esc hides.
+//! `{{` autocomplete for template fields — a request's URL, cells, body code
+//! editors and auth; a folder/workspace's auth: a popup of variables,
+//! functions and fields of the workspace's latest JSON responses (inserted as
+//! `$response.body(…)`). Opens on `{{`, a bare `$` or ⌃space; ↑↓ choose, ↵/⇥
+//! insert, esc hides. Popup in `complete_view.rs`.
 
-use crate::{editor::RequestEditor, ui, var_view::MASK, vars};
-use gpui_kit::component::{
-    h_flex,
-    input::{EditorState, InputEvent, InputState},
-    v_flex, ActiveTheme as _,
-};
-use gpui_kit::{prelude::FluentBuilder as _, *};
+use std::{rc::Rc, sync::Arc};
+
+use crate::{backend::Backend, capture, var_view::MASK, vars};
+use gpui_kit::component::input::{EditorState, InputEvent, InputState};
+use gpui_kit::*;
 use yuki_mcp::resolve::funcs::FUNCTIONS;
-
-const MAX_ITEMS: usize = 8;
 
 /// One sample per function, drawn once per launch so the preview doesn't
 /// reshuffle on every keystroke.
 static SAMPLES: std::sync::LazyLock<Vec<String>> =
     std::sync::LazyLock::new(|| FUNCTIONS.iter().map(|(_, f)| f()).collect());
-
-/// The sample for `$name()`.
-fn sample(name: &str) -> Option<&'static str> {
-    let name = name.strip_prefix('$')?.strip_suffix("()")?;
-    let ix = FUNCTIONS.iter().position(|(n, _)| *n == name)?;
-    Some(&SAMPLES[ix])
-}
 
 /// The field the popup belongs to.
 #[derive(Clone, PartialEq)]
@@ -66,7 +57,7 @@ impl Target {
     /// Where the popup hangs: under the caret line in a code editor (the same
     /// bounds the IME panel uses — valid even while the caret blinks off),
     /// under the field otherwise.
-    fn anchor(&self, window: &mut Window, cx: &mut App) -> Point<Pixels> {
+    pub(crate) fn anchor(&self, window: &mut Window, cx: &mut App) -> Point<Pixels> {
         match self {
             Target::Line(e) => {
                 let b = e.read(cx).input_bounds();
@@ -85,13 +76,65 @@ impl Target {
     }
 }
 
+/// A scalar field of a request's latest stored response.
+pub struct Field {
+    pub req_id: String,
+    pub req: String,
+    pub path: String,
+    pub value: String,
+}
+
 pub struct Completion {
     target: Target,
-    selected: usize,
+    pub(crate) selected: usize,
     /// Cursor offset of a ⌃space trigger: what is typed after it filters.
     anchor: Option<usize>,
     /// Keeps the selected row in view as ↑↓ move past the visible ones.
-    scroll: ScrollHandle,
+    pub(crate) scroll: ScrollHandle,
+    /// Read when the popup opens, so a response sent since shows up; `None`
+    /// while reading.
+    fields: Option<Rc<Vec<Field>>>,
+}
+
+pub enum ItemKind {
+    Var,
+    Function,
+    Response,
+    /// `$response.`: typed in, not inserted as a template — it opens the search.
+    Namespace,
+}
+
+/// One row: what goes inside `{{ }}`, and how it shows.
+pub struct Item {
+    pub expr: String,
+    pub label: String,
+    /// The real value, or (functions) a sample.
+    pub value: String,
+    pub origin: String,
+    pub kind: ItemKind,
+}
+
+/// What the popup shows: the rows and a line on how to search further.
+pub struct Shown {
+    pub target: Target,
+    pub items: Vec<Item>,
+    pub hint: String,
+}
+
+const NAMESPACE: &str = "$response.";
+
+/// `response.login.token` (or `response.body.…`) → `Some(["login", "token"])`:
+/// the terms of a `$response` search; also `Some([])` while `resp…` is typed.
+fn response_terms(p: &str) -> Option<Vec<&str>> {
+    if p.len() >= 3 && "response".starts_with(p) {
+        return Some(vec![]);
+    }
+    let rest = p.strip_prefix("response.")?;
+    let rest = match rest {
+        "body" => "",
+        _ => rest.strip_prefix("body.").unwrap_or(rest),
+    };
+    Some(rest.split('.').filter(|t| !t.is_empty()).collect())
 }
 
 /// Range to replace and the name typed so far: an open `{{ prefix`, a bare
@@ -118,37 +161,58 @@ fn closing_end(value: &str, cursor: usize) -> usize {
     }
 }
 
-impl RequestEditor {
+/// A view with template fields: owns the popup state and says what it offers.
+pub trait CompleteHost: Sized + 'static {
+    fn completion(&self) -> &Option<Completion>;
+    fn completion_mut(&mut self) -> &mut Option<Completion>;
+    fn template_vars(&self) -> &vars::Vars;
+    /// Where `$response.body` suggestions come from.
+    fn workspace(&self) -> (Arc<Backend>, String);
+    /// Every field ⌃space may open in; the focused one wins.
+    fn template_fields(&self) -> Vec<Target>;
+
+    fn load_fields(&mut self, cx: &mut Context<Self>) {
+        let (backend, ws) = self.workspace();
+        let task = cx.background_spawn(async move { backend.response_fields(&ws) });
+        cx.spawn(async move |this, cx| {
+            let fields = Rc::new(task.await);
+            _ = this.update(cx, |h, cx| {
+                if let Some(c) = h.completion_mut() {
+                    c.fields = Some(fields);
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
     /// Called on every change of a field that takes templates.
-    pub(crate) fn update_completion(&mut self, target: impl Into<Target>, cx: &mut Context<Self>) {
+    fn update_completion(&mut self, target: impl Into<Target>, cx: &mut Context<Self>) {
         let target = target.into();
-        let anchor = self
-            .complete
-            .as_ref()
-            .filter(|c| c.target == target)
-            .and_then(|c| c.anchor);
+        let prev = self.completion().as_ref().filter(|c| c.target == target);
+        let anchor = prev.and_then(|c| c.anchor);
+        let fields = prev.map(|c| c.fields.clone());
         let open = with_state!(&target, e => {
             let s = e.read(cx);
             query(&s.value(), s.cursor(), anchor).is_some()
         });
-        self.complete = open.then(|| Completion {
+        let fresh = open && fields.is_none();
+        *self.completion_mut() = open.then(|| Completion {
             target,
             selected: 0,
             anchor,
             scroll: ScrollHandle::new(),
+            fields: fields.flatten(),
         });
+        if fresh {
+            self.load_fields(cx);
+        }
         cx.notify();
     }
 
-    /// ⌃space: list every variable at the cursor of the focused field.
-    pub(crate) fn open_completion(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let mut targets: Vec<Target> = vec![(&self.url).into()];
-        targets.extend(self.params.inputs().map(Target::Line));
-        targets.extend(self.query.inputs().map(Target::Line));
-        targets.extend(self.headers.inputs().map(Target::Line));
-        targets.extend(self.body.fields.inputs().map(Target::Line));
-        targets.extend(self.body.code_editors().map(Target::Code));
-        let Some((target, start)) = targets.into_iter().find_map(|t| {
+    /// ⌃space: list everything at the cursor of the focused field.
+    fn open_completion(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((target, start)) = self.template_fields().into_iter().find_map(|t| {
             let (value, cursor, focused) = t.snapshot(window, cx);
             // The name already typed before the caret filters (and gets replaced).
             let start = value[..cursor].trim_end_matches(vars::is_name_char).len();
@@ -156,20 +220,24 @@ impl RequestEditor {
         }) else {
             return;
         };
-        self.complete = Some(Completion {
+        *self.completion_mut() = Some(Completion {
             target,
             selected: 0,
             anchor: Some(start),
             scroll: ScrollHandle::new(),
+            fields: None,
         });
+        self.load_fields(cx);
         cx.notify();
     }
 
-    /// The focused field and its suggestions (variables, then functions), when
-    /// the popup should show. A `$` prefix asks for functions only, matched on
-    /// the rest (`$em` → `$fake.email()`).
-    fn suggestions(&self, window: &Window, cx: &App) -> Option<(Target, Vec<String>)> {
-        let c = self.complete.as_ref()?;
+    /// The focused field and what to offer there, when the popup should show.
+    /// A `$` prefix leaves variables out and matches the rest (`$em` →
+    /// `$fake.email()`, `$token` → a response's `$.accessToken`);
+    /// `$response.login.token` searches response fields only, every term
+    /// matching the request name or the JSONPath.
+    fn suggestions(&self, window: &Window, cx: &App) -> Option<Shown> {
+        let c = self.completion().as_ref()?;
         let (value, cursor, focused) = c.target.snapshot(window, cx);
         if !focused {
             return None;
@@ -177,58 +245,130 @@ impl RequestEditor {
         let (_, prefix) = query(&value, cursor, c.anchor)?;
         let sigil = prefix.starts_with('$');
         let p = prefix.trim_start_matches('$').to_lowercase();
-        let fns = FUNCTIONS
-            .iter()
-            .filter(|(n, _)| n.to_lowercase().contains(&p))
-            .map(|(n, _)| format!("${n}()"));
+        let fields = c.fields.as_deref().map_or(&[][..], |f| &f[..]);
+        let field_item = |f: &Field| Item {
+            expr: capture::call(&f.req_id, &f.path),
+            label: format!("{} › {}", f.req, f.path),
+            value: f.value.clone(),
+            origin: t!("response").into_owned(),
+            kind: ItemKind::Response,
+        };
+        let matches = |f: &&Field, terms: &[&str]| {
+            let hay = format!("{} {}", f.req, f.path).to_lowercase();
+            terms.iter().all(|t| hay.contains(t))
+        };
+        let syntax = t!("$response.<request>.<field> narrows the response fields").into_owned();
+
+        if let Some(terms) = response_terms(&p) {
+            let items: Vec<Item> = fields
+                .iter()
+                .filter(|f| matches(f, &terms))
+                .map(field_item)
+                .collect();
+            let hint = match (&c.fields, items.is_empty()) {
+                (None, _) => t!("reading responses…").into_owned(),
+                (Some(all), true) if all.is_empty() => {
+                    t!("no JSON response yet: send a request first").into_owned()
+                }
+                (Some(_), true) => t!("no response field matches").into_owned(),
+                (Some(_), false) => syntax,
+            };
+            return Some(Shown {
+                target: c.target.clone(),
+                items,
+                hint,
+            });
+        }
+
         let vars = if sigil {
             vec![]
         } else {
-            vars::suggest(&self.vars, prefix)
+            vars::suggest(self.template_vars(), prefix)
         };
-        let names: Vec<String> = vars
-            .into_iter()
-            .map(|(k, _)| k.clone())
-            .chain(fns)
-            .collect();
-        (!names.is_empty()).then(|| (c.target.clone(), names))
+        let vars = vars.into_iter().map(|(k, v)| Item {
+            expr: k.clone(),
+            label: k.clone(),
+            value: if v.secret {
+                MASK.into()
+            } else {
+                v.value.clone()
+            },
+            origin: v.source.label(),
+            kind: ItemKind::Var,
+        });
+        // The way into the response search, while what's typed could lead there.
+        let namespace = ("response".starts_with(&p) && !fields.is_empty()).then(|| Item {
+            expr: NAMESPACE.into(),
+            label: format!("{NAMESPACE}…"),
+            value: t!("search the fields of the last responses").into_owned(),
+            origin: t!("response").into_owned(),
+            kind: ItemKind::Namespace,
+        });
+        let fns = FUNCTIONS
+            .iter()
+            .zip(SAMPLES.iter())
+            .filter(|((n, _), _)| n.to_lowercase().contains(&p))
+            .map(|((n, _), sample)| Item {
+                expr: format!("${n}()"),
+                label: format!("${n}()"),
+                value: sample.clone(),
+                origin: t!("function").into_owned(),
+                kind: ItemKind::Function,
+            });
+        let terms: Vec<&str> = p.split('.').filter(|t| !t.is_empty()).collect();
+        let found = fields
+            .iter()
+            .filter(|f| !terms.is_empty() && matches(f, &terms))
+            .map(field_item);
+        let items: Vec<Item> = vars.chain(namespace).chain(fns).chain(found).collect();
+        (!items.is_empty()).then(|| Shown {
+            target: c.target.clone(),
+            items,
+            hint: syntax,
+        })
     }
 
-    pub(crate) fn move_completion(
-        &mut self,
-        delta: isize,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let Some((_, names)) = self.suggestions(window, cx) else {
+    fn move_completion(&mut self, delta: isize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(n) = self
+            .suggestions(window, cx)
+            .map(|s| s.items.len())
+            .filter(|&n| n > 0)
+        else {
             return;
         };
-        if let Some(c) = self.complete.as_mut() {
-            c.selected = (c.selected as isize + delta).rem_euclid(names.len() as isize) as usize;
+        if let Some(c) = self.completion_mut() {
+            c.selected = (c.selected as isize + delta).rem_euclid(n as isize) as usize;
             c.scroll.scroll_to_item(c.selected);
         }
         cx.notify();
     }
 
-    pub(crate) fn dismiss_completion(&mut self, cx: &mut Context<Self>) {
-        self.complete = None;
+    fn dismiss_completion(&mut self, cx: &mut Context<Self>) {
+        *self.completion_mut() = None;
         cx.notify();
     }
 
-    pub(crate) fn accept_completion(
+    fn accept_completion(
         &mut self,
         pick: Option<usize>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some((target, names)) = self.suggestions(window, cx) else {
+        let Some(Shown { target, items, .. }) = self.suggestions(window, cx) else {
             return;
         };
-        let c = self.complete.take();
+        if items.is_empty() {
+            return;
+        }
+        let c = self.completion_mut().take();
         let ix = pick.or(c.as_ref().map(|c| c.selected)).unwrap_or(0);
-        let name = &names[ix.min(names.len() - 1)];
+        let item = &items[ix.min(items.len() - 1)];
         let anchor = c.and_then(|c| c.anchor);
-        let template = format!("{{{{ {name} }}}}");
+        // The namespace row types `$response.` so the search goes on.
+        let template = match item.kind {
+            ItemKind::Namespace => item.expr.clone(),
+            _ => format!("{{{{ {} }}}}", item.expr),
+        };
         match target {
             // Rebuilt whole so the template becomes a chip; then the same path
             // as typing (chips, dirty state, blank-row promotion).
@@ -256,118 +396,22 @@ impl RequestEditor {
         }
         cx.notify();
     }
+}
 
-    pub(crate) fn render_completion(
-        &self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Option<AnyElement> {
-        let (target, names) = self.suggestions(window, cx)?;
-        let (selected, scroll) = self.complete.as_ref().map_or((0, None), |c| {
-            (c.selected.min(names.len() - 1), Some(c.scroll.clone()))
-        });
-        let at = target.anchor(window, cx);
-        let theme = cx.theme();
-        let (blue, magenta, fg, muted, sel) = (
-            theme.blue,
-            theme.magenta,
-            theme.foreground,
-            theme.muted_foreground,
-            theme.secondary,
+#[cfg(test)]
+mod tests {
+    use super::response_terms;
+
+    #[test]
+    fn response_search_terms() {
+        assert_eq!(response_terms("resp"), Some(vec![]));
+        assert_eq!(response_terms("response."), Some(vec![]));
+        assert_eq!(
+            response_terms("response.login.token"),
+            Some(vec!["login", "token"])
         );
-        let faint = ui::faint(cx);
-        let rows = names.into_iter().enumerate().map(|(ix, name)| {
-            let var = self.vars.get(&name);
-            // A variable's real value; for a function, a muted `e.g. …` — a
-            // sample, not what will be sent.
-            let value = match var {
-                Some(v) => div().text_color(fg).text_ellipsis().child(if v.secret {
-                    MASK.to_string()
-                } else {
-                    v.value.clone()
-                }),
-                None => div()
-                    .flex()
-                    .gap_1()
-                    .overflow_hidden()
-                    .child(
-                        div()
-                            .flex_none()
-                            .text_color(faint)
-                            .child(t!("e.g.").into_owned()),
-                    )
-                    .child(
-                        div()
-                            .min_w_0()
-                            .text_ellipsis()
-                            .italic()
-                            .text_color(muted)
-                            .child(sample(&name).unwrap_or_default().to_string()),
-                    ),
-            };
-            let origin = var.map_or_else(|| t!("function").into_owned(), |v| v.source.label());
-            h_flex()
-                .id(ElementId::Name(format!("var-opt-{name}").into()))
-                .h(px(24.))
-                .flex_none()
-                .px_2()
-                .gap_3()
-                .rounded(theme.radius)
-                .cursor_pointer()
-                .when(ix == selected, |d| d.bg(sel))
-                .hover(|d| d.bg(sel))
-                .child(
-                    div()
-                        .flex_none()
-                        .text_color(if var.is_some() { blue } else { magenta })
-                        .child(name),
-                )
-                .child(div().flex_1().min_w_0().child(value))
-                .child(div().flex_none().text_color(faint).child(origin))
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(move |this, _, window, cx| {
-                        cx.stop_propagation();
-                        this.accept_completion(Some(ix), window, cx)
-                    }),
-                )
-        });
-        let theme = cx.theme();
-        // MAX_ITEMS rows of 24 px with 2 px gaps; the rest scrolls.
-        let rows = v_flex()
-            .id("var-complete-rows")
-            .max_h(px(MAX_ITEMS as f32 * 26. - 2.))
-            .gap_0p5()
-            .overflow_y_scroll()
-            .when_some(scroll, |d, s| d.track_scroll(&s))
-            .children(rows);
-        let list = v_flex()
-            .w(px(440.))
-            .p_1()
-            .gap_0p5()
-            .bg(theme.popover)
-            .border_1()
-            .border_color(theme.border)
-            .rounded(theme.radius)
-            .font_family(theme.mono_font_family.clone())
-            .text_xs()
-            .child(rows)
-            .child(
-                div()
-                    .px_2()
-                    .pt_1()
-                    .text_color(faint)
-                    .child(t!("↑↓ choose · ↵ insert · esc close")),
-            );
-        Some(
-            deferred(
-                anchored()
-                    .position(at)
-                    .snap_to_window_with_margin(px(8.))
-                    .child(list),
-            )
-            .with_priority(1)
-            .into_any_element(),
-        )
+        assert_eq!(response_terms("response.body.token"), Some(vec!["token"]));
+        assert_eq!(response_terms("re"), None);
+        assert_eq!(response_terms("token"), None);
     }
 }

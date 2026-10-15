@@ -85,9 +85,15 @@ pub fn spans(text: &str) -> Vec<(Range<usize>, &str)> {
 }
 
 /// Atomic chip for one template; the id is the expression, the label hides
-/// the braces.
+/// the braces — and, for a `$response.body(…)`, the request id.
 pub fn token(source: &str, expr: &str) -> InlineToken {
-    InlineToken::new(expr.to_string(), source.to_string()).with_label(expr.to_string())
+    let label = expr
+        .strip_prefix('$')
+        .and_then(funcs::call)
+        .filter(|(name, _)| *name == "response.body")
+        .and_then(|(_, args)| args.into_iter().find(|(k, _)| *k == "selector"))
+        .map_or_else(|| expr.to_string(), |(_, sel)| format!("$response {sel}"));
+    InlineToken::new(expr.to_string(), source.to_string()).with_label(label)
 }
 
 /// `text` with each template already chipped, for `set_value`.

@@ -302,7 +302,12 @@ impl Yuki {
             };
         }
         if let Some(f) = data.and_then(|d| d.folders.iter().find(|f| f.id == id)) {
-            return t!("folder %{name}", name = f.name).into_owned();
+            let folder = t!("folder %{name}", name = f.name).into_owned();
+            return if path.ends_with(".md") {
+                t!("%{request} · notes", request = folder).into_owned()
+            } else {
+                folder
+            };
         }
         match path {
             "workspace.yaml" => "workspace".into(),

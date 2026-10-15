@@ -13,7 +13,10 @@ use gpui_kit::component::{
 use gpui_kit::{prelude::FluentBuilder as _, *};
 use yuki_core::{new_id, BodyField, RequestParameter};
 
-use crate::{chip_templates, draft, editor::RequestEditor, ui, vars, FocusNext, FocusPrev};
+use crate::{
+    chip_templates, complete::CompleteHost as _, draft, editor::RequestEditor, ui, vars, FocusNext,
+    FocusPrev,
+};
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Which {

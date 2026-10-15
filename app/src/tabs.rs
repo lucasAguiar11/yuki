@@ -1,4 +1,4 @@
-use gpui_kit::component::{h_flex, ActiveTheme as _, IconName};
+use gpui_kit::component::{h_flex, ActiveTheme as _, Icon, IconName, Sizable as _};
 use gpui_kit::{prelude::FluentBuilder as _, *};
 
 use crate::{moving::Dragged, ui, workspace::Yuki};
@@ -15,7 +15,7 @@ pub fn render(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
     let last = yuki.tabs.len().saturating_sub(1);
     let tabs = yuki.tabs.iter().enumerate().map(|(ix, editor)| {
         let e = editor.read(cx);
-        let active = ix == yuki.active;
+        let active = ix == yuki.active && !yuki.scope_active;
         let group = SharedString::from(format!("tab-{ix}"));
         let close = div()
             .id(("close", ix))
@@ -97,6 +97,59 @@ pub fn render(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
             .on_drop(cx.listener(move |this, d: &DraggedTab, _, cx| this.move_tab(d.0, ix, cx)))
             .on_click(cx.listener(move |this, _, window, cx| this.activate_tab(ix, window, cx)))
     });
+    // The folder/workspace tab, after the requests.
+    let scope = yuki.scope_label(cx).map(|label| {
+        let active = yuki.scope_active;
+        h_flex()
+            .id("tab-scope")
+            .group("tab-scope")
+            .h_full()
+            .pl_3()
+            .pr_1p5()
+            .gap_2()
+            .text_xs()
+            .cursor_pointer()
+            .border_r_1()
+            .border_color(theme.border)
+            .when(active, |s| s.bg(theme.tab_active))
+            .when(!active, |s| s.border_b_1())
+            .text_color(if active {
+                theme.tab_active_foreground
+            } else {
+                theme.tab_foreground
+            })
+            .hover(|s| s.text_color(theme.foreground))
+            .child(
+                Icon::new(IconName::Folder)
+                    .xsmall()
+                    .text_color(theme.muted_foreground),
+            )
+            .child(label)
+            .child(
+                div()
+                    .id("close-scope")
+                    .size(px(16.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(theme.radius)
+                    .text_color(theme.muted_foreground)
+                    .hover(|s| s.bg(theme.secondary_hover).text_color(theme.foreground))
+                    .when(!active, |s| {
+                        s.invisible().group_hover("tab-scope", |s| s.visible())
+                    })
+                    .child(IconName::Close)
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        cx.stop_propagation();
+                        this.close_scope(window, cx)
+                    })),
+            )
+            .on_click(cx.listener(|this, _, window, cx| {
+                this.scope_active = true;
+                this.focus_active(window, cx);
+                cx.notify();
+            }))
+    });
     h_flex()
         .id("tabs")
         .h(px(30.))
@@ -104,6 +157,7 @@ pub fn render(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
         .bg(theme.tab_bar)
         .overflow_x_scroll()
         .children(tabs.collect::<Vec<_>>())
+        .children(scope)
         // Filler carries the bottom rule the active tab omits.
         .child(
             div()

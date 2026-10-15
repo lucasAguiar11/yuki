@@ -15,11 +15,11 @@ use yuki_core::{BodyKind, HttpRequest, HttpResponse};
 use yuki_storage::StoredHttpResponseSummary;
 
 use crate::{
-    auth_form::AuthForm,
+    auth_form::{AuthForm, Owner},
     backend::Backend,
     body::BodyInputs,
     chip_templates,
-    complete::Completion,
+    complete::{CompleteHost as _, Completion},
     draft,
     params::PathParams,
     response,
@@ -148,7 +148,7 @@ impl RequestEditor {
             cx,
         );
         let (body, body_subs) = BodyInputs::new(req.body.as_ref(), window, cx);
-        let (auth, auth_sub) = AuthForm::new(&req.auth, window, cx);
+        let (auth, auth_sub) = AuthForm::new(&req.auth, Owner::Request, window, cx);
         let notes = cx.new(|cx| {
             EditorState::new(window, cx)
                 .language("markdown")

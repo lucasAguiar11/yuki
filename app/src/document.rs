@@ -3,7 +3,7 @@
 
 use gpui_kit::component::{
     h_flex, h_resizable,
-    input::{InlineTokenContext, Input},
+    input::{InlineTokenContext, Input, InputState},
     resizable_panel,
     select::Select,
     spinner::Spinner,
@@ -13,13 +13,74 @@ use gpui_kit::component::{
 use gpui_kit::{prelude::FluentBuilder as _, *};
 
 use crate::{
+    auth_form::{AuthForm, AuthHost},
+    chip_templates,
+    complete::{CompleteHost, Completion, Target},
+    complete_view,
     editor::{ReqTab, RequestEditor},
     response,
     session::Session,
     table::Which,
-    ui, var_view, CompleteAccept, CompleteDismiss, CompleteNext, CompleteOpen, CompletePrev, Send,
-    ToggleEditor, ToggleLayout, ToggleVars,
+    ui, var_view, Send, ToggleEditor, ToggleLayout, ToggleVars,
 };
+
+impl CompleteHost for RequestEditor {
+    fn completion(&self) -> &Option<Completion> {
+        &self.complete
+    }
+    fn completion_mut(&mut self) -> &mut Option<Completion> {
+        &mut self.complete
+    }
+    fn template_vars(&self) -> &crate::vars::Vars {
+        &self.vars
+    }
+    fn workspace(&self) -> (std::sync::Arc<crate::backend::Backend>, String) {
+        (self.backend.clone(), self.saved.workspace_id.clone())
+    }
+    fn template_fields(&self) -> Vec<Target> {
+        let mut targets: Vec<Target> = vec![(&self.url).into()];
+        targets.extend(self.params.inputs().map(Target::Line));
+        targets.extend(self.query.inputs().map(Target::Line));
+        targets.extend(self.headers.inputs().map(Target::Line));
+        targets.extend(self.body.fields.inputs().map(Target::Line));
+        targets.extend(self.body.code_editors().map(Target::Code));
+        targets.extend(self.auth.inputs().map(Target::Line));
+        targets
+    }
+}
+
+impl AuthHost for RequestEditor {
+    fn form(&self) -> &AuthForm {
+        &self.auth
+    }
+    fn form_mut(&mut self) -> &mut AuthForm {
+        &mut self.auth
+    }
+    fn stored_auth(&self) -> &yuki_core::AuthConfig {
+        &self.saved.auth
+    }
+    fn auth_edited(&mut self, cx: &mut Context<Self>) {
+        self.refresh_dirty(cx);
+    }
+    fn auth_typed(
+        &mut self,
+        input: &Entity<InputState>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        chip_templates!(input, window, cx);
+        self.update_completion(input, cx);
+    }
+    fn decorate(&self, input: Input) -> Input {
+        input.token(self.chip_renderer())
+    }
+    fn can_fetch_token(&self) -> bool {
+        true
+    }
+    fn fetch_token(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        RequestEditor::fetch_token(self, window, cx)
+    }
+}
 
 impl Render for RequestEditor {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -67,27 +128,9 @@ impl Render for RequestEditor {
                 .child(resizable_panel().child(response))
                 .into_any_element(),
         };
-        let popup = self.render_completion(window, cx);
-        v_flex()
-            .size_full()
-            .bg(cx.theme().background)
-            // Wins over the input's own ↑↓↵⇥esc while the popup shows.
-            .when(popup.is_some(), |d| d.key_context("VarComplete"))
-            .on_action(
-                cx.listener(|this, _: &CompleteNext, window, cx| {
-                    this.move_completion(1, window, cx)
-                }),
-            )
-            .on_action(cx.listener(|this, _: &CompletePrev, window, cx| {
-                this.move_completion(-1, window, cx)
-            }))
-            .on_action(cx.listener(|this, _: &CompleteAccept, window, cx| {
-                this.accept_completion(None, window, cx)
-            }))
-            .on_action(cx.listener(|this, _: &CompleteDismiss, _, cx| this.dismiss_completion(cx)))
-            .on_action(
-                cx.listener(|this, _: &CompleteOpen, window, cx| this.open_completion(window, cx)),
-            )
+        let popup = complete_view::render(self, window, cx);
+        let root = v_flex().size_full().bg(cx.theme().background);
+        complete_view::keys(root, popup.is_some(), cx)
             .child(self.render_prompt(window, cx))
             .child(self.render_meta(cx))
             .child(div().flex_1().min_h_0().child(body))
@@ -279,7 +322,7 @@ impl RequestEditor {
             ReqTab::Params => self.render_params(cx),
             ReqTab::Headers => self.render_table(Which::Headers, false, cx),
             ReqTab::Body => self.render_body(cx),
-            ReqTab::Auth => self.render_auth(cx),
+            ReqTab::Auth => crate::auth_form::render(self, cx),
             ReqTab::Notes => self.render_notes(cx),
         };
         div()

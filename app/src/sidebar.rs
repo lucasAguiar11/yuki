@@ -21,10 +21,13 @@ const INDENT: f32 = 14.;
 
 pub fn render(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
     let theme = cx.theme();
-    let active_id = yuki
-        .tabs
-        .get(yuki.active)
-        .map(|t| t.read(cx).saved.id.clone());
+    let active_id = match yuki.scope.as_ref().filter(|_| yuki.scope_active) {
+        Some((view, _)) => view.read(cx).folder.clone(),
+        None => yuki
+            .tabs
+            .get(yuki.active)
+            .map(|t| t.read(cx).saved.id.clone()),
+    };
     let count = yuki.rows.iter().filter(|r| r.method.is_some()).count();
     let has_folders = yuki.data.as_ref().is_some_and(|d| !d.folders.is_empty());
     let any_open = yuki.any_folder_open();
@@ -51,16 +54,29 @@ pub fn render(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
                 .text_color(ui::method_color(m, cx))
                 .child(ui::method_short(m).to_string())
                 .into_any_element(),
-            None => div()
-                .w(px(16.))
-                .flex_none()
-                .text_color(theme.muted_foreground)
-                .child(if row.open {
-                    IconName::ChevronDown
-                } else {
-                    IconName::ChevronRight
-                })
-                .into_any_element(),
+            None => {
+                let key = row.id.to_string();
+                div()
+                    .id(("chevron", ix))
+                    .w(px(16.))
+                    .flex_none()
+                    .text_color(theme.muted_foreground)
+                    .hover(|s| s.text_color(theme.foreground))
+                    .child(if row.open {
+                        IconName::ChevronDown
+                    } else {
+                        IconName::ChevronRight
+                    })
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        cx.stop_propagation();
+                        if !this.collapsed.remove(&key) {
+                            this.collapsed.insert(key.clone());
+                        }
+                        this.refresh_rows();
+                        cx.notify();
+                    }))
+                    .into_any_element()
+            }
         };
         let id = row.id.clone();
         let is_folder = row.method.is_none();
@@ -144,12 +160,11 @@ pub fn render(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
                 }))
                 .on_click(cx.listener(move |this, _, window, cx| {
                     if is_folder {
-                        let key = id.to_string();
-                        if !this.collapsed.remove(&key) {
-                            this.collapsed.insert(key);
+                        // Opening shows what's inside too; only the chevron collapses.
+                        if this.collapsed.remove(id.as_ref()) {
+                            this.refresh_rows();
                         }
-                        this.refresh_rows();
-                        cx.notify();
+                        this.open_scope(Some(id.to_string()), window, cx);
                     } else {
                         this.open_request(&id, window, cx);
                     }
@@ -347,7 +362,12 @@ fn menu(
             }))
             .item(item(this, "new folder", move |y, w, cx| {
                 y.new_item(true, parent.clone(), w, cx)
-            }));
+            }))
+            .when(id.is_none(), |m| {
+                m.item(item(this, "workspace auth & headers…", |y, w, cx| {
+                    y.open_scope(None, w, cx)
+                }))
+            });
     }
     let Some(id) = id.cloned() else { return m };
     if folder {

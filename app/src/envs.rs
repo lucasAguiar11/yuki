@@ -79,6 +79,9 @@ impl Yuki {
         for tab in &self.tabs {
             tab.update(cx, |e, cx| e.set_env(env_id.clone(), window, cx));
         }
+        if let Some((scope, _)) = &self.scope {
+            scope.update(cx, |s, cx| s.set_env(env_id.clone(), cx));
+        }
         cx.notify();
     }
 

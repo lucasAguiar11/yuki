@@ -11,7 +11,9 @@ use gpui_kit::component::{
 use gpui_kit::{prelude::FluentBuilder as _, *};
 
 use crate::{
-    chip_templates, draft,
+    chip_templates,
+    complete::CompleteHost as _,
+    draft,
     editor::{ReqTab, RequestEditor},
     query,
     table::Which,

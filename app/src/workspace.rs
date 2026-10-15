@@ -16,6 +16,7 @@ use crate::{
     git_panel,
     palette::{Kind, Palette},
     rename::Rename,
+    scope_view::ScopeView,
     session::Session,
     settings::SettingsScreen,
     sidebar, tabs, tree, vars_panel, *,
@@ -34,6 +35,10 @@ pub struct Yuki {
     pub tree_scroll: ScrollHandle,
     pub tabs: Vec<Entity<RequestEditor>>,
     pub active: usize,
+    /// The folder/workspace tab, after the request tabs.
+    pub(crate) scope: Option<(Entity<ScopeView>, Subscription)>,
+    /// The scope tab is the one shown (else `tabs[active]`).
+    pub scope_active: bool,
     pub(crate) sidebar: bool,
     pub(crate) vars_panel: bool,
     pub(crate) git_panel: bool,
@@ -78,6 +83,8 @@ impl Yuki {
             tree_scroll: ScrollHandle::new(),
             tabs: vec![],
             active: 0,
+            scope: None,
+            scope_active: false,
             sidebar,
             vars_panel,
             git_panel,
@@ -150,6 +157,10 @@ impl Yuki {
                     }
                     this._subs.clear();
                     this.active = 0;
+                    if let Some((view, _)) = this.scope.take() {
+                        view.update(cx, |v, cx| v.flush(cx));
+                    }
+                    this.scope_active = false;
                     if let Some((screen, _)) = this.env_screen.take() {
                         screen.update(cx, |s, cx| s.flush(cx));
                     }
@@ -196,6 +207,7 @@ impl Yuki {
     }
 
     pub fn open_request(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.scope_active = false;
         if let Some(ix) = self.tabs.iter().position(|t| t.read(cx).saved.id == id) {
             self.active = ix;
         } else {
@@ -248,7 +260,7 @@ impl Yuki {
     }
 
     fn active_editor(&self) -> Option<&Entity<RequestEditor>> {
-        self.tabs.get(self.active)
+        self.tabs.get(self.active).filter(|_| !self.scope_active)
     }
 
     /// Synchronous flush for quit/close, where an async save would die with
@@ -260,6 +272,9 @@ impl Yuki {
         self.flush_envs_blocking(cx);
         if let Some((screen, _)) = &self.settings {
             screen.read(cx).flush_blocking(cx);
+        }
+        if let Some((view, _)) = &self.scope {
+            view.read(cx).flush_blocking(cx);
         }
         for tab in &self.tabs {
             let e = tab.read(cx);
@@ -286,6 +301,7 @@ impl Yuki {
 
     pub fn activate_tab(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
         if ix < self.tabs.len() {
+            self.scope_active = false;
             self.active = ix;
             self.focus_active(window, cx);
             cx.notify();
@@ -294,9 +310,11 @@ impl Yuki {
 
     /// Keyboard-first: the active tab's URL bar owns focus, else the root.
     pub(crate) fn focus_active(&self, window: &mut Window, cx: &mut App) {
-        let handle = match self.active_editor() {
-            Some(e) => e.read(cx).url_focus(cx),
-            None => self.focus.clone(),
+        let scope = self.scope.as_ref().filter(|_| self.scope_active);
+        let handle = match (scope, self.active_editor()) {
+            (Some((view, _)), _) => view.read(cx).focus.clone(),
+            (None, Some(e)) => e.read(cx).url_focus(cx),
+            (None, None) => self.focus.clone(),
         };
         handle.focus(window, cx);
     }
@@ -329,6 +347,13 @@ impl Yuki {
         }
         if let Some((screen, _)) = &self.env_screen {
             return screen.clone().into_any_element();
+        }
+        if let Some((view, _)) = self.scope.as_ref().filter(|_| self.scope_active) {
+            return v_flex()
+                .size_full()
+                .child(tabs::render(self, cx))
+                .child(div().flex_1().min_h_0().child(view.clone()))
+                .into_any_element();
         }
         match self.active_editor() {
             Some(editor) => v_flex()
@@ -478,11 +503,13 @@ impl Render for Yuki {
                 cx.listener(|this, _: &ImportVoleeo, window, cx| this.import_voleeo(window, cx)),
             )
             .on_action(cx.listener(|this, _: &OpenFolder, window, cx| this.open_folder(window, cx)))
-            .on_action(
-                cx.listener(|this, _: &CloseTab, window, cx| {
+            .on_action(cx.listener(|this, _: &CloseTab, window, cx| {
+                if this.scope_active {
+                    this.close_scope(window, cx)
+                } else {
                     this.close_tab(this.active, window, cx)
-                }),
-            )
+                }
+            }))
             .on_action(cx.listener(|this, _: &NextTab, window, cx| {
                 let n = this.tabs.len().max(1);
                 this.activate_tab((this.active + 1) % n, window, cx)

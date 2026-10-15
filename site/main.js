@@ -1,105 +1,191 @@
-// Live request: the hero form really sends GET releases/latest, like Yuki would, and wakes the cat.
-(() => {
-  const form = document.querySelector('[data-live]');
-  if (!form) return;
-  const hero = form.closest('.hero');
+const GH = 'https://api.github.com/repos/lucasAguiar11/yuki';
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+// Yuki's own shortcuts use ⌘; elsewhere the page answers to Ctrl as well.
+const mod = (e) => e.metaKey || (!isMac && e.ctrlKey);
+
+// The request: GH is a variable chip, like in the app; the path after it is yours to type.
+const req = (() => {
+  const section = document.querySelector('[data-req]');
+  const form = section.querySelector('[data-live]');
+  const input = form.querySelector('.req__path');
   const status = form.querySelector('[data-status]');
   const body = form.querySelector('[data-body]');
-  const button = form.querySelector('button');
+  const caption = document.querySelector('[data-caption]');
+  const heroStatus = document.querySelector('[data-hero-status]');
+  const tries = [...form.querySelectorAll('[data-path]')];
+  let busy = false;
+
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
-  const str = (v) => `<span class="s">"${esc(v)}"</span>`;
-  const kv = (k, v, last) => `  <span class="k">"${k}"</span><span class="p">:</span> ${v}${last ? '' : '<span class="p">,</span>'}`;
   const size = (n) => (n < 1024 ? `${n} B` : `${(n / 1024).toFixed(1)} KB`);
+  // Pretty JSON with the app's token colours; long bodies stop after 60 lines.
+  const paint = (value) => {
+    const lines = JSON.stringify(value, null, 2).split('\n');
+    const cut = lines.length > 60 ? [...lines.slice(0, 60), `… ${lines.length - 60} more lines`] : lines;
+    return cut.map((l) => esc(l)
+      .replace(/^(\s*)(&quot;.*?&quot;)(: )/, '$1<span class="k">$2</span><span class="p">$3</span>')
+      .replace(/(<\/span>|^\s*)(&quot;.*&quot;)(,?)$/, '$1<span class="s">$2</span>$3')
+      .replace(/(<\/span>|^\s*)(-?\d[\d.eE+-]*|true|false|null)(,?)$/, '$1<span class="n">$2</span>$3')).join('\n');
+  };
 
   async function send() {
-    if (button.disabled) return;
-    button.disabled = true;
+    if (busy) return;
+    busy = true;
+    const path = input.value.trim().replace(/^\/+/, '');
+    tries.forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.path === path)));
     status.textContent = 'sending…';
+    heroStatus.textContent = 'sending…';
     const t0 = performance.now();
     try {
-      const res = await fetch(form.action, { headers: { Accept: 'application/vnd.github+json' } });
+      const res = await fetch(path ? `${GH}/${path}` : GH, { headers: { Accept: 'application/vnd.github+json' } });
       const text = await res.text();
       const ms = Math.round(performance.now() - t0);
       const clock = new Date().toLocaleTimeString([], { hour12: false });
-      status.innerHTML = `<span class="${res.ok ? 'ok' : 'err'}">${res.status} ${esc(res.statusText || (res.ok ? 'OK' : ''))}</span>  ${ms} ms  ${size(new Blob([text]).size)}  ${clock}`;
-      if (!res.ok) throw new Error(JSON.parse(text).message || `HTTP ${res.status}`);
-      const r = JSON.parse(text);
-      const dmgs = r.assets.filter((a) => a.name.endsWith('.dmg'));
-      body.innerHTML = '<pre>' + [
-        '<span class="p">{</span>',
-        kv('tag_name', str(r.tag_name)),
-        kv('published_at', str(r.published_at.slice(0, 10))),
-        kv('assets', '<span class="p">[</span>', true),
-        ...dmgs.map((a, i) => `    <a href="${esc(a.browser_download_url)}">${str(a.name)}</a>${i < dmgs.length - 1 ? '<span class="p">,</span>' : ''}`),
-        '  <span class="p">]</span>',
-        '<span class="p">}</span>',
-      ].join('\n') + '</pre>';
-      hero.setAttribute('data-awake', '');
-      document.querySelectorAll('[data-download]').forEach((a) => { a.textContent = `Download ${r.tag_name}`; });
+      const head = `<span class="${res.ok ? 'ok' : 'err'}">${res.status} ${esc(res.statusText || (res.ok ? 'OK' : ''))}</span>`;
+      status.innerHTML = `${head}  ${ms} ms  ${size(new Blob([text]).size)}  ${clock}`;
+      heroStatus.innerHTML = `${head} in ${ms} ms. <a href="#request">See the response</a>`;
+      let json = null;
+      try { json = JSON.parse(text); } catch { /* not JSON */ }
+      body.innerHTML = json === null ? esc(text) : paint(json);
+      body.classList.add('t');
+      if (res.ok) {
+        document.body.setAttribute('data-awake', '');
+        caption.textContent = 'Yours came back.';
+      }
+      if (res.ok && json && json.tag_name) {
+        document.querySelectorAll('[data-download]').forEach((a) => { a.textContent = `Download ${json.tag_name}`; });
+      }
     } catch (err) {
-      if (!status.querySelector('.err')) status.innerHTML = '<span class="err">× send failed</span>';
-      body.innerHTML = `<span class="err">${esc(err.message)}</span>\n<a href="https://github.com/lucasAguiar11/yuki/releases/latest">open the releases page</a>`;
+      status.innerHTML = '<span class="err">× send failed</span>';
+      heroStatus.innerHTML = '<span class="err">× send failed</span> <a href="#request">See why</a>';
+      body.textContent = `${err.message}\nThe browser stops requests another site hasn't allowed (CORS). Yuki is a native app and has no such limit.`;
     } finally {
-      button.disabled = false;
+      busy = false;
     }
   }
 
   form.addEventListener('submit', (e) => { e.preventDefault(); send(); });
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); }
-  });
+  tries.forEach((b) => b.addEventListener('click', () => { input.value = b.dataset.path; send(); }));
+  return { send };
 })();
 
-// Showcase index: pointing at (or tapping, or focusing) a name brings up its screen and recolours the head.
+// ⌘↵ anywhere sends. The hero shows the result next to Yuki; the full response waits below.
+const goSend = () => req.send();
+document.querySelectorAll('[data-go-send]').forEach((b) => b.addEventListener('click', goSend));
+addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); goSend(); }
+});
+
+// The hero's loop: type a request, press ⌘↵, watch the response land, and Yuki wakes for it.
 (() => {
-  const show = document.querySelector('.show');
-  if (!show) return;
-  const disc = show.querySelector('.show__disc');
-  const fact = show.querySelector('[data-fact]');
-  const facts = Object.fromEntries([...show.querySelector('[data-facts]').content.children].map((p) => [p.dataset.for, p.textContent]));
-  const pick = (btn) => {
-    const id = btn.dataset.pick;
-    show.querySelectorAll('[data-pick]').forEach((b) => b.setAttribute('aria-pressed', String(b === btn)));
-    show.querySelectorAll('[data-shot]').forEach((img) => img.classList.toggle('is-on', img.dataset.shot === id));
-    disc.style.fill = btn.dataset.disc;
-    fact.textContent = facts[id];
+  const visual = document.querySelector('[data-visual]');
+  const sim = visual.querySelector('[data-sim]');
+  if (reduced) return; // the static, finished send in the markup stays
+  const $ = (k) => sim.querySelector(`[data-sim-${k}]`);
+  const [method, url, meta, status, body] = ['method', 'url', 'meta', 'status', 'body'].map($);
+  const k = (s) => `<span class="k">"${s}"</span><span class="p">:</span> `;
+  const sends = [
+    { m: 'GET', chip: 'API', path: '/users/1', meta: 'headers 1 · body — · auth bearer', st: '200 OK', ms: 21, size: '509 B',
+      lines: ['{', `  ${k('id')}<span class="n">1</span>,`, `  ${k('name')}<span class="s">"Leanne Graham"</span>,`, `  ${k('email')}<span class="s">"Sincere@april.biz"</span>`, '}'] },
+    { m: 'POST', chip: 'API', path: '/users', meta: 'headers 1 · body json · auth bearer', st: '201 Created', ms: 48, size: '96 B',
+      lines: ['{', `  ${k('id')}<span class="n">11</span>,`, `  ${k('name')}<span class="s">"Rafael Martins"</span>,`, `  ${k('email')}<span class="s">"hugo64@example.com"</span>`, '}'] },
+    { m: 'GET', chip: 'GH', path: '/releases/latest', meta: 'headers 1 · body — · auth —', st: '200 OK', ms: 312, size: '11.9 KB',
+      lines: ['{', `  ${k('tag_name')}<span class="s">"v0.4.0"</span>,`, `  ${k('name')}<span class="s">"v0.4.0"</span>,`, `  ${k('draft')}<span class="n">false</span>`, '}'] },
+  ];
+  let visible = true;
+  new IntersectionObserver(([e]) => { visible = e.isIntersecting; }).observe(visual);
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const idle = async () => { while (!visible || document.hidden) await wait(400); };
+
+  (async () => {
+    await wait(1600);
+    for (let i = 0; ; i = (i + 1) % sends.length) {
+      const s = sends[i];
+      await idle();
+      visual.removeAttribute('data-awake');
+      method.textContent = s.m;
+      meta.textContent = s.meta;
+      status.textContent = 'no response';
+      body.textContent = '';
+      url.innerHTML = `<span class="chip">${s.chip}</span>`;
+      sim.setAttribute('data-typing', '');
+      for (const ch of s.path) { url.append(ch); await wait(70 + Math.random() * 60); }
+      await wait(500);
+      sim.removeAttribute('data-typing');
+      sim.setAttribute('data-pressed', '');
+      await wait(180);
+      sim.removeAttribute('data-pressed');
+      status.textContent = 'sending…';
+      await wait(Math.min(900, 300 + s.ms));
+      status.innerHTML = `<span class="ok">${s.st}</span>  ${s.ms} ms  ${s.size}`;
+      visual.setAttribute('data-awake', '');
+      for (const line of s.lines) { body.insertAdjacentHTML('beforeend', `${line}\n`); await wait(90); }
+      await wait(3200);
+    }
+  })();
+})();
+
+// Keys: the pinned screen follows the scroll; pressing a shortcut scrolls to its step.
+(() => {
+  const section = document.querySelector('[data-keys]');
+  const buttons = [...section.querySelectorAll('[data-k]')];
+  const screens = [...section.querySelectorAll('[data-screen]')];
+  const now = section.querySelector('[data-now]');
+  let current = 0;
+  let inView = false;
+
+  const show = (i) => {
+    if (i === current) return;
+    current = i;
+    buttons.forEach((b, j) => b.setAttribute('aria-pressed', String(j === i)));
+    screens.forEach((img) => img.classList.toggle('is-on', img.dataset.screen === buttons[i].dataset.shot));
+    now.textContent = `${buttons[i].querySelector('kbd').textContent} · ${buttons[i].querySelector('span').textContent}`;
   };
-  show.querySelectorAll('[data-pick]').forEach((btn) => {
-    btn.addEventListener('click', () => pick(btn));
-    btn.addEventListener('focus', () => pick(btn));
-    btn.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse') pick(btn); });
+  const stepHeight = () => (section.offsetHeight - innerHeight) / buttons.length;
+  const go = (i) => {
+    const btn = buttons[i];
+    btn.classList.add('is-hit');
+    setTimeout(() => btn.classList.remove('is-hit'), 140);
+    show(i);
+    const y = section.getBoundingClientRect().top + scrollY + stepHeight() * (i + 0.5);
+    scrollTo({ top: y, behavior: reduced ? 'auto' : 'smooth' });
+  };
+  buttons.forEach((b, i) => b.addEventListener('click', () => go(i)));
+
+  let raf = 0;
+  addEventListener('scroll', () => {
+    if (raf) return;
+    raf = requestAnimationFrame(() => {
+      raf = 0;
+      const r = section.getBoundingClientRect();
+      inView = r.top < innerHeight * 0.5 && r.bottom > innerHeight * 0.5;
+      if (r.top > 0 || r.bottom < innerHeight) return;
+      show(Math.min(buttons.length - 1, Math.floor(-r.top / stepHeight())));
+    });
+  }, { passive: true });
+
+  const combo = (e) => `${e.altKey ? 'alt+' : ''}${e.shiftKey ? 'shift+' : ''}${e.code.replace('Key', '')}`;
+  addEventListener('keydown', (e) => {
+    if (!inView || !mod(e) || e.key === 'Enter') return;
+    const i = buttons.findIndex((b) => b.dataset.k === combo(e));
+    if (i < 0) return;
+    e.preventDefault();
+    go(i);
   });
 })();
 
-// Entrances: each section's parts rise once, staggered; never left hidden if the observer never fires.
+// Entrances: each section's parts rise once, staggered; nothing stays hidden if the observer never fires.
 (() => {
-  const groups = [...document.querySelectorAll('section, .cta, .flow__field')];
-  groups.forEach((g) => g.querySelectorAll(':scope .rise, :scope .show__names li').forEach((el, i) => el.style.setProperty('--i', i)));
-  document.querySelectorAll('.flow__field').forEach((f, i) => f.style.setProperty('--i', i));
-  const targets = [...document.querySelectorAll('.rise, .show, .flow__field')];
+  document.querySelectorAll('section').forEach((s) => s.querySelectorAll('.rise').forEach((el, i) => el.style.setProperty('--i', i)));
+  const targets = [...document.querySelectorAll('.rise')];
   const show = (el) => el.classList.add('is-in');
   if (!('IntersectionObserver' in window)) return targets.forEach(show);
-  const io = new IntersectionObserver((entries) => {
-    entries.forEach((e) => { if (e.isIntersecting) { show(e.target); io.unobserve(e.target); } });
-  }, { rootMargin: '0px 0px -10% 0px', threshold: 0.08 });
+  const io = new IntersectionObserver((entries) => entries.forEach((e) => {
+    if (e.isIntersecting) { show(e.target); io.unobserve(e.target); }
+  }), { rootMargin: '0px 0px -10% 0px', threshold: 0.08 });
   targets.forEach((el) => io.observe(el));
   addEventListener('load', () => setTimeout(() => targets.forEach((el) => {
     const r = el.getBoundingClientRect();
     if (r.top < innerHeight && r.bottom > 0) show(el);
   }), 2500));
-})();
-
-// The showcase screen rises a little as it scrolls through, over the head behind it.
-(() => {
-  const stage = document.querySelector('.show__stage');
-  if (!stage || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  let raf = 0;
-  const update = () => {
-    raf = 0;
-    const r = stage.getBoundingClientRect();
-    const p = Math.min(1, Math.max(0, (innerHeight - r.top) / (innerHeight + r.height)));
-    stage.style.setProperty('--lift', `${(0.5 - p) * 48}px`);
-  };
-  addEventListener('scroll', () => { if (!raf) raf = requestAnimationFrame(update); }, { passive: true });
-  update();
 })();

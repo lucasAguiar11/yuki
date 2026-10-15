@@ -94,6 +94,8 @@ code, pre, kbd, [data-ui] { font-family: var(--mono); }
 .lede { font-size: var(--s4); line-height: 1.3; font-weight: 500; margin-top: 28px; max-width: 22ch; }
 .hero__copy p:not(.lede) { margin-top: 14px; max-width: 46ch; }
 .hero__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 16px 28px; margin-top: 32px; }
+.hero__note { color: var(--muted); }
+.hero__note code { color: var(--ink); font-size: .85em; overflow-wrap: anywhere; }
 
 /* the live request, drawn like the app */
 .req {

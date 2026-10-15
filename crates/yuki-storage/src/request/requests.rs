@@ -3,8 +3,33 @@
 
 use super::{save_request_if_changed, RequestStore};
 use chrono::Utc;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use yuki_core::{new_id, AuthConfig, HttpRequest, RequestBody, RequestParameter, YukiError};
+
+/// Markdown notes at `path`; `""` when there are none.
+pub(super) fn read_notes(path: &Path) -> Result<String, YukiError> {
+    match std::fs::read_to_string(path) {
+        Ok(s) => Ok(s),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+        Err(e) => Err(YukiError::Storage(e.to_string())),
+    }
+}
+
+/// Writes only on change; blank notes remove the file (no empty files in git).
+pub(super) fn write_notes(path: PathBuf, notes: &str) -> Result<(), YukiError> {
+    if notes.trim().is_empty() {
+        return match std::fs::remove_file(&path) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                Err(YukiError::Storage(e.to_string()))
+            }
+            _ => Ok(()),
+        };
+    }
+    if read_notes(&path)? == notes {
+        return Ok(());
+    }
+    crate::write_atomic(path, notes)
+}
 
 impl RequestStore {
     fn req_path(&self, workspace_id: &str, id: &str) -> Result<PathBuf, YukiError> {
@@ -23,28 +48,11 @@ impl RequestStore {
 
     /// The request's markdown notes; `""` when it has none.
     pub fn get_notes(&self, workspace_id: &str, id: &str) -> Result<String, YukiError> {
-        match std::fs::read_to_string(self.notes_path(workspace_id, id)?) {
-            Ok(s) => Ok(s),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
-            Err(e) => Err(YukiError::Storage(e.to_string())),
-        }
+        read_notes(&self.notes_path(workspace_id, id)?)
     }
 
-    /// Writes only on change; blank notes remove the file (no empty files in git).
     pub fn save_notes(&self, workspace_id: &str, id: &str, notes: &str) -> Result<(), YukiError> {
-        let path = self.notes_path(workspace_id, id)?;
-        if notes.trim().is_empty() {
-            return match std::fs::remove_file(&path) {
-                Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
-                    Err(YukiError::Storage(e.to_string()))
-                }
-                _ => Ok(()),
-            };
-        }
-        if self.get_notes(workspace_id, id)? == notes {
-            return Ok(());
-        }
-        crate::write_atomic(path, notes)
+        write_notes(self.notes_path(workspace_id, id)?, notes)
     }
 
     pub fn get_request(&self, workspace_id: &str, id: &str) -> Result<HttpRequest, YukiError> {

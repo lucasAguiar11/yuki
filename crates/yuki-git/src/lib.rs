@@ -50,7 +50,7 @@ pub(crate) fn open_repo(path: &Path) -> Result<Repository, YukiError> {
 
 /// Map a repo-relative file path to the Voleeo tree node it represents.
 /// Files are flat at the repo root (`req_{id}.yaml`, `folder_{id}.yaml`, …);
-/// `req_{id}.md` is that request's notes.
+/// `req_{id}.md` / `folder_{id}.md` are that request's / folder's notes.
 pub fn classify_path(path: &str) -> (GitNodeKind, Option<String>) {
     let name = path.rsplit('/').next().unwrap_or(path);
     if name == "workspace.yaml" {
@@ -67,7 +67,7 @@ pub fn classify_path(path: &str) -> (GitNodeKind, Option<String>) {
     ] {
         let stem = name.strip_prefix(prefix);
         let id = stem.and_then(|s| s.strip_suffix(".yaml")).or_else(|| {
-            stem.filter(|_| prefix == "req_")
+            stem.filter(|_| prefix == "req_" || prefix == "folder_")
                 .and_then(|s| s.strip_suffix(".md"))
         });
         if let Some(id) = id {

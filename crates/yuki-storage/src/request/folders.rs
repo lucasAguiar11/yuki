@@ -1,5 +1,7 @@
-//! Folder CRUD: the `folder_*.yaml` half of `RequestStore`.
+//! Folder CRUD: the `folder_*.yaml` half of `RequestStore`, plus each
+//! folder's markdown notes in a sidecar `folder_*.md`.
 
+use super::requests::{read_notes, write_notes};
 use super::{save_folder_if_changed, RequestStore};
 use chrono::Utc;
 use std::path::PathBuf;
@@ -13,6 +15,23 @@ impl RequestStore {
             .workspaces_dir
             .join(workspace_id)
             .join(format!("folder_{id}.yaml")))
+    }
+
+    /// The folder's markdown notes; `""` when it has none.
+    pub fn get_folder_notes(&self, workspace_id: &str, id: &str) -> Result<String, YukiError> {
+        read_notes(&self.folder_path(workspace_id, id)?.with_extension("md"))
+    }
+
+    pub fn save_folder_notes(
+        &self,
+        workspace_id: &str,
+        id: &str,
+        notes: &str,
+    ) -> Result<(), YukiError> {
+        write_notes(
+            self.folder_path(workspace_id, id)?.with_extension("md"),
+            notes,
+        )
     }
 
     pub fn list_folders(&self, workspace_id: &str) -> Result<Vec<ApiFolder>, YukiError> {
@@ -113,6 +132,8 @@ impl RequestStore {
         let content =
             serde_yaml::to_string(&folder).map_err(|e| YukiError::Storage(e.to_string()))?;
         crate::write_atomic(self.folder_path(&folder.workspace_id, &id)?, content)?;
+        let notes = self.get_folder_notes(&src.workspace_id, &src.id)?;
+        self.save_folder_notes(&folder.workspace_id, &id, &notes)?;
         Ok(folder)
     }
 
@@ -221,6 +242,7 @@ impl RequestStore {
     }
 
     pub fn delete_folder(&self, workspace_id: &str, id: &str) -> Result<(), YukiError> {
+        self.save_folder_notes(workspace_id, id, "")?;
         let path = self.folder_path(workspace_id, id)?;
         if path.exists() {
             std::fs::remove_file(path).map_err(|e| YukiError::Storage(e.to_string()))?;

@@ -248,14 +248,21 @@ impl AssetSource for Assets {
 fn set_dock_icon() {
     use objc2::AllocAnyThread as _;
     use objc2_app_kit::{NSApplication, NSImage};
-    use objc2_foundation::{MainThreadMarker, NSData};
+    use objc2_foundation::{MainThreadMarker, NSData, NSString};
     let Some(mtm) = MainThreadMarker::new() else {
         return;
     };
     let data = NSData::with_bytes(include_bytes!("../assets/icon.png"));
+    let app = NSApplication::sharedApplication(mtm);
     if let Some(image) = NSImage::initWithData(NSImage::alloc(), &data) {
         // SAFETY: main thread, valid image; AppKit retains it.
-        unsafe { NSApplication::sharedApplication(mtm).setApplicationIconImage(Some(&image)) };
+        unsafe { app.setApplicationIconImage(Some(&image)) };
+    }
+    // Debug builds wear a "dev" badge, so they can't be mistaken for the
+    // installed app in the Dock or ⌘⇥.
+    if cfg!(debug_assertions) {
+        app.dockTile()
+            .setBadgeLabel(Some(&NSString::from_str("dev")));
     }
 }
 

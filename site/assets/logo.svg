@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="72" height="72" viewBox="0 0 512 512">
+  <!-- Yuki, a tuxedo cat, as a line icon. Colors are yuki-console theme tokens:
+       background, muted.foreground (outline), border (white fur), warning (eyes), danger (nose). -->
+  <defs>
+    <clipPath id="head"><path d="M140 86 C130 150 116 206 118 258 C120 338 184 400 256 404 C328 400 392 338 394 258 C396 206 382 150 372 86 C344 110 320 134 302 154 Q256 142 210 154 C192 134 168 110 140 86 Z"/></clipPath>
+  </defs>
+  <rect width="512" height="512" rx="114" fill="#17181c"/>
+  <g transform="translate(256 262) scale(1.02) translate(-256 -254)">
+    <path d="M140 86 C130 150 116 206 118 258 C120 338 184 400 256 404 C328 400 392 338 394 258 C396 206 382 150 372 86 C344 110 320 134 302 154 Q256 142 210 154 C192 134 168 110 140 86 Z" fill="#2a2c32"/>
+    <path d="M40 40 L236 40 C236 130 230 200 222 240 C214 282 190 300 160 312 C130 322 90 322 40 316 Z M472 40 L276 40 C278 130 284 200 292 236 C300 266 322 282 352 284 C380 286 420 280 472 272 Z" fill="#17181c" clip-path="url(#head)"/>
+    <path d="M140 86 C130 150 116 206 118 258 C120 338 184 400 256 404 C328 400 392 338 394 258 C396 206 382 150 372 86 C344 110 320 134 302 154 Q256 142 210 154 C192 134 168 110 140 86 Z" fill="none" stroke="#9a9ea6" stroke-width="24" stroke-linejoin="round"/>
+    <ellipse cx="196" cy="263" rx="13" ry="22" fill="#e0b97a"/>
+    <ellipse cx="316" cy="263" rx="13" ry="22" fill="#e0b97a"/>
+    <path d="M246 312 L266 312 L256 324 Z" fill="#f08a8a" stroke="#f08a8a" stroke-width="12" stroke-linejoin="round"/>
+  </g>
+</svg>

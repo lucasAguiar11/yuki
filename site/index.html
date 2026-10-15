@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Yuki: a native API console for macOS</title>
+<meta name="description" content="Yuki is a native, keyboard-first API console for macOS, written in Rust. Requests live as plain YAML in git, and AI agents can send them over MCP. Open source, MIT.">
+<meta name="theme-color" content="#17181c">
+<meta property="og:title" content="Yuki: a native API console for macOS">
+<meta property="og:description" content="Keyboard-first, written in Rust. Plain YAML in git. Your AI agent can send requests too.">
+<meta property="og:image" content="https://lucasaguiar11.github.io/yuki/assets/console.webp">
+<link rel="icon" href="assets/logo.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+<script>document.documentElement.classList.add('js')</script>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <path id="head" d="M140 86 C130 150 116 206 118 258 C120 338 184 400 256 404 C328 400 392 338 394 258 C396 206 382 150 372 86 C344 110 320 134 302 154 Q256 142 210 154 C192 134 168 110 140 86 Z"/>
+    <clipPath id="head-clip"><use href="#head"/></clipPath>
+    <path id="patches" d="M40 40 L236 40 C236 130 230 200 222 240 C214 282 190 300 160 312 C130 322 90 322 40 316 Z M472 40 L276 40 C278 130 284 200 292 236 C300 266 322 282 352 284 C380 286 420 280 472 272 Z"/>
+  </defs>
+</svg>
+
+<header class="bar">
+  <a class="bar__mark" href="#top" aria-label="Yuki, back to top">
+    <img src="assets/logo.svg" width="32" height="32" alt="">
+    <span>yuki</span>
+  </a>
+  <nav class="bar__links" aria-label="Sections">
+    <a href="#console">console</a>
+    <a href="#agents">agents</a>
+    <a href="https://github.com/lucasAguiar11/yuki">source</a>
+  </nav>
+  <a class="btn btn--small" href="https://github.com/lucasAguiar11/yuki/releases/latest">Download</a>
+</header>
+
+<main id="top">
+
+  <section class="hero" aria-labelledby="hero-title">
+    <svg class="hero__cat" data-cat viewBox="117 80 278 326" aria-hidden="true">
+      <use href="#head" class="cat__fur"/>
+      <g clip-path="url(#head-clip)"><use href="#patches" class="cat__patch"/></g>
+      <use href="#head" class="cat__line"/>
+      <g class="cat__asleep">
+        <path d="M172 264 Q194 282 216 264"/>
+        <path d="M296 264 Q318 282 340 264"/>
+      </g>
+      <g class="cat__awake">
+        <ellipse cx="196" cy="263" rx="13" ry="22"/>
+        <ellipse cx="316" cy="263" rx="13" ry="22"/>
+      </g>
+      <path class="cat__nose" d="M246 312 L266 312 L256 324 Z"/>
+    </svg>
+
+    <div class="hero__copy">
+      <h1 id="hero-title" class="rise">Yuki</h1>
+      <p class="lede rise">A native, keyboard-first API&nbsp;console for macOS.</p>
+      <p class="rise">Written in Rust. Your requests live as plain YAML in a git repository, and your AI agent can send them&nbsp;too.</p>
+      <div class="hero__actions rise">
+        <a class="btn" data-download href="https://github.com/lucasAguiar11/yuki/releases/latest">Download for macOS</a>
+        <a class="link" href="https://github.com/lucasAguiar11/yuki">View the source</a>
+      </div>
+    </div>
+
+    <form class="req rise" data-ui data-live action="https://api.github.com/repos/lucasAguiar11/yuki/releases/latest" method="get" target="_blank" aria-label="Send a real request: the latest Yuki release">
+      <div class="req__prompt">
+        <span class="m-get">GET</span>
+        <span class="req__caret" aria-hidden="true">▸</span>
+        <span class="req__url">api.github.com/repos/lucasAguiar11/yuki/releases/latest</span>
+        <button class="req__send" type="submit"><kbd>⌘↵</kbd> send</button>
+      </div>
+      <div class="req__meta">headers 1 · body — · auth —</div>
+      <div class="req__status" data-status>no response</div>
+      <div class="req__body" data-body aria-live="polite">
+        <p class="req__empty">no response yet · she's asleep until you send it</p>
+      </div>
+    </form>
+  </section>
+
+  <section class="show" id="console" aria-labelledby="show-title">
+    <div class="show__stage">
+      <svg class="show__disc" viewBox="117 80 278 326" aria-hidden="true"><use href="#head"/></svg>
+      <img class="is-on" data-shot="request" src="assets/console.webp" width="2160" height="1350" alt="Yuki with a GET request to /users/1: headers on the left, the JSON response on the right">
+      <img data-shot="environments" src="assets/environments.webp" width="2160" height="1350" loading="lazy" alt="The environments screen: staging with API, ECHO and TOKEN variables">
+      <img data-shot="commands" src="assets/palette.webp" width="2160" height="1350" loading="lazy" alt="The command palette listing send, save, new request, move and other commands with their keys">
+      <img data-shot="git" src="assets/git.webp" width="2160" height="1350" loading="lazy" alt="The git panel beside a request: two modified requests, a commit box, branches and history">
+      <img data-shot="graphql" src="assets/graphql.webp" width="2160" height="1350" loading="lazy" alt="A GraphQL query with variables and its JSON response for Japan">
+      <img data-shot="timeline" src="assets/timeline.webp" width="2160" height="1350" loading="lazy" alt="The timeline: the request as sent, with the bearer token masked, and every response header">
+    </div>
+    <div class="show__index">
+      <h2 id="show-title">Inside the console</h2>
+      <ul class="show__names">
+        <li><button type="button" data-pick="request" data-disc="var(--fur)" aria-pressed="true">the request</button></li>
+        <li><button type="button" data-pick="environments" data-disc="var(--accent)" aria-pressed="false">environments</button></li>
+        <li><button type="button" data-pick="commands" data-disc="var(--yellow)" aria-pressed="false">commands</button></li>
+        <li><button type="button" data-pick="git" data-disc="var(--green)" aria-pressed="false">git</button></li>
+        <li><button type="button" data-pick="graphql" data-disc="var(--nose)" aria-pressed="false">graphql</button></li>
+        <li><button type="button" data-pick="timeline" data-disc="var(--accent)" aria-pressed="false">timeline</button></li>
+      </ul>
+      <p class="show__fact" data-fact aria-live="polite">One document per request: method ▸ URL, a line of meta, the response beside or below it. ⌘⌥L flips the layout.</p>
+      <template data-facts>
+        <p data-for="request">One document per request: method ▸ URL, a line of meta, the response beside or below it. ⌘⌥L flips the layout.</p>
+        <p data-for="environments">Personal environments stay on this machine; shared ones are committed with the workspace. ⌘⌥E opens them.</p>
+        <p data-for="commands">⌘⇧P runs any command and ⌘P opens any request. Every action has a key.</p>
+        <p data-for="git">Each workspace is its own git repository. Commit, branch, pull and push from ⌘⇧G, no git install needed.</p>
+        <p data-for="graphql">GraphQL with variables, JSON, form, multipart and binary bodies; bearer, basic, API key, digest, AWS and OAuth auth.</p>
+        <p data-for="timeline">The timeline shows the request as it went out, variables resolved and credentials masked.</p>
+      </template>
+    </div>
+  </section>
+
+  <section class="kit" aria-labelledby="kit-title">
+    <div class="kit__head">
+      <h2 id="kit-title" class="rise">The parts you use daily</h2>
+      <p class="rise">Small tools for the hundred sends a day. Collections from Postman, Insomnia, Yaak, Bruno, OpenAPI or Voleeo come in with ⌘⇧P.</p>
+    </div>
+    <ul class="kit__tiles">
+      <li class="tile tile--blue rise">
+        <div class="tile__pic"><img src="assets/crop-chips.webp" width="1026" height="440" loading="lazy" alt="The URL {{ API }}/users/1 with API as a chip, and a $uuid.v4() chip in a header"></div>
+        <h3>Variables as chips</h3>
+        <p>{{ API }} in the URL, params, headers, body or auth, resolved at send time.</p>
+      </li>
+      <li class="tile tile--fur tile--wide rise">
+        <div class="tile__pic"><img src="assets/crop-functions.webp" width="900" height="528" loading="lazy" alt="Autocomplete after typing $fa: fullName, firstName, email, phone, cpf, uuid, each with a sample"></div>
+        <h3>Fake data, fresh per send</h3>
+        <p>$fake.email(), $uuid.v4(), $timestamp.iso() and twenty more. Type $ and each shows a sample.</p>
+      </li>
+      <li class="tile tile--yellow rise">
+        <div class="tile__pic"><img src="assets/crop-pointer.webp" width="1061" height="515" loading="lazy" alt="A JSON response with the email field selected and a → variable action"></div>
+        <h3>Values from a response</h3>
+        <p>Click a field, press ⌥↵. A login's token becomes a variable that refreshes itself on send.</p>
+      </li>
+      <li class="tile tile--fur rise">
+        <div class="tile__pic"><img src="assets/crop-commands.webp" width="1140" height="918" loading="lazy" alt="The command palette with send, save, new request and other commands"></div>
+        <h3>A key for everything</h3>
+        <p>⌘↵ sends, ⌘P finds, ⌘⇧P runs. The mouse is optional.</p>
+      </li>
+      <li class="tile tile--blue rise">
+        <div class="tile__pic"><img src="assets/crop-sleep.webp" width="320" height="260" loading="lazy" alt="The empty response: Yuki asleep, no response yet, ⌘↵ sends the request"></div>
+        <h3>Quiet until it matters</h3>
+        <p>Colour only for status, methods and variables. An empty response is a cat asleep.</p>
+      </li>
+    </ul>
+  </section>
+
+  <section class="flow" aria-labelledby="flow-title">
+    <div class="flow__field flow__field--1">
+      <h2 id="flow-title">From URL to commit</h2>
+      <div class="card" data-ui>
+        <p class="card__prompt"><span class="m-get">GET</span> ▸ <span class="chip">API</span>/users/1</p>
+        <p class="card__meta">headers 0 · auth —</p>
+        <p class="card__dim">no response</p>
+      </div>
+      <p class="flow__clause">First, import a collection or type&nbsp;a&nbsp;URL.</p>
+    </div>
+    <div class="flow__field flow__field--2">
+      <div class="card" data-ui>
+        <p class="card__prompt"><span class="m-get">GET</span> ▸ <span class="chip">API</span>/users/1</p>
+        <p class="card__meta">env staging · auth bearer</p>
+        <p>Authorization <span class="chip">TOKEN</span></p>
+      </div>
+      <p class="flow__clause">Then the environment fills the&nbsp;variables.</p>
+    </div>
+    <div class="flow__field flow__field--3">
+      <div class="card" data-ui>
+        <p class="card__prompt"><span class="m-get">GET</span> ▸ <span class="chip">API</span>/users/1</p>
+        <p class="card__meta"><span class="ok">200 OK</span> · 21 ms · 509 B</p>
+        <p>"name": <span class="str">"Leanne Graham"</span></p>
+      </div>
+      <p class="flow__clause">⌘↵ sends it through the native&nbsp;engine.</p>
+    </div>
+    <div class="flow__field flow__field--4">
+      <div class="card" data-ui>
+        <p class="card__prompt"><span class="mod">M</span> req_get-user.yaml</p>
+        <p class="card__meta">url: '{{ API }}/users/1'</p>
+        <p>commit · add get user</p>
+      </div>
+      <p class="flow__clause">It lands on disk as YAML, ready to&nbsp;commit.</p>
+    </div>
+  </section>
+
+  <section class="agents" id="agents" aria-labelledby="agents-title">
+    <div class="agents__copy">
+      <h2 id="agents-title" class="rise">Your agent can send it too</h2>
+      <p class="rise">While Yuki is open, Claude Code, Codex, Cursor or Claude Desktop can list, create, edit and send your requests over MCP, with environments, cookies, history and snapshots. The client launches <code>yuki mcp</code>, a bridge to the running app: no token, no port.</p>
+      <pre class="rise"><code>claude mcp add -s user yuki -- \
+  /Applications/Yuki.app/Contents/MacOS/yuki mcp</code></pre>
+      <p class="note rise">The <code>● mcp</code> chip in the status line copies this for your client, already filled in.</p>
+    </div>
+    <ol class="chat rise" data-ui aria-label="Example: an agent creating and sending a request through Yuki">
+      <li class="chat__you">add a sign-in request to auth and send it on staging</li>
+      <li><span class="chat__tool">request.create</span> POST <span class="chip">ECHO</span>/auth/login → auth <span class="ok">created</span></li>
+      <li><span class="chat__tool">request.send</span> env staging <span class="ok">200 · 212 ms</span></li>
+      <li class="chat__agent">Created “sign in” in auth and sent it on staging: 200, and a token came back. It's in your sidebar now.</li>
+    </ol>
+  </section>
+
+  <section class="about" aria-labelledby="about-title">
+    <div class="about__left">
+      <h2 id="about-title" class="rise">Named after a tuxedo&nbsp;cat</h2>
+      <img class="about__cat" src="assets/yuki-cat.webp" width="464" height="544" loading="lazy" alt="Yuki, a black and white cat with a pink nose, looking straight at the camera">
+    </div>
+    <div class="about__right">
+      <div class="rise">
+        <h3>Open source, MIT</h3>
+        <p>The app and the engine, all of it. No feature sits behind a paywall, and personal use of the official build is&nbsp;free.</p>
+      </div>
+      <div class="rise">
+        <h3>Built on Voleeo's engine</h3>
+        <p>The Rust crates that send, resolve and store requests began in Voleeo, also MIT. Yuki is a new native app around them, on GPUI, the framework behind&nbsp;Zed.</p>
+      </div>
+      <a class="btn rise" href="https://github.com/lucasAguiar11/yuki">Read the source</a>
+    </div>
+  </section>
+
+  <a class="cta" href="https://github.com/lucasAguiar11/yuki/releases/latest">
+    <span class="cta__line">Yuki for macOS, Apple Silicon or Intel. It keeps itself up to date after&nbsp;that.</span>
+    <svg class="cta__arrow" viewBox="0 0 48 48" aria-hidden="true"><path d="M12 36 L36 12 M16 12 H36 V32"/></svg>
+    <span class="cta__word">Install</span>
+  </a>
+
+</main>
+
+<footer class="foot">
+  <div class="foot__mark">
+    <img src="assets/logo.svg" width="512" height="512" alt="">
+    <p class="foot__name">yuki</p>
+  </div>
+  <div class="foot__cols">
+    <ul>
+      <li><a href="https://github.com/lucasAguiar11/yuki/releases/latest/download/Yuki-macos-aarch64.dmg">Apple Silicon (.dmg)</a></li>
+      <li><a href="https://github.com/lucasAguiar11/yuki/releases/latest/download/Yuki-macos-x86_64.dmg">Intel (.dmg)</a></li>
+      <li><a href="https://github.com/lucasAguiar11/yuki/releases">All releases</a></li>
+    </ul>
+    <ul>
+      <li><a href="https://github.com/lucasAguiar11/yuki">Source</a></li>
+      <li><a href="https://github.com/lucasAguiar11/yuki/issues">Issues</a></li>
+      <li><a href="https://github.com/lucasAguiar11/yuki/blob/main/CONTRIBUTING.md">Contributing</a></li>
+      <li><a href="https://github.com/lucasAguiar11/yuki/blob/main/SECURITY.md">Security</a></li>
+    </ul>
+    <ul>
+      <li><a href="https://github.com/lucasAguiar11/yuki#readme">Readme</a></li>
+      <li><a href="https://github.com/lucasAguiar11/yuki/blob/main/README.pt-BR.md">Leia em português</a></li>
+      <li><a href="https://github.com/lucasAguiar11/yuki/blob/main/LICENSE">License (MIT)</a></li>
+      <li><a href="https://github.com/voleeo/voleeo-api">Voleeo</a></li>
+    </ul>
+    <p class="foot__note">Every picture on this page is the app itself, or Yuki the cat.</p>
+  </div>
+  <div class="foot__last">
+    <p>© 2026 Lucas Aguiar · MIT</p>
+    <a class="btn btn--small" href="https://github.com/lucasAguiar11/yuki">Star on GitHub</a>
+  </div>
+</footer>
+
+<script src="main.js" defer></script>
+</body>
+</html>

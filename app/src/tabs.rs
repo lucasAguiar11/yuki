@@ -1,7 +1,11 @@
-use gpui_kit::component::{h_flex, ActiveTheme as _, Icon, IconName, Sizable as _};
+use gpui_kit::component::{
+    h_flex,
+    menu::{ContextMenuExt as _, PopupMenu},
+    ActiveTheme as _, Icon, IconName, Sizable as _,
+};
 use gpui_kit::{prelude::FluentBuilder as _, *};
 
-use crate::{moving::Dragged, ui, workspace::Yuki};
+use crate::{moving::Dragged, sidebar::item, ui, workspace::Yuki};
 
 /// Payload of a tab being dragged (its index). Distinct from sidebar
 /// `Dragged` so a tab dropped on the tree doesn't move the request.
@@ -13,6 +17,7 @@ pub fn render(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
     let theme = cx.theme();
     let drop_line = theme.ring;
     let last = yuki.tabs.len().saturating_sub(1);
+    let this = cx.entity().downgrade();
     let tabs = yuki.tabs.iter().enumerate().map(|(ix, editor)| {
         let e = editor.read(cx);
         let active = ix == yuki.active && !yuki.scope_active;
@@ -96,6 +101,10 @@ pub fn render(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
             })
             .on_drop(cx.listener(move |this, d: &DraggedTab, _, cx| this.move_tab(d.0, ix, cx)))
             .on_click(cx.listener(move |this, _, window, cx| this.activate_tab(ix, window, cx)))
+            .context_menu({
+                let this = this.clone();
+                move |m, _, _| menu(m, &this, ix, last)
+            })
     });
     // The folder/workspace tab, after the requests.
     let scope = yuki.scope_label(cx).map(|label| {
@@ -187,4 +196,59 @@ impl Yuki {
             .unwrap_or(0);
         cx.notify();
     }
+
+    /// Closes every tab `keep` rejects (saving it first). The active tab stays
+    /// active if it survives, else the right-clicked one does.
+    fn close_tabs(
+        &mut self,
+        ix: usize,
+        keep: impl Fn(usize) -> bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let anchors = [self.active, ix].map(|i| self.tabs.get(i).cloned());
+        let mut i = 0;
+        self.tabs.retain(|t| {
+            let k = keep(i);
+            i += 1;
+            if !k {
+                t.update(cx, |e, cx| e.save(cx));
+            }
+            k
+        });
+        self.active = anchors
+            .iter()
+            .flatten()
+            .find_map(|a| self.tabs.iter().position(|t| t == a))
+            .unwrap_or(0);
+        self.focus_active(window, cx);
+        cx.notify();
+    }
+}
+
+/// Right-click menu of tab `ix`; `last` is the last tab's index.
+fn menu(m: PopupMenu, this: &WeakEntity<Yuki>, ix: usize, last: usize) -> PopupMenu {
+    m.item(item(this, "close", move |y, w, cx| y.close_tab(ix, w, cx)))
+        .item(
+            item(this, "close others", move |y, w, cx| {
+                y.close_tabs(ix, |i| i == ix, w, cx)
+            })
+            .disabled(last == 0),
+        )
+        .item(
+            item(this, "close to the left", move |y, w, cx| {
+                y.close_tabs(ix, |i| i >= ix, w, cx)
+            })
+            .disabled(ix == 0),
+        )
+        .item(
+            item(this, "close to the right", move |y, w, cx| {
+                y.close_tabs(ix, |i| i <= ix, w, cx)
+            })
+            .disabled(ix == last),
+        )
+        .separator()
+        .item(item(this, "close all", move |y, w, cx| {
+            y.close_tabs(ix, |_| false, w, cx)
+        }))
 }

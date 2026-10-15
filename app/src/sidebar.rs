@@ -394,7 +394,7 @@ fn menu(
     }))
 }
 
-fn item(
+pub(crate) fn item(
     this: &WeakEntity<Yuki>,
     label: &'static str,
     f: impl Fn(&mut Yuki, &mut Window, &mut Context<Yuki>) + 'static,

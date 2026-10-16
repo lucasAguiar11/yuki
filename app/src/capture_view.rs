@@ -1,4 +1,4 @@
-//! Response field → variable, UI: a bar under a JSON response's strip. It
+//! Response field → variable, UI: a bar under a JSON response's body. It
 //! follows the caret (`$.data.token = abc`), turns that field into a variable
 //! (`→ variable`, ⌥↵) named in place (`{{ NAME }}`, ↵ / esc), and lists the
 //! variables that read this request. The variable holds
@@ -120,9 +120,22 @@ impl RequestEditor {
         cx.notify();
     }
 
-    /// The bar under a JSON response's strip (body tab only).
+    /// The bar under a JSON response's body (body tab only).
     pub(crate) fn render_capture_bar(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         if !self.response_json || self.response.as_ref().is_none_or(|r| r.is_err()) {
+            return None;
+        }
+        let found = readers(&self.vars, &self.saved.id);
+        // The idle hint teaches the click; once any variable reads a response
+        // it's learned, and the row only shows up for a caret or readers.
+        if self.capture.is_none()
+            && self.caret.is_none()
+            && found.is_empty()
+            && self
+                .vars
+                .iter()
+                .any(|(_, v)| v.raw.contains("$response.body"))
+        {
             return None;
         }
         let theme = cx.theme();
@@ -203,7 +216,7 @@ impl RequestEditor {
         };
 
         // `ACCESS_TOKEN ← $.data.access_token ✕` for each variable reading this request.
-        let readers = readers(&self.vars, &self.saved.id).into_iter().map(|r| {
+        let readers = found.into_iter().map(|r| {
             let name = r.name.clone();
             h_flex()
                 .id(SharedString::from(format!("reader-{}", r.name)))
@@ -235,7 +248,7 @@ impl RequestEditor {
                 .text_xs()
                 .font_family(mono)
                 .text_color(muted)
-                .border_b_1()
+                .border_t_1()
                 .border_color(border)
                 .capture_key_down(cx.listener(|this, ev: &KeyDownEvent, _, cx| {
                     if ev.keystroke.key == "escape" && this.capture.is_some() {

@@ -175,9 +175,7 @@ impl Yuki {
                         .unwrap_or_default();
                     this.collapsed = saved.collapsed;
                     this.set_envs(&data.environments, saved.env, window, cx);
-                    this.status = t!("%{n} requests", n = data.requests.len())
-                        .into_owned()
-                        .into();
+                    this.status = "".into();
                     this.data = Some(data);
                     this.ws = Some(ws);
                     this.git.view = None;

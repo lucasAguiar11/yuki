@@ -375,7 +375,7 @@ mod tests {
             active_variation: None,
         };
         b.responses
-            .append(ws, req, response, resolved_request, 20)
+            .append(ws, req, response, resolved_request, None, 20)
             .unwrap();
         let base = || args(&[("workspaceId", ws.into()), ("requestId", req.into())]);
 
@@ -1852,7 +1852,7 @@ mod tests {
         };
         let stored = b
             .responses
-            .append(&ws.id, &req.id, response, resolved, 20)
+            .append(&ws.id, &req.id, response, resolved, None, 20)
             .unwrap();
 
         let saved = b

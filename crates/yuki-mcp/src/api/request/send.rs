@@ -369,6 +369,8 @@ impl ApiBackend {
                 .get_request(&ws_id2, &req_id2)
                 .and_then(|r| r.effective(variation.as_deref()))
                 .map_err(|e| e.to_string())?;
+            // As edited (templates kept, variation applied): what "restore" brings back.
+            let edited = req.clone();
             let envs = environments.list(&ws_id2).unwrap_or_default();
 
             // Require an explicit env when personal ones exist: defaulting to
@@ -417,11 +419,11 @@ impl ApiBackend {
             // cookie fields — same steps as Tauri `send_request` for one wire form.
             yuki_cookies::resolve::resolve_cookies(&mut cookies, &vars, var_key.as_ref());
 
-            Ok((req, cookies, jar_id, stored_auth))
+            Ok((req, cookies, jar_id, stored_auth, edited))
         })
         .await;
 
-        let (mut req, attach_cookies, jar_id, stored_auth) = match prepared {
+        let (mut req, attach_cookies, jar_id, stored_auth, edited) = match prepared {
             Ok(r) => r?,
             Err(e) => return Err(format!("Internal error: {e}")),
         };
@@ -512,7 +514,7 @@ impl ApiBackend {
         let resp_clone = resp.clone();
         let (ws, req) = (ws_id.clone(), req_id.clone());
         let stored = tokio::task::spawn_blocking(move || {
-            responses.append(&ws, &req, resp_clone, resolved_request, 20)
+            responses.append(&ws, &req, resp_clone, resolved_request, Some(edited), 20)
         })
         .await;
         match stored {

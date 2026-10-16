@@ -119,9 +119,10 @@ impl ApiBackend {
         let pseudo_id = format!("snapshot_{snapshot_id}");
         let resp_clone = response.clone();
         let req_clone = request.clone();
-        let stored =
-            super::blocking(move || responses.append(&ws_id, &pseudo_id, resp_clone, req_clone, 1))
-                .await;
+        let stored = super::blocking(move || {
+            responses.append(&ws_id, &pseudo_id, resp_clone, req_clone, None, 1)
+        })
+        .await;
         let response = match stored {
             Ok(s) => s.response,
             Err(e) => {

@@ -25,6 +25,11 @@ pub struct StoredHttpResponse {
     /// `Snapshot`; not shown in the normal history UI.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resolved_request: Option<HttpRequest>,
+    /// The request as it was in the editor (`{{ }}` templates kept, its
+    /// variation applied, secrets as on disk): what "restore" brings back.
+    /// `None` for entries written before this field existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edited_request: Option<HttpRequest>,
 }
 
 /// Lightweight summary returned by `response_list` — avoids loading full bodies.
@@ -312,13 +317,15 @@ impl ResponseStore {
 
     /// Prepend `response` to the history ring buffer, trimming to `limit` entries.
     /// `limit = 0` disables storage and is a no-op. `resolved_request` is the
-    /// literal request as sent (see `StoredHttpResponse::resolved_request`).
+    /// literal request as sent, `edited_request` the one it came from (see
+    /// `StoredHttpResponse`).
     pub fn append(
         &self,
         workspace_id: &str,
         request_id: &str,
         response: HttpResponse,
         resolved_request: HttpRequest,
+        edited_request: Option<HttpRequest>,
         limit: usize,
     ) -> Result<StoredHttpResponse, YukiError> {
         let id = new_id();
@@ -335,6 +342,7 @@ impl ResponseStore {
                 recorded_at,
                 response,
                 resolved_request: Some(resolved_request),
+                edited_request,
             });
         }
 
@@ -346,6 +354,7 @@ impl ResponseStore {
             recorded_at,
             response,
             resolved_request: Some(resolved_request),
+            edited_request,
         };
 
         let mut items = self.read_all(workspace_id, request_id)?;
@@ -506,7 +515,7 @@ mod tests {
 
         for _ in 0..12 {
             store
-                .append(ws, req, dummy_response(req), dummy_request(req), 10)
+                .append(ws, req, dummy_response(req), dummy_request(req), None, 10)
                 .unwrap();
         }
 
@@ -519,7 +528,14 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = ResponseStore::new(dir.path()).unwrap();
         store
-            .append("ws", "req", dummy_response("req"), dummy_request("req"), 0)
+            .append(
+                "ws",
+                "req",
+                dummy_response("req"),
+                dummy_request("req"),
+                None,
+                0,
+            )
             .unwrap();
         let list = store.list("ws", "req").unwrap();
         assert_eq!(list.len(), 0);
@@ -530,7 +546,14 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = ResponseStore::new(dir.path()).unwrap();
         store
-            .append("ws", "req", dummy_response("req"), dummy_request("req"), 5)
+            .append(
+                "ws",
+                "req",
+                dummy_response("req"),
+                dummy_request("req"),
+                None,
+                5,
+            )
             .unwrap();
         store.clear("ws", "req").unwrap();
         let list = store.list("ws", "req").unwrap();
@@ -542,10 +565,24 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = ResponseStore::new(dir.path()).unwrap();
         store
-            .append("ws", "req", dummy_response("req"), dummy_request("req"), 5)
+            .append(
+                "ws",
+                "req",
+                dummy_response("req"),
+                dummy_request("req"),
+                None,
+                5,
+            )
             .unwrap();
         store
-            .append("ws", "req", dummy_response("req"), dummy_request("req"), 5)
+            .append(
+                "ws",
+                "req",
+                dummy_response("req"),
+                dummy_request("req"),
+                None,
+                5,
+            )
             .unwrap();
 
         // Delete the ring-buffer file; `list` must still answer from the index —
@@ -561,7 +598,14 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = ResponseStore::new(dir.path()).unwrap();
         store
-            .append("ws", "req", dummy_response("req"), dummy_request("req"), 5)
+            .append(
+                "ws",
+                "req",
+                dummy_response("req"),
+                dummy_request("req"),
+                None,
+                5,
+            )
             .unwrap();
         // Simulate an old store: index missing, only the heavy file present.
         std::fs::remove_file(store.index_path("ws", "req").unwrap()).unwrap();
@@ -578,7 +622,7 @@ mod tests {
         resp.body = large_json(40_000); // > 256 KiB → windowed + pretty-printed
         resp.body_size = resp.body.len() as u32;
         let stored = store
-            .append("ws", "req", resp, dummy_request("req"), 5)
+            .append("ws", "req", resp, dummy_request("req"), None, 5)
             .unwrap();
         assert!(stored.response.body_windowed);
         assert!(stored.response.body.is_empty());

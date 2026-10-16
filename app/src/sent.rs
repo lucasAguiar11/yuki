@@ -79,7 +79,7 @@ fn ms(at: f64) -> String {
 
 /// The timeline as plain lines (what ⌘C / "copy" yield), each flagged as
 /// wire traffic (bright) or an engine note (muted). `curl -v` shaped.
-fn lines(resp: &HttpResponse, sent: Option<&HttpRequest>) -> Vec<(String, bool)> {
+fn lines(resp: &HttpResponse, sent: Option<&HttpRequest>, reveal: bool) -> Vec<(String, bool)> {
     let mut out = Vec::new();
     if let Some(req) = sent {
         out.push((format!("{} {}", req.method, req.url), true));
@@ -96,15 +96,23 @@ fn lines(resp: &HttpResponse, sent: Option<&HttpRequest>) -> Vec<(String, bool)>
             "error" => ("✕", false),
             _ => ("*", false),
         };
-        out.push((format!("{stamp:>8} {mark} {}", mask_line(&ev.text)), wire));
+        let text = if reveal {
+            ev.text.clone()
+        } else {
+            mask_line(&ev.text)
+        };
+        out.push((format!("{stamp:>8} {mark} {text}"), wire));
         prev = at;
     }
     out
 }
 
-/// The whole timeline as text, for "copy all".
-pub fn copy_text(resp: &HttpResponse, sent: Option<&HttpRequest>) -> String {
-    let mut out: Vec<String> = lines(resp, sent).into_iter().map(|(l, _)| l).collect();
+/// The whole timeline as text, for "copy all" — masked like the screen.
+pub fn copy_text(resp: &HttpResponse, sent: Option<&HttpRequest>, reveal: bool) -> String {
+    let mut out: Vec<String> = lines(resp, sent, reveal)
+        .into_iter()
+        .map(|(l, _)| l)
+        .collect();
     out.extend(sent.and_then(body_text).map(|b| format!("\n{b}")));
     out.join("\n")
 }
@@ -112,12 +120,13 @@ pub fn copy_text(resp: &HttpResponse, sent: Option<&HttpRequest>) -> String {
 pub fn render(
     resp: &HttpResponse,
     sent: Option<&HttpRequest>,
+    reveal: bool,
     focus: &FocusHandle,
     cx: &App,
 ) -> AnyElement {
     let theme = cx.theme();
     let (fg, muted) = (theme.foreground, theme.muted_foreground);
-    let lines = lines(resp, sent);
+    let lines = lines(resp, sent, reveal);
     let body = sent.and_then(body_text);
 
     // Every line is its own selectable run; document order keeps a drag

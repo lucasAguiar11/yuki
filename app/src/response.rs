@@ -28,11 +28,16 @@ pub fn body_for_editor(resp: &HttpResponse) -> (String, &'static str) {
         return (pretty, "json");
     }
     // XML rides the HTML grammar (same tags/attributes; no XML grammar ships).
-    let markup = resp.headers.iter().any(|h| {
-        h.name.eq_ignore_ascii_case("content-type")
-            && (h.value.contains("html") || h.value.contains("xml"))
-    });
-    (resp.body.clone(), if markup { "html" } else { "text" })
+    let ct = |s: &str| {
+        resp.headers
+            .iter()
+            .any(|h| h.name.eq_ignore_ascii_case("content-type") && h.value.contains(s))
+    };
+    if ct("xml") || resp.body.trim_start().starts_with("<?xml") {
+        let pretty = crate::xml::pretty_xml(&resp.body).unwrap_or_else(|| resp.body.clone());
+        return (pretty, "html");
+    }
+    (resp.body.clone(), if ct("html") { "html" } else { "text" })
 }
 
 fn is_html(resp: &HttpResponse) -> bool {

@@ -63,6 +63,7 @@ mod vars;
 mod vars_panel;
 mod workspace;
 mod ws_folder;
+mod xml;
 
 use std::rc::Rc;
 

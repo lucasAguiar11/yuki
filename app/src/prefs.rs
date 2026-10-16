@@ -30,6 +30,9 @@ pub struct Prefs {
     /// Response beside the request editor instead of below it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub response_beside: bool,
+    /// Don't tint response lines changed since the previous response.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hide_line_changes: bool,
     /// The folder every workspace lives in, one subfolder each. `None` =
     /// wherever each one is (the data dir by default).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -114,6 +117,7 @@ impl Prefs {
         *prefs = Prefs {
             language: prefs.language.take(),
             response_beside: prefs.response_beside,
+            hide_line_changes: prefs.hide_line_changes,
             workspaces_dir: prefs.workspaces_dir.take(),
             ..Prefs::default()
         };
@@ -194,6 +198,14 @@ impl Prefs {
         let prefs = prefs.clone();
         cx.refresh_windows();
         prefs
+    }
+
+    /// Changed-line tints (`resp_diff.rs`); taken up as editors next repaint.
+    /// The caller saves.
+    pub fn set_hide_line_changes(hide: bool, cx: &mut App) -> Prefs {
+        let prefs = cx.global_mut::<Prefs>();
+        prefs.hide_line_changes = hide;
+        prefs.clone()
     }
 
     pub fn save(&self) -> Result<(), YukiError> {

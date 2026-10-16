@@ -318,12 +318,9 @@ impl SettingsScreen {
                 .child(label)
                 .on_click(cx.listener(move |this, _, _, cx| this.set_language(lang, cx)))
         });
-        // Response below (stacked) or beside the request editor; ⌘⌥L flips it.
-        let beside = cx.global::<Prefs>().response_beside;
-        let layouts = [(false, t!("below")), (true, t!("beside"))].map(|(on, label)| {
-            let selected = beside == on;
+        let choice = |id: &'static str, label: String, selected: bool| {
             div()
-                .id(if on { "layout-beside" } else { "layout-below" })
+                .id(id)
                 .px_2()
                 .py_0p5()
                 .rounded_sm()
@@ -331,11 +328,28 @@ impl SettingsScreen {
                 .text_color(if selected { fg } else { muted })
                 .when(selected, |s| s.bg(active_bg))
                 .hover(move |s| s.bg(hover_bg))
-                .child(label.into_owned())
-                .on_click(cx.listener(move |this, _, _, cx| {
+                .child(label)
+        };
+        // Response below (stacked) or beside the request editor; ⌘⌥L flips it.
+        let beside = cx.global::<Prefs>().response_beside;
+        let layouts = [(false, t!("below")), (true, t!("beside"))].map(|(on, label)| {
+            let id = if on { "layout-beside" } else { "layout-below" };
+            choice(id, label.into_owned(), beside == on).on_click(cx.listener(
+                move |this, _, _, cx| {
                     let prefs = Prefs::set_response_beside(on, cx);
                     this.save_prefs(prefs, cx);
-                }))
+                },
+            ))
+        });
+        let hidden = cx.global::<Prefs>().hide_line_changes;
+        let changes = [(false, t!("show")), (true, t!("hide"))].map(|(hide, label)| {
+            let id = if hide { "changes-hide" } else { "changes-show" };
+            choice(id, label.into_owned(), hidden == hide).on_click(cx.listener(
+                move |this, _, _, cx| {
+                    let prefs = Prefs::set_hide_line_changes(hide, cx);
+                    this.save_prefs(prefs, cx);
+                },
+            ))
         });
         v_flex()
             .gap_4()
@@ -366,6 +380,15 @@ impl SettingsScreen {
                 t!("response").into_owned(),
                 h_flex().gap_2().children(layouts),
                 Some(t!("⌘⌥L switches it from anywhere.").into_owned()),
+                cx,
+            ))
+            .child(field(
+                t!("changed lines").into_owned(),
+                h_flex().gap_2().children(changes),
+                Some(
+                    t!("the response against the previous one: green new lines, yellow changed.")
+                        .into_owned(),
+                ),
                 cx,
             ))
             .into_any_element()

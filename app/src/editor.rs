@@ -5,7 +5,7 @@ use std::{
 };
 
 use gpui_kit::component::{
-    input::{EditorState, InputEvent, InputState},
+    input::{EditorState, InputEvent, InputState, RangeDecorationCollection},
     searchable_list::SearchableVec,
     select::{SelectEvent, SelectState},
     IndexPath,
@@ -91,6 +91,10 @@ pub struct RequestEditor {
     pub timeline_focus: FocusHandle,
     pub resp_tab: RespTab,
     pub response_body: Entity<EditorState>,
+    /// Lines changed since the previous response (`resp_diff.rs`).
+    pub(crate) diff_marks: RangeDecorationCollection,
+    /// `(+lines, −lines)` against the previous response, when any changed.
+    pub(crate) diff_stat: Option<(usize, usize)>,
     pub history: Vec<StoredHttpResponseSummary>,
     /// The shown body parsed as JSON (fields can become variables).
     pub response_json: bool,
@@ -178,6 +182,9 @@ impl RequestEditor {
                 .placeholder(t!("markdown notes: what it's for, quirks, example values…"))
         });
         let response_body = cx.new(|cx| EditorState::new(window, cx).language("json"));
+        let diff_marks = response_body.update(cx, |s, cx| {
+            s.create_range_decorations_collection(vec![], cx)
+        });
 
         let mut _subs = vec![
             cx.subscribe_in(
@@ -252,6 +259,8 @@ impl RequestEditor {
             sent: None,
             resp_tab: RespTab::Body,
             response_body,
+            diff_marks,
+            diff_stat: None,
             timeline_focus: cx.focus_handle(),
             history: vec![],
             response_json: false,
@@ -547,18 +556,24 @@ impl RequestEditor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Ok(resp) = &result {
-            let (text, lang) = response::body_for_editor(resp);
-            self.response_json = lang == "json";
-            self.response_body.update(cx, |s, cx| {
-                s.set_highlighter(lang, cx);
-                s.set_value(text, window, cx);
-            });
-        }
+        let mark = match &result {
+            Ok(resp) => {
+                let (text, lang) = response::body_for_editor(resp);
+                self.response_json = lang == "json";
+                self.response_body.update(cx, |s, cx| {
+                    s.set_highlighter(lang, cx);
+                    s.set_value(text.clone(), window, cx);
+                });
+                Some((text, resp.response_id.clone()))
+            }
+            Err(_) => None,
+        };
         self.capture = None;
         self.caret = None;
         self.caret_at = None;
         self.response = Some(result);
+        let (text, id) = mark.unwrap_or_default();
+        self.mark_changes(text, id, cx);
         cx.notify();
     }
 

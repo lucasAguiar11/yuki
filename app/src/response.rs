@@ -172,6 +172,20 @@ fn strip(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> impl IntoEl
                     }),
             )
             .child(ui::human_bytes(resp.body_size))
+            .children(editor.diff_stat.map(|(plus, minus)| {
+                let tip = t!("lines since the previous response").into_owned();
+                let (green, red) = (cx.theme().green, cx.theme().red);
+                h_flex()
+                    .id("resp-diff")
+                    .gap_1()
+                    .when(plus > 0, |s| {
+                        s.child(div().text_color(green).child(format!("+{plus}")))
+                    })
+                    .when(minus > 0, |s| {
+                        s.child(div().text_color(red).child(format!("−{minus}")))
+                    })
+                    .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
+            }))
             .children(at.map(|t| div().text_color(ui::faint(cx)).child(t)))
             .child(div().w(px(16.)))
             .child(tab("resp-body", "body".into(), RespTab::Body, cx))

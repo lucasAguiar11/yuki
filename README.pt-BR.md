@@ -64,6 +64,8 @@ Sem variável: em qualquer campo de template — inclusive o auth de uma pasta o
 
 ⌘⇧P → **Importar coleção…** (ou ⌘O → **+ importar coleção…**) lê um bundle do Voleeo, Yaak, Postman (v2.0/2.1), Insomnia (v4 JSON ou v5 YAML), OpenAPI/Swagger ou Bruno: escolha na árvore o que entra, num workspace novo ou numa pasta do workspace aberto. Auth e headers definidos na coleção ou numa pasta são copiados para cada request. **Exportar workspace…** grava o workspace aberto como Voleeo, Yaak, Postman (ambientes em arquivos ao lado) ou Insomnia v4; valores secretos saem vazios, a não ser que você marque **incluir segredos**.
 
+Um comando `curl …` colado na barra de URL (o **Copy as cURL** do DevTools, a documentação de uma API) vira o request aberto: método, URL e query, headers, body e basic auth.
+
 ## MCP
 
 Com o Yuki aberto, agentes de IA podem listar, criar, editar e enviar seus requests (HTTP, WebSocket, gRPC), ambientes, cookies, histórico e snapshots por MCP. O cliente executa `yuki mcp`, uma ponte stdio para o app aberto — sem token nem porta para configurar.

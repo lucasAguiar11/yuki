@@ -39,6 +39,7 @@ mod oauth;
 mod palette;
 mod params;
 mod past;
+mod paste_curl;
 mod prefs;
 mod query;
 mod rename;

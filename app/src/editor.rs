@@ -208,6 +208,11 @@ impl RequestEditor {
                         let pasted = len > this.url_len + 1;
                         this.url_len = len;
                         if pasted {
+                            let text = url.read(cx).value().to_string();
+                            if text.trim_start().starts_with("curl ") {
+                                this.change(|r| _ = crate::paste_curl::apply(&text, r), window, cx);
+                                return;
+                            }
                             this.take_url_query(window, cx);
                         }
                         this.refresh_dirty(cx);

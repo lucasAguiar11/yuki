@@ -10,8 +10,8 @@ use crate::{
     ui,
     update::{State, Updater},
     workspace::Yuki,
-    ImportCollection, ImportVoleeo, InstallUpdate, OpenCommands, OpenEnvs, OpenMcp, OpenRequests,
-    OpenSettings, OpenWorkspaces, ToggleEditor, ToggleGit, ToggleSidebar, ToggleVars,
+    ImportCollection, ImportVoleeo, InstallUpdate, NewRequest, OpenCommands, OpenEnvs, OpenMcp,
+    OpenRequests, OpenSettings, OpenWorkspaces, ToggleEditor, ToggleGit, ToggleSidebar, ToggleVars,
 };
 
 /// `demo / JSONPlaceholder / photos                         env [Local ▾]`
@@ -49,7 +49,7 @@ pub fn title_bar(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
                 h_flex()
                     .gap_2()
                     .children(yuki.env.as_ref().map(|env| {
-                        let fg = theme.foreground;
+                        let (fg, faint) = (theme.foreground, ui::faint(cx));
                         let color = yuki.active_env_color(cx);
                         h_flex()
                             .gap_1()
@@ -83,12 +83,14 @@ pub fn title_bar(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
                                     ),
                             )
                             .child(
-                                div()
+                                h_flex()
                                     .id("env-edit")
                                     .px_1()
+                                    .gap_1()
                                     .cursor_pointer()
                                     .hover(move |s| s.text_color(fg))
-                                    .child(t!("edit"))
+                                    .child(t!("environments"))
+                                    .child(div().text_color(faint).child("⌘⌥E"))
                                     .on_click(|_, window, cx| {
                                         window.dispatch_action(Box::new(OpenEnvs), cx)
                                     }),
@@ -272,6 +274,44 @@ pub fn welcome(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
                 })
         })
         .collect();
+    // With a workspace open, the first moves: `nova request ⌘N` …
+    let starts = yuki.ws.is_some().then(|| {
+        let start =
+            |id: &'static str, label: String, key: &'static str, action: Box<dyn Action>| {
+                h_flex()
+                    .id(id)
+                    .h(px(28.))
+                    .px_2()
+                    .rounded(radius)
+                    .cursor_pointer()
+                    .text_color(muted)
+                    .hover(move |s| s.bg(hover_bg).text_color(fg))
+                    .child(div().flex_1().child(label))
+                    .child(div().text_xs().child(key))
+                    .on_click(move |_, window, cx| window.dispatch_action(action.boxed_clone(), cx))
+            };
+        v_flex()
+            .w(px(320.))
+            .text_sm()
+            .child(start(
+                "welcome-new",
+                t!("new request").into_owned(),
+                "⌘N",
+                Box::new(NewRequest),
+            ))
+            .child(start(
+                "welcome-open",
+                t!("open a request").into_owned(),
+                "⌘P",
+                Box::new(OpenRequests),
+            ))
+            .child(start(
+                "welcome-cmds",
+                t!("every command").into_owned(),
+                "⌘⇧P",
+                Box::new(OpenCommands),
+            ))
+    });
     v_flex()
         .size_full()
         .items_center()
@@ -292,6 +332,7 @@ pub fn welcome(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
                 )
                 .child(div().text_sm().text_color(muted).child(t!("API console"))),
         )
+        .children(starts)
         .when(!rows.is_empty(), |s| {
             s.child(
                 v_flex()

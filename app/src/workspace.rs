@@ -221,6 +221,8 @@ impl Yuki {
             };
             let (backend, env) = (self.backend.clone(), self.env_id(cx));
             let editor = cx.new(|cx| RequestEditor::new(backend, req, env, window, cx));
+            let changed = self.git.change_of(id).is_some();
+            editor.update(cx, |e, _| e.git_changed = changed);
             self._subs.push(
                 cx.subscribe(&editor, |this, editor, _: &EditorChanged, cx| {
                     // Keep the sidebar/palette copy in sync with what's on disk.

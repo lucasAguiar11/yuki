@@ -41,6 +41,7 @@ mod params;
 mod prefs;
 mod query;
 mod rename;
+mod req_diff;
 mod resp_diff;
 mod response;
 mod scope_view;

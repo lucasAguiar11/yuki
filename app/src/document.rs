@@ -243,6 +243,11 @@ impl RequestEditor {
             cx,
         );
         let notes = segment("meta-notes", self.notes_label(cx).into(), ReqTab::Notes, cx);
+        // While git marks the request changed: its file against the last commit.
+        let diff = self.git_changed.then(|| {
+            segment("meta-diff", "diff".into(), ReqTab::Diff, cx)
+                .on_click(cx.listener(|this, _, _, cx| this.load_diff(cx)))
+        });
         let vars_segment = self.render_vars_segment(cx);
         let variation = self.render_variation(cx);
         let beside = cx.global::<crate::prefs::Prefs>().response_beside;
@@ -304,6 +309,7 @@ impl RequestEditor {
             .child(notes)
             .child(dot())
             .child(vars_segment)
+            .when_some(diff, |s, d| s.child(dot()).child(d))
             .child(div().flex_1())
             .child(layouts)
             .child(
@@ -327,6 +333,7 @@ impl RequestEditor {
             ReqTab::Body => self.render_body(cx),
             ReqTab::Auth => crate::auth_form::render(self, cx),
             ReqTab::Notes => self.render_notes(cx),
+            ReqTab::Diff => self.render_diff(cx),
         };
         div()
             .size_full()

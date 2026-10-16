@@ -42,6 +42,8 @@ pub enum ReqTab {
     Body,
     Auth,
     Notes,
+    /// The request's file vs the last commit (`req_diff.rs`).
+    Diff,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -79,6 +81,10 @@ pub struct RequestEditor {
     pub notes: Entity<EditorState>,
     pub notes_saved: String,
     pub notes_preview: bool,
+    /// Git marks this request changed: the meta line offers `diff`.
+    pub git_changed: bool,
+    /// `git diff` of the request's files; `None` until the pane first opens.
+    pub file_diff: Option<SharedString>,
     pub req_tab: ReqTab,
     pub editor_open: bool,
     pub sending: bool,
@@ -245,6 +251,8 @@ impl RequestEditor {
             notes,
             notes_saved: String::new(),
             notes_preview: false,
+            git_changed: false,
+            file_diff: None,
             headers,
             body,
             req_tab: if has_body {

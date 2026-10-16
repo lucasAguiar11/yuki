@@ -73,6 +73,18 @@ impl Backend {
         let dir = self.api.app_data_dir.join("workspaces").join(ws_id);
         std::fs::canonicalize(&dir).unwrap_or(dir)
     }
+
+    /// `git diff` of a request's files (`req_{id}.yaml` and its notes) against
+    /// HEAD, hunks only; empty when unchanged or not a repo.
+    pub fn request_diff(&self, ws_id: &str, req_id: &str) -> String {
+        let dir = self.ws_dir(ws_id);
+        [format!("req_{req_id}.yaml"), format!("req_{req_id}.md")]
+            .iter()
+            .filter_map(|rel| yuki_git::entity_diff_text(&dir, rel).ok())
+            .filter(|d| !d.trim().is_empty())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
 }
 
 pub fn load_view(dir: &Path) -> Result<GitView, YukiError> {
@@ -200,6 +212,11 @@ impl Yuki {
             _ = this.update(cx, |this, cx| {
                 if let Ok(view) = view {
                     this.git.view = Some(view);
+                    // The `diff` pane of each tab follows the repo (save, commit, pull).
+                    for tab in this.tabs.clone() {
+                        let changed = this.git.change_of(&tab.read(cx).saved.id).is_some();
+                        tab.update(cx, |e, cx| e.set_git_changed(changed, cx));
+                    }
                     cx.notify();
                 }
             });

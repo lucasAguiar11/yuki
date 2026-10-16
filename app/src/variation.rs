@@ -73,7 +73,7 @@ impl RequestEditor {
 
     /// Writes `f` applied to the request as edited, then rebuilds the form
     /// from it: the shown fields depend on which variation is active.
-    fn change(
+    pub(crate) fn change(
         &mut self,
         f: impl FnOnce(&mut HttpRequest),
         window: &mut Window,

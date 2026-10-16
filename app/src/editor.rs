@@ -5,7 +5,7 @@ use std::{
 };
 
 use gpui_kit::component::{
-    input::{EditorState, InputEvent, InputState, RangeDecorationCollection},
+    input::{EditorState, InputEvent, InputState},
     searchable_list::SearchableVec,
     select::{SelectEvent, SelectState},
     IndexPath,
@@ -85,6 +85,8 @@ pub struct RequestEditor {
     pub git_changed: bool,
     /// `git diff` of the request's files; `None` until the pane first opens.
     pub file_diff: Option<SharedString>,
+    /// Viewing an older send: when it went out and the request as it was then.
+    pub(crate) past: Option<(String, HttpRequest)>,
     pub req_tab: ReqTab,
     pub editor_open: bool,
     pub sending: bool,
@@ -95,12 +97,10 @@ pub struct RequestEditor {
     pub sent: Option<HttpRequest>,
     /// Focused when the timeline is clicked, so ⌘C copies its selection.
     pub timeline_focus: FocusHandle,
+    /// Timeline shows credential headers in full (masked by default).
+    pub reveal_tokens: bool,
     pub resp_tab: RespTab,
     pub response_body: Entity<EditorState>,
-    /// Lines changed since the previous response (`resp_diff.rs`).
-    pub(crate) diff_marks: RangeDecorationCollection,
-    /// `(+lines, −lines)` against the previous response, when any changed.
-    pub(crate) diff_stat: Option<(usize, usize)>,
     pub history: Vec<StoredHttpResponseSummary>,
     /// The shown body parsed as JSON (fields can become variables).
     pub response_json: bool,
@@ -188,9 +188,6 @@ impl RequestEditor {
                 .placeholder(t!("markdown notes: what it's for, quirks, example values…"))
         });
         let response_body = cx.new(|cx| EditorState::new(window, cx).language("json"));
-        let diff_marks = response_body.update(cx, |s, cx| {
-            s.create_range_decorations_collection(vec![], cx)
-        });
 
         let mut _subs = vec![
             cx.subscribe_in(
@@ -253,6 +250,7 @@ impl RequestEditor {
             notes_preview: false,
             git_changed: false,
             file_diff: None,
+            past: None,
             headers,
             body,
             req_tab: if has_body {
@@ -267,9 +265,8 @@ impl RequestEditor {
             sent: None,
             resp_tab: RespTab::Body,
             response_body,
-            diff_marks,
-            diff_stat: None,
             timeline_focus: cx.focus_handle(),
+            reveal_tokens: false,
             history: vec![],
             response_json: false,
             capture: None,
@@ -441,6 +438,7 @@ impl RequestEditor {
             let result = backend.save_and_send(req.clone(), env_id).await;
             this.update_in(cx, |this, window, cx| {
                 this.sending = false;
+                this.past = None;
                 let notes = this.notes_saved.clone();
                 this.mark_saved(req, notes, cx);
                 let resp_id = result.as_ref().map(|r| r.response_id.clone()).ok();
@@ -541,17 +539,30 @@ impl RequestEditor {
     pub fn show_history(&mut self, resp_id: String, window: &mut Window, cx: &mut Context<Self>) {
         let backend = self.backend.clone();
         let (ws, id) = (self.saved.workspace_id.clone(), self.saved.id.clone());
-        let task = cx.background_spawn(async move { backend.stored_response(&ws, &id, &resp_id) });
+        // An older send also shows the request it came from (`past.rs`).
+        let summary = self
+            .history
+            .iter()
+            .position(|s| s.id == resp_id)
+            .and_then(|ix| (ix > 0).then(|| crate::ui::clock(&self.history[ix].recorded_at)));
+        let task = cx.background_spawn(async move {
+            let past =
+                summary.and_then(|at| Some((at, backend.edited_request(&ws, &id, &resp_id)?)));
+            (backend.stored_response(&ws, &id, &resp_id), past)
+        });
         cx.spawn_in(window, async move |this, cx| {
-            let result = task.await.map_err(|e| e.to_string());
-            this.update_in(cx, |this, window, cx| match result {
-                Ok((resp, sent)) => {
-                    this.sent = sent;
-                    this.show_response(Ok(resp), window, cx)
-                }
-                Err(e) => {
-                    this.sent = None;
-                    this.show_response(Err(e), window, cx)
+            let (result, past) = task.await;
+            this.update_in(cx, |this, window, cx| {
+                this.past = past;
+                match result.map_err(|e| e.to_string()) {
+                    Ok((resp, sent)) => {
+                        this.sent = sent;
+                        this.show_response(Ok(resp), window, cx)
+                    }
+                    Err(e) => {
+                        this.sent = None;
+                        this.show_response(Err(e), window, cx)
+                    }
                 }
             })
         })
@@ -564,24 +575,18 @@ impl RequestEditor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let mark = match &result {
-            Ok(resp) => {
-                let (text, lang) = response::body_for_editor(resp);
-                self.response_json = lang == "json";
-                self.response_body.update(cx, |s, cx| {
-                    s.set_highlighter(lang, cx);
-                    s.set_value(text.clone(), window, cx);
-                });
-                Some((text, resp.response_id.clone()))
-            }
-            Err(_) => None,
-        };
+        if let Ok(resp) = &result {
+            let (text, lang) = response::body_for_editor(resp);
+            self.response_json = lang == "json";
+            self.response_body.update(cx, |s, cx| {
+                s.set_highlighter(lang, cx);
+                s.set_value(text, window, cx);
+            });
+        }
         self.capture = None;
         self.caret = None;
         self.caret_at = None;
         self.response = Some(result);
-        let (text, id) = mark.unwrap_or_default();
-        self.mark_changes(text, id, cx);
         cx.notify();
     }
 

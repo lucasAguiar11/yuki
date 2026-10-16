@@ -32,9 +32,10 @@ app/              `yuki` binary (GPUI) — the only layer that knows gpui
   src/params.rs   params tab: path params (one row per URL `:name`, chipped in the URL) + query rows, all stored in `parameters`; the URL bar holds no query — a pasted one (or one left on blur) moves to the rows; `query.rs` normalizes requests that still have it in the URL (no write until edited)
   src/complete.rs `{{` autocomplete (on `{{`, `$` or ⌃space), generic over `CompleteHost` (request editor, scope tab): variables, `resolve::funcs`, then latest-response JSON fields as `$response.body`; complete_view.rs the popup + keys
   src/code_vars.rs `{{ VAR }}` "badge" in code editors (decorations; `EditorState` doesn't take tokens)
-  src/response.rs status strip (time, local clock, `+3 −1` vs the previous response), body/headers, history (●●●); XML bodies indented by xml.rs; resp_diff.rs tints response lines changed since the previous response (green added, yellow modified; off in settings → appearance); req_diff.rs the `diff` meta tab (offered while git marks the request changed): `req_{id}.yaml`/`.md` vs HEAD as git prints it, re-read on every `refresh_git`
+  src/response.rs status strip (time, local clock), body/headers, history (●●●); XML bodies indented by xml.rs; req_diff.rs the `diff` meta tab (offered while git marks the request changed): `req_{id}.yaml`/`.md` vs HEAD as git prints it, re-read on every `refresh_git`
+  src/past.rs     picking an older history entry shows the request as it was then (read-only, in place of the editor) with restore/back; history stores it as `edited_request` (templates kept)
   src/capture.rs  response field → variable (pure: JSONPath under the caret, name, `$response.body` formula, readers); capture_view.rs the bar under a JSON response (⌥↵, name in place, readers ✕). The engine prefills `$response.body` (`resolve::prefill_responses`) before `resolve_str`
-  src/sent.rs     timeline tab: resolved request as sent + engine event log (credentials masked)
+  src/sent.rs     timeline tab: resolved request as sent + engine event log (credentials masked until `show tokens`)
   src/var_view.rs `{{ VAR }}` chips + tooltip; src/vars.rs model/tokenization (pure)
   src/vars_panel.rs ⌘⇧E panel;  src/sidebar.rs, tabs.rs, chrome.rs, palette.rs
   src/env_screen.rs "environments" screen ⌘⌥E (state, autosave, create/rename/delete); env_view.rs render; envs.rs title-bar `env` select

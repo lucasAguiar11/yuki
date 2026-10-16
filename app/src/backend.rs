@@ -187,6 +187,23 @@ impl Backend {
         Ok((resp, stored.resolved_request))
     }
 
+    /// The request as it was in the editor when `resp_id` was sent (secrets
+    /// opened), for viewing/restoring it. `None` for entries older than this.
+    pub fn edited_request(&self, ws_id: &str, req_id: &str, resp_id: &str) -> Option<HttpRequest> {
+        let mut req = self
+            .api
+            .responses
+            .get(ws_id, req_id, resp_id)
+            .ok()??
+            .edited_request?;
+        if let Ok(Some(key)) = secrets::key(&self.api, ws_id) {
+            for auth in req.auths_mut() {
+                *auth = secrets::open(std::mem::take(auth), &key);
+            }
+        }
+        Some(req)
+    }
+
     /// The request exactly as sent (literal URL/headers/body) for a stored response.
     pub fn sent_request(&self, ws_id: &str, req_id: &str, resp_id: &str) -> Option<HttpRequest> {
         self.api

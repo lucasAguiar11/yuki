@@ -96,14 +96,25 @@ pub fn render(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> AnyEle
                     .px_4()
                     .into_any_element(),
                 RespTab::Headers => headers_table(resp, cx),
-                RespTab::Timeline => {
-                    sent::render(resp, editor.sent.as_ref(), &editor.timeline_focus, cx)
-                }
+                RespTab::Timeline => sent::render(
+                    resp,
+                    editor.sent.as_ref(),
+                    editor.reveal_tokens,
+                    &editor.timeline_focus,
+                    cx,
+                ),
             },
         };
     v_flex()
         .size_full()
-        .child(strip(editor, cx))
+        // Nothing sent yet: the sleeping cat says it; an empty strip would too.
+        .when(
+            editor.response.is_some() || editor.sending || !editor.history.is_empty(),
+            |r| r.child(strip(editor, cx)),
+        )
+        .child(div().flex_1().min_h_0().child(content))
+        // Under the body: appearing on a click shrinks the editor from the
+        // bottom, so the clicked text stays put.
         .when(
             match &editor.response {
                 Some(Ok(r)) => shown_tab(editor, r),
@@ -111,7 +122,6 @@ pub fn render(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> AnyEle
             } == RespTab::Body,
             |r| r.children(editor.render_capture_bar(cx)),
         )
-        .child(div().flex_1().min_h_0().child(content))
         .into_any_element()
 }
 
@@ -172,20 +182,6 @@ fn strip(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> impl IntoEl
                     }),
             )
             .child(ui::human_bytes(resp.body_size))
-            .children(editor.diff_stat.map(|(plus, minus)| {
-                let tip = t!("lines since the previous response").into_owned();
-                let (green, red) = (cx.theme().green, cx.theme().red);
-                h_flex()
-                    .id("resp-diff")
-                    .gap_1()
-                    .when(plus > 0, |s| {
-                        s.child(div().text_color(green).child(format!("+{plus}")))
-                    })
-                    .when(minus > 0, |s| {
-                        s.child(div().text_color(red).child(format!("−{minus}")))
-                    })
-                    .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
-            }))
             .children(at.map(|t| div().text_color(ui::faint(cx)).child(t)))
             .child(div().w(px(16.)))
             .child(tab("resp-body", "body".into(), RespTab::Body, cx))
@@ -211,7 +207,7 @@ fn strip(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> impl IntoEl
             ))
             // Outside the timeline itself: clicks there start a selection.
             .when(editor.resp_tab == RespTab::Timeline, |r| {
-                let text = sent::copy_text(resp, editor.sent.as_ref());
+                let text = sent::copy_text(resp, editor.sent.as_ref(), editor.reveal_tokens);
                 let fg = cx.theme().foreground;
                 r.child(
                     div()
@@ -224,13 +220,25 @@ fn strip(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> impl IntoEl
                             cx.write_to_clipboard(ClipboardItem::new_string(text.clone()))
                         }),
                 )
+                .child(
+                    div()
+                        .id("timeline-reveal")
+                        .px_1p5()
+                        .cursor_pointer()
+                        .hover(move |s| s.text_color(fg))
+                        .child(if editor.reveal_tokens {
+                            t!("hide tokens")
+                        } else {
+                            t!("show tokens")
+                        })
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.reveal_tokens = !this.reveal_tokens;
+                            cx.notify();
+                        })),
+                )
             });
-    } else {
-        row = row.child(if editor.sending {
-            t!("sending… %{elapsed}", elapsed = editor.elapsed()).into_owned()
-        } else {
-            t!("no response").into_owned()
-        });
+    } else if editor.sending {
+        row = row.child(t!("sending… %{elapsed}", elapsed = editor.elapsed()).into_owned());
     }
     row.child(div().flex_1()).child(history(editor, cx))
 }

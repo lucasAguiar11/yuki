@@ -95,7 +95,13 @@ impl Render for RequestEditor {
         let first = |state: &Entity<ResizableState>, cx: &App| {
             state.read(cx).sizes().first().map(|p| p.as_f32())
         };
-        let body = match (self.editor_open, beside) {
+        // Viewing an older send: its request, read-only, in place of the editor.
+        let open = self.editor_open || self.past.is_some();
+        let editor = open.then(|| {
+            self.render_past(cx)
+                .unwrap_or_else(|| self.render_editor(cx))
+        });
+        let body = match (open, beside) {
             (false, _) => response,
             (true, false) => v_resizable(id("v"))
                 .on_resize(move |state, _, cx| {
@@ -108,7 +114,7 @@ impl Render for RequestEditor {
                         .size(height)
                         .size_range(px(80.)..Pixels::MAX)
                         .flex_none()
-                        .child(self.render_editor(cx)),
+                        .children(editor),
                 )
                 .child(resizable_panel().child(response))
                 .into_any_element(),
@@ -123,7 +129,7 @@ impl Render for RequestEditor {
                         .size(width)
                         .size_range(px(280.)..Pixels::MAX)
                         .flex_none()
-                        .child(self.render_editor(cx)),
+                        .children(editor),
                 )
                 .child(resizable_panel().child(response))
                 .into_any_element(),
@@ -131,8 +137,12 @@ impl Render for RequestEditor {
         let popup = complete_view::render(self, window, cx);
         let root = v_flex().size_full().bg(cx.theme().background);
         complete_view::keys(root, popup.is_some(), cx)
-            .child(self.render_prompt(window, cx))
-            .child(self.render_meta(cx))
+            .map(|s| match self.render_past_bar(cx) {
+                Some(bar) => s.child(bar),
+                None => s
+                    .child(self.render_prompt(window, cx))
+                    .child(self.render_meta(cx)),
+            })
             .child(div().flex_1().min_h_0().child(body))
             .children(popup)
     }
@@ -162,7 +172,10 @@ impl RequestEditor {
             .border_color(if focused { theme.ring } else { theme.border })
             .child(
                 div()
-                    .w(px(92.))
+                    // Fits the method so the caret sits by it: `GET ⌄ ▸`, not a
+                    // DELETE-wide box. 48px = the Select's padding, border, gap and
+                    // caret. ponytail: mono semibold advance guessed at 0.6rem.
+                    .w(px(48.) + window.rem_size() * (self.saved.method.len() as f32 * 0.6))
                     .font_weight(FontWeight::SEMIBOLD)
                     .font_family(theme.mono_font_family.clone())
                     .text_color(ui::method_color(&self.saved.method, cx))

@@ -19,7 +19,7 @@ pub use http::{apply_to_connection, apply_to_request};
 pub use responses::{prefill_responses, select as select_json, sources as response_sources};
 pub use system_env::{
     allowlist as system_env_allowlist, set_allowlist as set_system_env_allowlist,
-    snapshot as system_env_snapshot,
+    set_skip_cert_check, skip_cert_check, snapshot as system_env_snapshot,
 };
 pub use text::path_params;
 pub use vars::{

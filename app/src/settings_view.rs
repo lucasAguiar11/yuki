@@ -3,6 +3,7 @@
 
 use gpui_kit::component::{
     button::Button,
+    checkbox::Checkbox,
     h_flex,
     input::{Input, Textarea},
     select::Select,
@@ -219,6 +220,15 @@ impl SettingsScreen {
                 t!("shell env").into_owned(),
                 Input::new(&self.env).small(),
                 Some(t!("variables from your shell that requests can use as {{ NAME }}, below environments. this machine only.").into_owned()),
+                cx,
+            ))
+            .child(field(
+                t!("certificates").into_owned(),
+                Checkbox::new("skip-certs")
+                    .checked(self.skip_certs)
+                    .label(t!("accept invalid certificates").into_owned())
+                    .on_click(cx.listener(|this, on: &bool, _, cx| this.set_skip_certs(*on, cx))),
+                Some(t!("expired, self-signed or for another host: sends go through anyway. this machine only.").into_owned()),
                 cx,
             ))
             .into_any_element()

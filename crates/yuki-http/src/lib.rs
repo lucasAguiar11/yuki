@@ -15,6 +15,7 @@ pub use sse_accum::SseAccum;
 
 use redirect::RedirectHop;
 use std::collections::HashMap;
+use std::future::Future;
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -68,6 +69,8 @@ tokio::task_local! {
     /// Present for `send_streamed`; the body reader pushes each parsed SSE frame
     /// here instead of buffering. `None` for plain sends.
     pub(crate) static SSE_SINK: Option<SseSink>;
+    /// Accept expired/self-signed/mismatched certificates (workspace setting).
+    pub(crate) static SKIP_CERT_CHECK: bool;
 }
 
 /// Shared HTTP client: one `reqwest::Client` (and its connection pool) reused
@@ -75,6 +78,10 @@ tokio::task_local! {
 #[derive(Debug, Clone)]
 pub struct HttpExecutor {
     pub(crate) client: reqwest::Client,
+    /// Same as `client` minus certificate validation; picked per send under
+    /// `with_cert_check_skipped`. Its own pool, so a verified connection is
+    /// never reused by a skipped send or vice versa.
+    pub(crate) insecure_client: reqwest::Client,
     /// Last successful send per `(host, port)` — not bumped on failure, so a
     /// timeout doesn't refresh the connection-reuse heuristic.
     pub(crate) last_seen: Arc<Mutex<HashMap<(String, u16), Instant>>>,
@@ -88,60 +95,81 @@ pub struct HttpExecutor {
 }
 
 impl HttpExecutor {
-    /// Builds the executor. The client carries a redirect policy that logs hops
-    /// via task-locals (set in `send`) and a cookie provider that captures
-    /// cookies on intermediate redirects before following.
     pub fn new() -> Result<Self, YukiError> {
-        let client = reqwest::Client::builder()
-            .redirect(reqwest::redirect::Policy::custom(|attempt| {
-                if attempt.previous().len() >= MAX_REDIRECTS {
-                    return attempt.error(format!("too many redirects (max {MAX_REDIRECTS})"));
-                }
-                // Guarded (AI/MCP) sends: a redirect to a literal-IP metadata/
-                // link-local target skips the DNS resolver's guard, so reject it
-                // here directly. Hostname hops are still caught by the resolver.
-                let guarded = GUARD_INTERNAL.try_with(|g| *g).unwrap_or(false);
-                if guarded {
-                    if let Some(ip) = attempt
-                        .url()
-                        .host_str()
-                        .and_then(|h| h.trim_matches(['[', ']']).parse::<IpAddr>().ok())
-                    {
-                        if yuki_core::is_link_local_or_metadata(ip) {
-                            return attempt.error(format!(
-                                "blocked redirect to internal/link-local address {ip}"
-                            ));
-                        }
-                    }
-                }
-                // Records only when polled inside a `send` scope.
-                let _ = REQ_START.try_with(|started| {
-                    let at_ms = started.elapsed().as_secs_f64() * 1000.0;
-                    let status = attempt.status().as_u16();
-                    let to = attempt.url().to_string();
-                    let _ = REDIRECT_SINK.try_with(|sink| {
-                        if let Ok(mut hops) = sink.lock() {
-                            hops.push(RedirectHop { status, to, at_ms });
-                        }
-                    });
-                });
-                attempt.follow()
-            }))
-            .cookie_provider(Arc::new(cookie_provider::TaskLocalCookieJar))
-            .dns_resolver(Arc::new(dns::TaskLocalResolver))
-            .pool_idle_timeout(POOL_IDLE_TIMEOUT)
-            .use_rustls_tls()
-            .build()
-            .map_err(|e| YukiError::Http(e.to_string()))?;
-
         Ok(Self {
-            client,
+            client: build_client(false)?,
+            insecure_client: build_client(true)?,
             last_seen: Arc::new(Mutex::new(HashMap::new())),
             in_flight: Arc::new(Mutex::new(HashMap::new())),
             send_seq: Arc::new(AtomicU64::new(0)),
         })
     }
 
+    /// Runs `send` (any send of this executor) with certificate validation off
+    /// when `skip`. NTLM keeps validating: it has its own TLS connector.
+    pub async fn with_cert_check_skipped<F: Future>(skip: bool, send: F) -> F::Output {
+        SKIP_CERT_CHECK.scope(skip, send).await
+    }
+
+    /// The client for the current send.
+    pub(crate) fn client(&self) -> &reqwest::Client {
+        if SKIP_CERT_CHECK.try_with(|s| *s).unwrap_or(false) {
+            &self.insecure_client
+        } else {
+            &self.client
+        }
+    }
+}
+
+/// One `reqwest::Client` with a redirect policy that logs hops via
+/// task-locals (set in `send`) and a cookie provider that captures cookies on
+/// intermediate redirects before following.
+fn build_client(skip_cert_check: bool) -> Result<reqwest::Client, YukiError> {
+    reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            if attempt.previous().len() >= MAX_REDIRECTS {
+                return attempt.error(format!("too many redirects (max {MAX_REDIRECTS})"));
+            }
+            // Guarded (AI/MCP) sends: a redirect to a literal-IP metadata/
+            // link-local target skips the DNS resolver's guard, so reject it
+            // here directly. Hostname hops are still caught by the resolver.
+            let guarded = GUARD_INTERNAL.try_with(|g| *g).unwrap_or(false);
+            if guarded {
+                if let Some(ip) = attempt
+                    .url()
+                    .host_str()
+                    .and_then(|h| h.trim_matches(['[', ']']).parse::<IpAddr>().ok())
+                {
+                    if yuki_core::is_link_local_or_metadata(ip) {
+                        return attempt.error(format!(
+                            "blocked redirect to internal/link-local address {ip}"
+                        ));
+                    }
+                }
+            }
+            // Records only when polled inside a `send` scope.
+            let _ = REQ_START.try_with(|started| {
+                let at_ms = started.elapsed().as_secs_f64() * 1000.0;
+                let status = attempt.status().as_u16();
+                let to = attempt.url().to_string();
+                let _ = REDIRECT_SINK.try_with(|sink| {
+                    if let Ok(mut hops) = sink.lock() {
+                        hops.push(RedirectHop { status, to, at_ms });
+                    }
+                });
+            });
+            attempt.follow()
+        }))
+        .cookie_provider(Arc::new(cookie_provider::TaskLocalCookieJar))
+        .dns_resolver(Arc::new(dns::TaskLocalResolver))
+        .pool_idle_timeout(POOL_IDLE_TIMEOUT)
+        .use_rustls_tls()
+        .tls_danger_accept_invalid_certs(skip_cert_check)
+        .build()
+        .map_err(|e| YukiError::Http(e.to_string()))
+}
+
+impl HttpExecutor {
     /// Abort an in-flight send (no-op if not running); the waiting `send`
     /// returns `Err(YukiError::Cancelled)`.
     pub fn cancel(&self, request_id: &str) {

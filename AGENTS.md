@@ -40,7 +40,7 @@ app/              `yuki` binary (GPUI) — the only layer that knows gpui
   src/var_view.rs `{{ VAR }}` chips + tooltip; src/vars.rs model/tokenization (pure)
   src/vars_panel.rs ⌘⇧E panel;  src/sidebar.rs, tabs.rs, chrome.rs, palette.rs
   src/env_screen.rs "environments" screen ⌘⌥E (state, autosave, create/rename/delete); env_view.rs render; envs.rs title-bar `env` select
-  src/settings.rs "settings" screen ⌘, (workspace name, DNS overrides as hosts lines, shell-env allowlist); settings_view.rs render; prefs.rs font sizes + language; about.rs "about" section
+  src/settings.rs "settings" screen ⌘, (workspace name, DNS overrides as hosts lines, shell-env allowlist, accept invalid certificates — machine-local `skipCertificateCheck`; sends then flag `⚠ unverified` via a `tls` timeline event); settings_view.rs render; prefs.rs font sizes + language; about.rs "about" section
   src/session.rs  `Session` global ↔ `session.yaml`: window bounds, panel visibility/sizes (`on_resize`), per workspace open tabs, collapsed folders, env; restored on launch and workspace switch, written in `flush_blocking` (quit/close)
   src/items.rs    tree CRUD (create/duplicate/delete); moving.rs drag & drop + "move to…"; rename.rs inline rename
   src/backend.rs  bridge to the engine: tokio runtime, load/save/send, Voleeo import
@@ -57,7 +57,7 @@ crates/yuki-*     engine inherited from Voleeo (MIT), no gpui/tauri
 site/             GitHub Pages landing (static HTML/CSS/JS, real app screenshots); `.github/workflows/pages.yml` deploys it on push to main
 ```
 
-**Invariants:** `crates/` never depends on gpui. The whole send pipeline goes through `ApiBackend::send_http` (`crates/yuki-mcp/src/api/request/send.rs`) — app and MCP share it; never reimplement env/folder/auth/cookies/history in the UI. Variable resolution: `yuki_mcp::resolve` (`load_env_vars_from`, `apply_folder_vars`, `resolve_str`, `is_identifier`); `resolve_str` also evaluates no-arg template functions from `resolve::funcs::FUNCTIONS` (`{{ $fake.email() }}` — `$` sigil required, fresh per occurrence; unknown/with-args stay verbatim). `send_http` applies the workspace's DNS overrides and shell-env allowlist, merges workspace → folder → request headers (`merge_inherited_metadata`) and resolves `inherit` auth (`effective_auth`: nearest folder with an active auth, else the workspace) for HTTP; WS/gRPC still treat `inherit` as no auth.
+**Invariants:** `crates/` never depends on gpui. The whole send pipeline goes through `ApiBackend::send_http` (`crates/yuki-mcp/src/api/request/send.rs`) — app and MCP share it; never reimplement env/folder/auth/cookies/history in the UI. Variable resolution: `yuki_mcp::resolve` (`load_env_vars_from`, `apply_folder_vars`, `resolve_str`, `is_identifier`); `resolve_str` also evaluates no-arg template functions from `resolve::funcs::FUNCTIONS` (`{{ $fake.email() }}` — `$` sigil required, fresh per occurrence; unknown/with-args stay verbatim). `send_http` applies the workspace's DNS overrides, shell-env allowlist and certificate-check skip, merges workspace → folder → request headers (`merge_inherited_metadata`) and resolves `inherit` auth (`effective_auth`: nearest folder with an active auth, else the workspace) for HTTP; WS/gRPC still treat `inherit` as no auth.
 
 ## Localization
 

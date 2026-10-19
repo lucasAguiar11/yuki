@@ -182,6 +182,18 @@ fn strip(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> impl IntoEl
                     }),
             )
             .child(ui::human_bytes(resp.body_size))
+            .when(resp.events.iter().any(|e| e.kind == "tls"), |r| {
+                r.child(
+                    div()
+                        .id("resp-tls")
+                        .text_color(cx.theme().warning)
+                        .child(t!("⚠ unverified"))
+                        .tooltip(|window, cx| {
+                            Tooltip::new(t!("the TLS certificate wasn't checked: settings → workspace → accept invalid certificates is on").into_owned())
+                                .build(window, cx)
+                        }),
+                )
+            })
             .children(at.map(|t| div().text_color(ui::faint(cx)).child(t)))
             .child(div().w(px(16.)))
             .child(tab("resp-body", "body".into(), RespTab::Body, cx))

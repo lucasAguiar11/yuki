@@ -460,20 +460,41 @@ impl ApiBackend {
             .get(&ws_id)
             .map(|w| w.dns_overrides)
             .unwrap_or_default();
-        let result = if agent {
-            self.executor
-                .send_guarded(&req, attach_cookies, dns_overrides)
-                .await
-        } else {
-            self.executor
-                .send(&req, attach_cookies, dns_overrides)
-                .await
+        let skip_certs = crate::resolve::skip_cert_check(&ws_id, &self.app_data_dir);
+        let send = async {
+            if agent {
+                self.executor
+                    .send_guarded(&req, attach_cookies, dns_overrides)
+                    .await
+            } else {
+                self.executor
+                    .send(&req, attach_cookies, dns_overrides)
+                    .await
+            }
         };
-        let resp = match result {
+        let result = yuki_http::HttpExecutor::with_cert_check_skipped(skip_certs, send).await;
+        let mut resp = match result {
             Ok(r) => r,
             Err(YukiError::Cancelled) => return Err("Request cancelled".into()),
             Err(e) => return Err(redact::redact_error(&e.to_string())),
         };
+        // The response strip flags it; a URL without TLS has nothing to skip.
+        if skip_certs
+            && req
+                .url
+                .trim_start()
+                .to_ascii_lowercase()
+                .starts_with("https")
+        {
+            resp.events.insert(
+                0,
+                yuki_core::TimelineEvent {
+                    at_ms: 0.0,
+                    kind: "tls".into(),
+                    text: "certificate not verified (accept invalid certificates is on)".into(),
+                },
+            );
+        }
         eprintln!(
             "[send] response {} in {:.0}ms (total wall {:.0}ms)",
             resp.status,
@@ -509,7 +530,6 @@ impl ApiBackend {
 
         // Awaited so the returned response carries its history id (callers
         // list/select history right after a send).
-        let mut resp = resp;
         let responses = self.responses.clone();
         let resp_clone = resp.clone();
         let (ws, req) = (ws_id.clone(), req_id.clone());

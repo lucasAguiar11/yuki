@@ -1,5 +1,5 @@
 //! "Configurações" screen (⌘,): general (workspaces folder), the workspace
-//! (name, DNS overrides, shell env allowlist), the app's appearance (font
+//! (name, DNS overrides, shell env allowlist, certificate check), the app's appearance (font
 //! sizes, language) and about (version,
 //! updates). Workspace edits go to disk 400 ms after typing stops; appearance
 //! applies and saves on click.
@@ -41,6 +41,8 @@ pub struct SettingsScreen {
     /// As last written.
     pub(crate) ws: Workspace,
     allow: Vec<String>,
+    /// Machine-local: sends accept invalid TLS certificates.
+    pub skip_certs: bool,
     /// Where the workspace's files (and its git repo) live, links resolved.
     pub folder: PathBuf,
     pub section: Section,
@@ -96,6 +98,7 @@ impl SettingsScreen {
         backend: Arc<Backend>,
         ws: Workspace,
         allow: Vec<String>,
+        skip_certs: bool,
         folder: PathBuf,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -138,6 +141,7 @@ impl SettingsScreen {
             backend,
             ws,
             allow,
+            skip_certs,
             folder,
             section: Section::Workspace,
             mcp_client: Default::default(),
@@ -152,6 +156,24 @@ impl SettingsScreen {
             saving: false,
             _subs,
         }
+    }
+
+    /// Applies to the next send; written right away, like appearance.
+    pub fn set_skip_certs(&mut self, skip: bool, cx: &mut Context<Self>) {
+        self.skip_certs = skip;
+        let (id, dir) = (self.ws.id.clone(), self.backend.api.app_data_dir.clone());
+        let task =
+            cx.background_spawn(async move { resolve::set_skip_cert_check(&id, &dir, skip) });
+        cx.spawn(async move |this, cx| {
+            if let Err(e) = task.await {
+                _ = this.update(cx, |s, cx| {
+                    s.error = e.to_string().into();
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
+        cx.notify();
     }
 
     pub fn select(&mut self, section: Section, cx: &mut Context<Self>) {
@@ -280,17 +302,20 @@ impl Yuki {
         let backend = self.backend.clone();
         let task = cx.background_spawn(async move {
             let ws = backend.api.workspaces.get(&id)?;
-            let allow = resolve::system_env_allowlist(&id, &backend.api.app_data_dir);
-            Ok::<_, YukiError>((ws, allow, backend.ws_dir(&id)))
+            let dir = &backend.api.app_data_dir;
+            let allow = resolve::system_env_allowlist(&id, dir);
+            let skip = resolve::skip_cert_check(&id, dir);
+            Ok::<_, YukiError>((ws, allow, skip, backend.ws_dir(&id)))
         });
         cx.spawn_in(window, async move |this, cx| {
             let loaded = task.await;
             _ = this.update_in(cx, |this, window, cx| {
                 match loaded {
-                    Ok((ws, allow, folder)) => {
+                    Ok((ws, allow, skip, folder)) => {
                         let backend = this.backend.clone();
                         let screen = cx.new(|cx| {
-                            let mut s = SettingsScreen::new(backend, ws, allow, folder, window, cx);
+                            let mut s =
+                                SettingsScreen::new(backend, ws, allow, skip, folder, window, cx);
                             s.section = section;
                             s
                         });

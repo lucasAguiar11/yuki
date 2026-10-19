@@ -170,7 +170,7 @@ impl HttpExecutor {
             }
         }
 
-        let mut builder = self.client.request(method, &url);
+        let mut builder = self.client().request(method, &url);
 
         // Attach request headers — validate eagerly so we surface a specific
         // error instead of reqwest's opaque "builder error".

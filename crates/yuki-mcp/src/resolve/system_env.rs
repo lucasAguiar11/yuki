@@ -29,40 +29,69 @@ pub(super) fn allowlisted_vars(workspace_id: &str, app_data_dir: &Path) -> HashM
 
 const SETTINGS_FILE: &str = "workspace-settings.yaml";
 
-/// Lenient read of the one field we need from `workspace-settings.yaml`
-/// (canonical schema: `src-tauri/src/commands/workspace/settings.rs`).
-pub fn allowlist(workspace_id: &str, app_data_dir: &Path) -> Vec<String> {
-    #[derive(Default, serde::Deserialize)]
-    struct File {
-        #[serde(default)]
-        workspaces: Vec<Entry>,
-    }
-    #[derive(serde::Deserialize)]
-    struct Entry {
-        id: String,
-        #[serde(default, rename = "systemEnvAllowlist")]
-        system_env_allowlist: Option<Vec<String>>,
-    }
-    let Ok(text) = std::fs::read_to_string(app_data_dir.join(SETTINGS_FILE)) else {
-        return Vec::new();
-    };
-    serde_yaml::from_str::<File>(&text)
-        .ok()
-        .and_then(|f| {
-            f.workspaces
-                .into_iter()
-                .find(|e| e.id == workspace_id)
-                .and_then(|e| e.system_env_allowlist)
-        })
-        .unwrap_or_default()
+/// Lenient read of one field of the workspace's entry in
+/// `workspace-settings.yaml` (canonical schema:
+/// `src-tauri/src/commands/workspace/settings.rs`).
+fn setting<T: serde::de::DeserializeOwned>(
+    workspace_id: &str,
+    app_data_dir: &Path,
+    key: &str,
+) -> Option<T> {
+    use serde_yaml::Value;
+    let text = std::fs::read_to_string(app_data_dir.join(SETTINGS_FILE)).ok()?;
+    let root: Value = serde_yaml::from_str(&text).ok()?;
+    let entry = root
+        .get("workspaces")?
+        .as_sequence()?
+        .iter()
+        .find(|e| e.get("id").and_then(Value::as_str) == Some(workspace_id))?;
+    serde_yaml::from_value(entry.get(key)?.clone()).ok()
 }
 
-/// Replace the workspace's allowlist. The file holds other machine-local
-/// settings (Voleeo's too), so it is edited as a YAML tree: unknown keys stay.
+pub fn allowlist(workspace_id: &str, app_data_dir: &Path) -> Vec<String> {
+    setting(workspace_id, app_data_dir, "systemEnvAllowlist").unwrap_or_default()
+}
+
+/// Accept invalid (expired, self-signed) TLS certificates for this
+/// workspace's sends. Machine-local on purpose: a pulled repo can't turn it on.
+pub fn skip_cert_check(workspace_id: &str, app_data_dir: &Path) -> bool {
+    setting(workspace_id, app_data_dir, "skipCertificateCheck").unwrap_or(false)
+}
+
 pub fn set_allowlist(
     workspace_id: &str,
     app_data_dir: &Path,
     names: &[String],
+) -> Result<(), yuki_core::YukiError> {
+    let names = names.iter().map(|n| n.as_str().into()).collect();
+    set_setting(
+        workspace_id,
+        app_data_dir,
+        "systemEnvAllowlist",
+        serde_yaml::Value::Sequence(names),
+    )
+}
+
+pub fn set_skip_cert_check(
+    workspace_id: &str,
+    app_data_dir: &Path,
+    skip: bool,
+) -> Result<(), yuki_core::YukiError> {
+    set_setting(
+        workspace_id,
+        app_data_dir,
+        "skipCertificateCheck",
+        skip.into(),
+    )
+}
+
+/// Sets one field of the workspace's entry. The file holds other machine-local
+/// settings (Voleeo's too), so it is edited as a YAML tree: unknown keys stay.
+fn set_setting(
+    workspace_id: &str,
+    app_data_dir: &Path,
+    key: &str,
+    value: serde_yaml::Value,
 ) -> Result<(), yuki_core::YukiError> {
     use serde_yaml::{Mapping, Value};
     let path = app_data_dir.join(SETTINGS_FILE);
@@ -91,9 +120,8 @@ pub fn set_allowlist(
             list.last_mut().expect("just pushed")
         }
     };
-    let names = Value::Sequence(names.iter().map(|n| n.as_str().into()).collect());
     if let Some(m) = entry.as_mapping_mut() {
-        m.insert("systemEnvAllowlist".into(), names);
+        m.insert(key.into(), value);
     }
     let text =
         serde_yaml::to_string(&root).map_err(|e| yuki_core::YukiError::Storage(e.to_string()))?;

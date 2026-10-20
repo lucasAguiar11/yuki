@@ -11,7 +11,7 @@ use crate::{
     git_panel,
     moving::{Dest, Dragged},
     palette::Kind,
-    ui,
+    tree, ui,
     workspace::Yuki,
     OpenWorkspaces,
 };
@@ -33,6 +33,10 @@ pub fn render(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
     let any_open = yuki.any_folder_open();
     let this = cx.entity().downgrade();
     let (drop_bg, drop_line) = (theme.drop_target, theme.ring);
+    let marks = match (&yuki.data, yuki.git.view.as_ref()) {
+        (Some(d), Some(v)) => tree::marks(&d.folders, &d.requests, &v.changes),
+        _ => Default::default(),
+    };
 
     let rows = yuki.rows.iter().enumerate().map(|(ix, row)| {
         let selected = active_id.as_deref() == Some(row.id.as_ref());
@@ -93,14 +97,17 @@ pub fn render(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
                 .child(row.name.clone())
                 .into_any_element(),
         };
-        // `M`/`A` at the row end: changed since the last commit.
-        let mark = yuki.git.change_of(&row.id).map(|c| {
-            let (letter, color) = git_panel::change_mark(c, cx);
-            div()
+        // `M`/`A` at the row end: changed since the last commit; a folder
+        // shows each kind of change inside it (`M A`).
+        let mark = marks.get(row.id.as_ref()).map(|kinds| {
+            h_flex()
+                .gap_1()
                 .text_xs()
                 .font_family(theme.mono_font_family.clone())
-                .text_color(color)
-                .child(letter)
+                .children(kinds.iter().map(|&c| {
+                    let (letter, color) = git_panel::change_mark(c, cx);
+                    div().text_color(color).child(letter)
+                }))
         });
         let dest = if is_folder {
             Dest::Into(Some(id.to_string()))

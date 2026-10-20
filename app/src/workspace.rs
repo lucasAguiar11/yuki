@@ -118,7 +118,7 @@ impl Yuki {
         this
     }
 
-    fn reload_workspaces(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn reload_workspaces(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let backend = self.backend.clone();
         let task = cx.background_spawn(async move { backend.workspaces() });
         cx.spawn_in(window, async move |this, cx| {
@@ -130,6 +130,12 @@ impl Yuki {
                     .find(|w| Some(&w.id) == last.as_ref())
                     .or(list.first())
                     .cloned();
+                // The open one as it is now (an agent may have set its auth).
+                if let Some(ws) = this.ws.as_mut() {
+                    if let Some(fresh) = list.iter().find(|w| w.id == ws.id) {
+                        *ws = fresh.clone();
+                    }
+                }
                 this.workspaces = list;
                 if this.ws.is_none() {
                     if let Some(ws) = first {

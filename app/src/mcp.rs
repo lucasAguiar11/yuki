@@ -48,8 +48,16 @@ fn token() -> io::Result<String> {
 
 /// What the window listens to: agent edits and how many agents are connected.
 pub struct Link {
-    pub edits: mpsc::UnboundedReceiver<String>,
+    pub edits: mpsc::UnboundedReceiver<Edit>,
     pub clients: watch::Receiver<usize>,
+}
+
+/// What an agent changed (only MCP tools fire these).
+pub enum Edit {
+    /// Requests, folders or envs of this workspace.
+    Items(String),
+    /// The workspace list, or a workspace's own fields (auth).
+    Workspaces,
 }
 
 /// The returned receiver's `changed()` fails once the server is down.
@@ -91,16 +99,19 @@ pub fn bridge() -> io::Result<()> {
     result
 }
 
-/// The engine's notify hook, narrowed to "an agent changed this workspace's
-/// requests, folders or envs" (only MCP tools fire these).
-pub fn changes() -> (NotifyFn, mpsc::UnboundedReceiver<String>) {
+/// The engine's notify hook, narrowed to the edits the window shows.
+pub fn changes() -> (NotifyFn, mpsc::UnboundedReceiver<Edit>) {
     let (tx, rx) = mpsc::unbounded_channel();
     let notify: NotifyFn = Arc::new(move |event, payload| {
-        if matches!(event, "mcp:requests:changed" | "mcp:envs:changed") {
-            if let Some(ws) = payload["workspaceId"].as_str() {
-                let _ = tx.send(ws.to_owned());
-            }
-        }
+        let edit = match event {
+            "mcp:workspaces:changed" => Edit::Workspaces,
+            "mcp:requests:changed" | "mcp:envs:changed" => match payload["workspaceId"].as_str() {
+                Some(ws) => Edit::Items(ws.to_owned()),
+                None => return,
+            },
+            _ => return,
+        };
+        let _ = tx.send(edit);
     });
     (notify, rx)
 }
@@ -124,14 +135,26 @@ impl Yuki {
     }
 
     /// Tree, envs and count reload; open tabs follow (`reload_clean_tabs`).
+    /// Workspace edits reload the list (and the open one's copy).
     fn watch_agent_edits(
         &self,
-        mut changes: mpsc::UnboundedReceiver<String>,
+        mut changes: mpsc::UnboundedReceiver<Edit>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         cx.spawn_in(window, async move |this, cx| {
-            while let Some(ws_id) = changes.recv().await {
+            while let Some(edit) = changes.recv().await {
+                let ws_id = match edit {
+                    Edit::Items(id) => id,
+                    Edit::Workspaces => {
+                        let alive = this
+                            .update_in(cx, |this, window, cx| this.reload_workspaces(window, cx));
+                        if alive.is_err() {
+                            break;
+                        }
+                        continue;
+                    }
+                };
                 let backend = match this.update(cx, |this, _| {
                     let open = this.ws.as_ref().is_some_and(|w| w.id == ws_id);
                     open.then(|| this.backend.clone())

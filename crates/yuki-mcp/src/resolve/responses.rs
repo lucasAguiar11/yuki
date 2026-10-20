@@ -29,7 +29,7 @@ pub fn prefill_responses(
     let mut exprs: Vec<String> = Vec::new();
     for text in &texts {
         for inner in tokens(text) {
-            if inner.starts_with("$response.body(") && !exprs.iter().any(|e| e == inner) {
+            if args(inner).is_some() && !exprs.iter().any(|e| e == inner) {
                 exprs.push(inner.to_string());
             }
         }
@@ -69,11 +69,19 @@ fn sources_from(vars: &HashMap<String, String>, mut texts: Vec<String>) -> Vec<S
     out
 }
 
+/// The arguments of a response call: `$response.body(…)`, or Voleeo's
+/// sigil-less `response.body(…)` that imported workspaces carry. Either way it
+/// is a pointer (sent first); Voleeo's `strategy`/`ttl` args are ignored —
+/// `force` behaviour, which is what keeps the value fresh.
+pub fn args(expr: &str) -> Option<Vec<(&str, String)>> {
+    let (name, args) = funcs::call(expr.strip_prefix('$').unwrap_or(expr))?;
+    (name == "response.body").then_some(args)
+}
+
 fn source_of(expr: &str) -> Option<String> {
-    let (name, args) = funcs::call(expr.strip_prefix('$')?)?;
-    (name == "response.body")
-        .then(|| args.into_iter().find(|(k, _)| *k == "requestId"))
-        .flatten()
+    args(expr)?
+        .into_iter()
+        .find(|(k, _)| *k == "requestId")
         .map(|(_, v)| v)
 }
 
@@ -100,10 +108,7 @@ fn strings(v: &Value, out: &mut Vec<String>) {
 }
 
 fn body(expr: &str, ws_id: &str, responses: &ResponseStore) -> Option<String> {
-    let (name, args) = funcs::call(expr.strip_prefix('$')?)?;
-    if name != "response.body" {
-        return None;
-    }
+    let args = args(expr)?;
     let arg = |k: &str| args.iter().find(|(n, _)| *n == k).map(|(_, v)| v.as_str());
     let stored = responses.latest(ws_id, arg("requestId")?).ok()??;
     let body = responses.read_full_body(ws_id, &stored).ok()?;
@@ -160,5 +165,9 @@ mod tests {
         .collect();
         let texts = vec!["Bearer {{ T }} {{ LOOP }}".to_string(), call("login")];
         assert_eq!(sources_from(&vars, texts), ["login"]);
+        // Voleeo's form (imported data): no `$`, extra args.
+        let voleeo = r#"{{ response.body(requestId="auth", strategy="force", selector="$.t") }}"#;
+        assert_eq!(sources_from(&vars, vec![voleeo.into()]), ["auth"]);
+        assert!(args("responsebody()").is_none() && args("$fake.email()").is_none());
     }
 }

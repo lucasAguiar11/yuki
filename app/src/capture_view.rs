@@ -134,7 +134,7 @@ impl RequestEditor {
             && self
                 .vars
                 .iter()
-                .any(|(_, v)| v.raw.contains("$response.body"))
+                .any(|(_, v)| v.raw.contains("response.body("))
         {
             return None;
         }

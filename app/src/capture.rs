@@ -2,7 +2,7 @@
 //! suggested name, the `$response.body` formula, and which variables read a
 //! request. UI in `capture_view.rs`.
 
-use yuki_mcp::resolve::{funcs, is_identifier};
+use yuki_mcp::resolve::{is_identifier, response_args};
 
 use crate::vars::Vars;
 
@@ -193,9 +193,9 @@ pub fn readers(vars: &Vars, req_id: &str) -> Vec<Reader> {
                 .strip_prefix("{{")?
                 .strip_suffix("}}")?
                 .trim();
-            let (fn_name, args) = funcs::call(inner.strip_prefix('$')?)?;
+            let args = response_args(inner)?;
             let arg = |k: &str| args.iter().find(|(n, _)| *n == k).map(|(_, v)| v.clone());
-            (fn_name == "response.body" && arg("requestId")? == req_id).then(|| Reader {
+            (arg("requestId")? == req_id).then(|| Reader {
                 name: name.clone(),
                 selector: arg("selector").unwrap_or_default(),
             })

@@ -4,7 +4,7 @@
 use std::{collections::BTreeMap, ops::Range};
 
 use gpui_kit::component::input::{InlineToken, InputContent};
-use yuki_mcp::resolve::{funcs, is_identifier};
+use yuki_mcp::resolve::{funcs, is_identifier, response_args};
 
 /// The layer a variable comes from, strongest first.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -47,11 +47,15 @@ pub enum Kind {
 }
 
 /// Unknown functions are `Missing`: the engine sends them verbatim. A variable
-/// still holding an unresolved `$response.…` (no stored response yet) is a
+/// still holding an unresolved response call (no stored response yet) is a
 /// `Function`: the send fetches it.
 pub fn kind(expr: &str, vars: &Vars) -> Kind {
-    let pending = |v: &Var| v.value.contains("{{ $response.");
-    if funcs::lookup(expr).is_some() || expr.starts_with("$response.body(") {
+    let pending = |v: &Var| {
+        spans(&v.value)
+            .iter()
+            .any(|(_, e)| response_args(e).is_some())
+    };
+    if funcs::lookup(expr).is_some() || response_args(expr).is_some() {
         Kind::Function
     } else if !is_identifier(expr) {
         Kind::Missing
@@ -85,13 +89,10 @@ pub fn spans(text: &str) -> Vec<(Range<usize>, &str)> {
 }
 
 /// Atomic chip for one template; the id is the expression, the label hides
-/// the braces — and, for a `$response.body(…)`, the request id.
+/// the braces — and, for a response call, the request id.
 pub fn token(source: &str, expr: &str) -> InlineToken {
-    let label = expr
-        .strip_prefix('$')
-        .and_then(funcs::call)
-        .filter(|(name, _)| *name == "response.body")
-        .and_then(|(_, args)| args.into_iter().find(|(k, _)| *k == "selector"))
+    let label = response_args(expr)
+        .and_then(|args| args.into_iter().find(|(k, _)| *k == "selector"))
         .map_or_else(|| expr.to_string(), |(_, sel)| format!("$response {sel}"));
     InlineToken::new(expr.to_string(), source.to_string()).with_label(label)
 }

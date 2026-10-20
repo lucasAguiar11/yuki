@@ -14,7 +14,7 @@ use gpui_kit::{prelude::FluentBuilder as _, *};
 use crate::{
     prefs::{FamilySelect, Font, Prefs},
     settings::{Section, SettingsScreen},
-    ui, CloseSettings, FocusNext, FocusPrev,
+    ui, CloseSettings, ExportWorkspace, FocusNext, FocusPrev,
 };
 
 impl Render for SettingsScreen {
@@ -208,6 +208,20 @@ impl SettingsScreen {
                 t!("folder").into_owned(),
                 path,
                 Some(t!("where its files and git repo live · click to show in Finder · move takes everything, .git included").into_owned()),
+                cx,
+            ))
+            .child(field(
+                t!("export").into_owned(),
+                h_flex().child(
+                    Button::new("ws-export")
+                        .xsmall()
+                        .outline()
+                        .label(t!("export…").into_owned())
+                        .on_click(|_, window, cx| {
+                            window.dispatch_action(Box::new(ExportWorkspace), cx)
+                        }),
+                ),
+                Some(t!("a file for Postman, Insomnia, Yaak or Voleeo").into_owned()),
                 cx,
             ))
             .child(field(

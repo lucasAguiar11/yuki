@@ -97,6 +97,7 @@
 "environments": "ambientes"
 "Environments and variables…": "Ambientes e variáveis…"
 "evaluated at send time": "avaliada no momento do envio"
+"a file for Postman, Insomnia, Yaak or Voleeo": "um arquivo para Postman, Insomnia, Yaak ou Voleeo"
 "expand all folders": "expandir todas as pastas"
 "export": "exportar"
 "export failed: %{e}": "falha ao exportar: %{e}"

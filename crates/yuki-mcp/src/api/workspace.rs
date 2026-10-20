@@ -26,7 +26,10 @@ impl ApiBackend {
         let encrypted = args["encrypted"].as_bool().unwrap_or(false);
         let workspaces = self.workspaces.clone();
         match super::blocking(move || workspaces.create(name, encrypted)).await {
-            Ok(ws) => ToolResult::json(&ws),
+            Ok(ws) => {
+                self.notify_workspaces(&ws.id);
+                ToolResult::json(&ws)
+            }
             Err(e) => ToolResult::error(e.to_string()),
         }
     }
@@ -49,6 +52,7 @@ impl ApiBackend {
         .await;
         match result {
             Ok(mut ws) => {
+                self.notify_workspaces(&ws.id);
                 redact::mask_auth(&mut ws.auth);
                 ToolResult::json(&ws)
             }

@@ -187,6 +187,14 @@ impl ApiBackend {
         );
     }
 
+    /// The workspace list or a workspace's own fields (auth) changed.
+    pub(crate) fn notify_workspaces(&self, workspace_id: &str) {
+        (self.notify)(
+            "mcp:workspaces:changed",
+            serde_json::json!({ "workspaceId": workspace_id }),
+        );
+    }
+
     pub(crate) fn notify_connections(&self, workspace_id: &str) {
         (self.notify)(
             "mcp:connections:changed",
@@ -311,6 +319,38 @@ mod tests {
         let list: Vec<Value> = serde_json::from_str(&listed.content[0].text).unwrap();
         assert_eq!(list.len(), 1);
         assert_eq!(list[0]["name"], "My API");
+    }
+
+    #[tokio::test]
+    async fn workspace_create_and_set_auth_notify() {
+        // The app reloads its workspace list on this event; without it an
+        // agent's new workspace only showed up after relaunching the app.
+        use std::sync::Mutex;
+        let dir = tempfile::tempdir().unwrap();
+        let seen = Arc::new(Mutex::new(Vec::<(String, String)>::new()));
+        let sink = seen.clone();
+        let b = ApiBackend::open(
+            dir.path().to_path_buf(),
+            Arc::new(move |event, payload| {
+                let id = payload["workspaceId"].as_str().unwrap_or("").to_string();
+                sink.lock().unwrap().push((event.to_string(), id));
+            }),
+        )
+        .unwrap();
+        let ws_id = ws(&b).await;
+        b.call_tool(
+            "workspace.set_auth",
+            serde_json::json!({ "workspaceId": ws_id, "auth": { "kind": "bearer", "token": "t" } }),
+        )
+        .await;
+        let changed: Vec<_> = seen
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(e, _)| e == "mcp:workspaces:changed")
+            .map(|(_, id)| id.clone())
+            .collect();
+        assert_eq!(changed, [ws_id.clone(), ws_id]);
     }
 
     #[tokio::test]

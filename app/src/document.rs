@@ -102,6 +102,12 @@ impl Render for RequestEditor {
                 .unwrap_or_else(|| self.render_editor(cx))
         });
         let body = match (open, beside) {
+            // Collapsed response: the editor takes the room, the strip sits below.
+            _ if !self.response_open => v_flex()
+                .size_full()
+                .children(editor.map(|e| div().flex_1().min_h_0().child(e)))
+                .child(response)
+                .into_any_element(),
             (false, _) => response,
             (true, false) => v_resizable(id("v"))
                 .on_resize(move |state, _, cx| {

@@ -57,6 +57,14 @@ fn shown_tab(editor: &RequestEditor, resp: &HttpResponse) -> RespTab {
 }
 
 pub fn render(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> AnyElement {
+    if !editor.response_open {
+        // Under the editor: the strip alone, status and history still visible.
+        return div()
+            .border_t_1()
+            .border_color(cx.theme().border)
+            .child(strip(editor, cx))
+            .into_any_element();
+    }
     let theme = cx.theme();
     let content =
         match &editor.response {
@@ -127,8 +135,9 @@ pub fn render(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> AnyEle
 
 /// `200 OK · 128 ms · 1.0 KB · 14:03:12   body  headers 20  timeline   ●●●●`
 fn strip(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> impl IntoElement {
+    let toggle = cx.listener(|this, _, _, cx| this.toggle_response(cx));
     let theme = cx.theme();
-    let muted = theme.muted_foreground;
+    let (fg, muted) = (theme.foreground, theme.muted_foreground);
     let mut row = h_flex()
         .h(px(30.))
         .px_4()
@@ -138,7 +147,18 @@ fn strip(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> impl IntoEl
         .text_color(muted)
         .bg(theme.sidebar)
         .border_b_1()
-        .border_color(theme.border);
+        .border_color(theme.border)
+        .child(
+            div()
+                .id("toggle-response")
+                .cursor_pointer()
+                .hover(move |s| s.text_color(fg))
+                .child(if editor.response_open { "▾" } else { "▸" })
+                .tooltip(|window, cx| {
+                    Tooltip::new(t!("response ⌘J").into_owned()).build(window, cx)
+                })
+                .on_click(toggle),
+        );
 
     // While a send is in flight the strip shows its clock, not the old result.
     if let Some(Ok(resp)) = editor.response.as_ref().filter(|_| !editor.sending) {
@@ -156,6 +176,7 @@ fn strip(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> impl IntoEl
                 .child(label)
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.resp_tab = t;
+                    this.response_open = true;
                     cx.notify();
                 }))
         };

@@ -121,9 +121,11 @@ impl RequestEditor {
         cx: &mut Context<Self>,
     ) {
         let (tab, open, env) = (self.req_tab, self.editor_open, self.env_id.clone());
+        let response_open = self.response_open;
         *self = RequestEditor::new(self.backend.clone(), req, env, window, cx);
         self.req_tab = tab;
         self.editor_open = open;
+        self.response_open = response_open;
         cx.emit(EditorChanged);
         cx.notify();
     }

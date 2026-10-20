@@ -89,6 +89,8 @@ pub struct RequestEditor {
     pub(crate) past: Option<(String, HttpRequest)>,
     pub req_tab: ReqTab,
     pub editor_open: bool,
+    /// Collapsed: only the status strip shows (⌘J).
+    pub response_open: bool,
     pub sending: bool,
     /// When the in-flight send started (drives the live elapsed counter).
     pub sent_at: Option<Instant>,
@@ -264,6 +266,7 @@ impl RequestEditor {
                 ReqTab::Headers
             },
             editor_open: has_body,
+            response_open: true,
             sending: false,
             sent_at: None,
             response: None,
@@ -372,6 +375,15 @@ impl RequestEditor {
             }
             _ => self.editor_open = !self.editor_open,
         }
+        // Both folded would leave an empty page: the response takes it back.
+        self.response_open |= !self.editor_open;
+        cx.notify();
+    }
+
+    pub fn toggle_response(&mut self, cx: &mut Context<Self>) {
+        self.response_open = !self.response_open;
+        // The editor fills the room the response gave up.
+        self.editor_open |= !self.response_open;
         cx.notify();
     }
 

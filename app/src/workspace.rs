@@ -457,6 +457,11 @@ impl Render for Yuki {
                     e.update(cx, |e, cx| e.toggle_editor(None, cx));
                 }
             }))
+            .on_action(cx.listener(|this, _: &ToggleResponse, _, cx| {
+                if let Some(e) = this.active_editor() {
+                    e.update(cx, |e, cx| e.toggle_response(cx));
+                }
+            }))
             .on_action(cx.listener(|this, _: &ToggleVars, _, cx| {
                 this.vars_panel = !this.vars_panel;
                 this.git_panel = false;

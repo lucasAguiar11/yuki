@@ -87,6 +87,7 @@ actions!(
         OpenWorkspaces,
         ImportVoleeo,
         ToggleEditor,
+        ToggleResponse,
         ToggleVars,
         ToggleGit,
         OpenEnvs,
@@ -141,6 +142,7 @@ fn bind_keys(cx: &mut App) {
     cx.bind_keys([
         KeyBinding::new("cmd-b", ToggleSidebar, None),
         KeyBinding::new("cmd-e", ToggleEditor, None),
+        KeyBinding::new("cmd-j", ToggleResponse, None),
         KeyBinding::new("cmd-shift-e", ToggleVars, None),
         KeyBinding::new("cmd-shift-g", ToggleGit, None),
         KeyBinding::new("cmd-alt-e", OpenEnvs, None),

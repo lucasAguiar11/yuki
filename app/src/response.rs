@@ -40,18 +40,19 @@ pub fn body_for_editor(resp: &HttpResponse) -> (String, &'static str) {
     (resp.body.clone(), if ct("html") { "html" } else { "text" })
 }
 
-fn is_html(resp: &HttpResponse) -> bool {
-    resp.body_is_text
-        && resp
-            .headers
-            .iter()
-            .any(|h| h.name.eq_ignore_ascii_case("content-type") && h.value.contains("text/html"))
+fn is_csv(resp: &HttpResponse) -> bool {
+    resp.body_is_text && crate::csv::is_csv(crate::binary::content_type(resp))
 }
 
-/// The tab actually shown: preview falls back to body when the response isn't HTML.
+/// HTML renders as a page, CSV as a table.
+fn has_preview(resp: &HttpResponse) -> bool {
+    resp.body_is_text && crate::binary::content_type(resp) == "text/html" || is_csv(resp)
+}
+
+/// The tab actually shown: preview falls back to body when there's nothing to preview.
 fn shown_tab(editor: &RequestEditor, resp: &HttpResponse) -> RespTab {
     match editor.resp_tab {
-        RespTab::Preview if !is_html(resp) => RespTab::Body,
+        RespTab::Preview if !has_preview(resp) => RespTab::Body,
         t => t,
     }
 }
@@ -83,6 +84,9 @@ pub fn render(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> AnyEle
                 )
                 .into_any_element(),
             Some(Ok(resp)) => match shown_tab(editor, resp) {
+                RespTab::Body if !resp.body_is_text && resp.sse_frames.is_empty() => {
+                    crate::binary::render(editor, resp, cx)
+                }
                 RespTab::Body => div()
                     .size_full()
                     .pl_2()
@@ -97,6 +101,7 @@ pub fn render(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> AnyEle
                             .h_full(),
                     )
                     .into_any_element(),
+                RespTab::Preview if is_csv(resp) => crate::csv::render(&resp.body, cx),
                 RespTab::Preview => TextView::html("resp-html", resp.body.clone())
                     .scrollable(true)
                     .selectable(true)
@@ -218,7 +223,7 @@ fn strip(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> impl IntoEl
             .children(at.map(|t| div().text_color(ui::faint(cx)).child(t)))
             .child(div().w(px(16.)))
             .child(tab("resp-body", "body".into(), RespTab::Body, cx))
-            .when(is_html(resp), |r| {
+            .when(has_preview(resp), |r| {
                 r.child(tab(
                     "resp-preview",
                     t!("preview").into_owned(),
@@ -273,7 +278,29 @@ fn strip(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> impl IntoEl
     } else if editor.sending {
         row = row.child(t!("sending… %{elapsed}", elapsed = editor.elapsed()).into_owned());
     }
-    row.child(div().flex_1()).child(history(editor, cx))
+    // Any finished response (SSE has its frames, not a body): its file, as sent.
+    let download =
+        matches!(&editor.response, Some(Ok(r)) if r.sse_frames.is_empty()) && !editor.sending;
+    let fg = cx.theme().foreground;
+    row.child(div().flex_1())
+        .children(
+            editor
+                .file_note
+                .clone()
+                .map(|n| div().max_w(px(360.)).truncate().child(n)),
+        )
+        .when(download, |r| {
+            r.child(
+                div()
+                    .id("resp-download")
+                    .px_1p5()
+                    .cursor_pointer()
+                    .hover(move |s| s.text_color(fg))
+                    .child(t!("download…"))
+                    .on_click(cx.listener(|this, _, _, cx| this.download(cx))),
+            )
+        })
+        .child(history(editor, cx))
 }
 
 /// `server wait 112 ms · download 16 ms` — the phases the client can measure.

@@ -91,6 +91,11 @@ pub struct RequestEditor {
     pub editor_open: bool,
     /// Collapsed: only the status strip shows (⌘J).
     pub response_open: bool,
+    /// Under a binary response: where `save…` put it, or why it failed.
+    pub file_note: Option<SharedString>,
+    /// The binary response decoded for display (image, PDF pages).
+    pub media: Option<crate::binary::Media>,
+    pub(crate) media_task: Option<Task<()>>,
     pub sending: bool,
     /// When the in-flight send started (drives the live elapsed counter).
     pub sent_at: Option<Instant>,
@@ -267,6 +272,9 @@ impl RequestEditor {
             },
             editor_open: has_body,
             response_open: true,
+            file_note: None,
+            media: None,
+            media_task: None,
             sending: false,
             sent_at: None,
             response: None,
@@ -601,9 +609,11 @@ impl RequestEditor {
             });
         }
         self.capture = None;
+        self.file_note = None;
         self.caret = None;
         self.caret_at = None;
         self.response = Some(result);
+        self.load_media(cx);
         cx.notify();
     }
 

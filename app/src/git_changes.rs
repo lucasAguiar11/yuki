@@ -1,7 +1,7 @@
 //! The git panel's changes list (⌘⇧G): flat, or under the folders the items
 //! live in. A click opens that file's diff in place of the center.
 
-use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, IconName};
+use gpui_kit::component::{h_flex, menu::ContextMenuExt as _, v_flex, ActiveTheme as _, IconName};
 use gpui_kit::{prelude::FluentBuilder as _, *};
 use yuki_core::{GitChange, GitFileChange};
 
@@ -122,6 +122,7 @@ pub fn render(yuki: &Yuki, view: &GitView, cx: &mut Context<Yuki>) -> impl IntoE
     items.sort_by(|a, b| (&a.0, a.1, &a.2).cmp(&(&b.0, b.1, &b.2)));
 
     let open = yuki.git.diff.as_ref();
+    let this = cx.entity().downgrade();
     let mut list = v_flex();
     let mut group: Option<&str> = None;
     for (ix, (folder, _, label, c)) in items.iter().enumerate() {
@@ -145,6 +146,8 @@ pub fn render(yuki: &Yuki, view: &GitView, cx: &mut Context<Yuki>) -> impl IntoE
         let (mark, color) = change_mark(c.change, cx);
         let selected = open.is_some_and(|(p, _)| *p == c.path);
         let path = c.path.clone();
+        let (this, menu_path, menu_label, change) =
+            (this.clone(), c.path.clone(), label.clone(), c.change);
         list = list.child(
             h_flex()
                 .id(("git-change", ix))
@@ -163,7 +166,17 @@ pub fn render(yuki: &Yuki, view: &GitView, cx: &mut Context<Yuki>) -> impl IntoE
                         .text_color(fg)
                         .child(label.clone()),
                 )
-                .on_click(cx.listener(move |this, _, _, cx| this.toggle_diff(path.clone(), cx))),
+                .on_click(cx.listener(move |this, _, _, cx| this.toggle_diff(path.clone(), cx)))
+                .context_menu(move |m, _, _| {
+                    let (path, label) = (menu_path.clone(), menu_label.clone());
+                    m.item(crate::sidebar::item(
+                        &this,
+                        "discard changes",
+                        move |y, w, cx| {
+                            y.confirm_discard(path.clone(), label.clone(), change, w, cx)
+                        },
+                    ))
+                }),
         );
     }
 

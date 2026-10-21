@@ -1,6 +1,8 @@
 //! The git panel's actions, each one `git_op` over `yuki_git`.
 
+use gpui_kit::component::{button::ButtonVariant, dialog::AlertDialog, WindowExt as _};
 use gpui_kit::*;
+use yuki_core::GitChange;
 
 use crate::{
     git::{init, GitOp},
@@ -147,5 +149,59 @@ impl Yuki {
             Ok(Some(t!("merge done · %{id}", id = c.short_id).into_owned()))
         });
         self.git_op("finishing merge…", true, op, window, cx);
+    }
+
+    /// Right-click → discard: the file back to the last commit. Asks first —
+    /// there's no undo, and a file git never saw is deleted from disk.
+    pub(crate) fn confirm_discard(
+        &mut self,
+        path: String,
+        label: String,
+        change: GitChange,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let detail: SharedString = match change {
+            GitChange::Added | GitChange::Untracked => {
+                t!("it was never committed: its file will be deleted from disk.")
+            }
+            GitChange::Deleted => t!("it comes back as it was in the last commit."),
+            _ => t!("it goes back to the last commit; these edits are lost."),
+        }
+        .into_owned()
+        .into();
+        let title: SharedString = t!("discard the changes to “%{name}”?", name = label)
+            .into_owned()
+            .into();
+        let this = cx.entity().downgrade();
+        let build = move |alert: AlertDialog, _: &mut Window, _: &mut App| {
+            let (this, path) = (this.clone(), path.clone());
+            alert
+                .title(title.clone())
+                .description(detail.clone())
+                .show_cancel(true)
+                .ok_text(t!("discard").to_string())
+                .ok_variant(ButtonVariant::Danger)
+                .cancel_text(t!("cancel").to_string())
+                .on_ok(move |_, window, cx| {
+                    let path = path.clone();
+                    _ = this.update(cx, |this, cx| {
+                        let op: GitOp = Box::new(move |dir| {
+                            yuki_git::discard(dir, std::slice::from_ref(&path))?;
+                            Ok(Some(t!("changes discarded").into_owned()))
+                        });
+                        // Reload: the tree and open tabs show the file as it is now.
+                        this.git_op("discarding…", true, op, window, cx);
+                    });
+                    true
+                })
+        };
+        // Deferred and from root focus, like `confirm_delete`: the menu that
+        // opened this restores its own focus afterwards.
+        let root = self.focus.clone();
+        window.defer(cx, move |window, cx| {
+            root.focus(window, cx);
+            window.open_alert_dialog(cx, build);
+        });
     }
 }

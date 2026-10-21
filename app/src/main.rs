@@ -35,6 +35,7 @@ mod import_render;
 mod import_view;
 mod items;
 mod kv;
+mod llm;
 mod mcp;
 mod mcp_view;
 mod moving;
@@ -115,6 +116,7 @@ actions!(
         MoveItem,
         DeleteItem,
         CopyAsCurl,
+        CopyForLlm,
         ToggleLayout,
         CaptureField,
         CancelRename,
@@ -232,6 +234,7 @@ gpui_kit::assets::icon_assets!(
         LocateFixed,
         Download,
         PawPrint,
+        Bot,
         ListChevronsDownUp,
         ListChevronsUpDown
     ]

@@ -391,8 +391,12 @@ fn menu(
         y.open_palette(Kind::Move(c.clone()), w, cx)
     }))
     .when(!folder, |m| {
+        let f = e.clone();
         m.item(item(this, "copy as cURL", move |y, _, cx| {
             y.copy_as_curl(e.clone(), cx)
+        }))
+        .item(item(this, "copy for LLM", move |y, _, cx| {
+            y.copy_for_llm(f.clone(), cx)
         }))
     })
     .separator()

@@ -47,7 +47,7 @@ fn mask_line(line: &str) -> String {
 }
 
 /// The body as sent, `None` when there was none.
-fn body_text(req: &HttpRequest) -> Option<String> {
+pub(crate) fn body_text(req: &HttpRequest) -> Option<String> {
     let b = req.body.as_ref()?;
     let text = match b.kind {
         BodyKind::None => return None,

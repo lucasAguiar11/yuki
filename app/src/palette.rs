@@ -160,6 +160,7 @@ impl Yuki {
                     action(&t!("Rename request"), Box::new(RenameItem)),
                     action(&t!("Duplicate request"), Box::new(DuplicateItem)),
                     action(&t!("Copy as cURL"), Box::new(CopyAsCurl)),
+                    action(&t!("Copy for LLM"), Box::new(CopyForLlm)),
                     action(&t!("Move request to…"), Box::new(MoveItem)),
                     action(&t!("Delete request"), Box::new(DeleteItem)),
                     action(&t!("Close tab"), Box::new(CloseTab)),

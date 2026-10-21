@@ -7,7 +7,7 @@ use yuki_core::HttpResponse;
 
 use crate::{
     editor::{RequestEditor, RespTab},
-    sent, ui, CaptureField,
+    sent, ui, CaptureField, CopyForLlm,
 };
 
 /// Body text for the read-only viewer + highlighter language.
@@ -296,17 +296,23 @@ fn strip(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> impl IntoEl
                 .map(|n| div().max_w(px(360.)).truncate().child(n)),
         )
         .when(download, |r| {
-            r.child(
+            // Icon-only actions on the response, tooltip names them.
+            let icon = |id: &'static str, icon: assets::IconName, tip: &'static str| {
                 div()
-                    .id("resp-download")
+                    .id(id)
                     .p_0p5()
                     .rounded(radius)
                     .cursor_pointer()
                     .hover(move |s| s.text_color(fg).bg(hover_bg))
-                    .child(Icon::new(assets::IconName::Download).xsmall())
-                    .tooltip(|window, cx| {
-                        Tooltip::new(t!("download…").into_owned()).build(window, cx)
-                    })
+                    .child(Icon::new(icon).xsmall())
+                    .tooltip(move |window, cx| Tooltip::new(t!(tip).into_owned()).build(window, cx))
+            };
+            r.child(
+                icon("resp-llm", assets::IconName::Bot, "copy for LLM")
+                    .on_click(|_, window, cx| window.dispatch_action(Box::new(CopyForLlm), cx)),
+            )
+            .child(
+                icon("resp-download", assets::IconName::Download, "download…")
                     .on_click(cx.listener(|this, _, _, cx| this.download(cx))),
             )
         })

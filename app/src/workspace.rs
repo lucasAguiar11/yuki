@@ -584,6 +584,11 @@ impl Render for Yuki {
                     this.copy_as_curl(id, cx);
                 }
             }))
+            .on_action(cx.listener(|this, _: &CopyForLlm, _, cx| {
+                if let Some(id) = this.active_request_id(cx) {
+                    this.copy_for_llm(id, cx);
+                }
+            }))
             .on_action(cx.listener(|this, _: &MoveItem, window, cx| {
                 if let Some(id) = this.active_request_id(cx) {
                     this.open_palette(Kind::Move(id), window, cx);

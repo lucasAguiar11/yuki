@@ -30,6 +30,7 @@ mod git;
 mod git_changes;
 mod git_ops;
 mod git_panel;
+mod history;
 mod import_render;
 mod import_view;
 mod items;
@@ -229,6 +230,7 @@ gpui_kit::assets::icon_assets!(
     ExtraIcons,
     [
         LocateFixed,
+        Download,
         PawPrint,
         ListChevronsDownUp,
         ListChevronsUpDown

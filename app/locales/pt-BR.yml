@@ -155,6 +155,7 @@
 "Go to request…": "Ir para request…"
 "hide secrets": "ocultar segredos"
 "history": "histórico"
+"history %{n} ▾": "histórico %{n} ▾"
 "https://api.example.com/resource": "https://api.exemplo.com/recurso"
 "import": "importar"
 "import a collection (Postman, Insomnia, Yaak, Voleeo)…": "importar uma coleção (Postman, Insomnia, Yaak, Voleeo)…"

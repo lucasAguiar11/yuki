@@ -1,5 +1,7 @@
 use gpui_kit::base::text::TextView;
-use gpui_kit::component::{h_flex, input::Editor, tooltip::Tooltip, v_flex, ActiveTheme as _};
+use gpui_kit::component::{
+    h_flex, input::Editor, tooltip::Tooltip, v_flex, ActiveTheme as _, Icon, Sizable as _,
+};
 use gpui_kit::{prelude::FluentBuilder as _, *};
 use yuki_core::HttpResponse;
 
@@ -281,7 +283,11 @@ fn strip(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> impl IntoEl
     // Any finished response (SSE has its frames, not a body): its file, as sent.
     let download =
         matches!(&editor.response, Some(Ok(r)) if r.sse_frames.is_empty()) && !editor.sending;
-    let fg = cx.theme().foreground;
+    let (fg, hover_bg, radius) = (
+        cx.theme().foreground,
+        cx.theme().list_hover,
+        cx.theme().radius,
+    );
     row.child(div().flex_1())
         .children(
             editor
@@ -293,14 +299,18 @@ fn strip(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> impl IntoEl
             r.child(
                 div()
                     .id("resp-download")
-                    .px_1p5()
+                    .p_0p5()
+                    .rounded(radius)
                     .cursor_pointer()
-                    .hover(move |s| s.text_color(fg))
-                    .child(t!("download…"))
+                    .hover(move |s| s.text_color(fg).bg(hover_bg))
+                    .child(Icon::new(assets::IconName::Download).xsmall())
+                    .tooltip(|window, cx| {
+                        Tooltip::new(t!("download…").into_owned()).build(window, cx)
+                    })
                     .on_click(cx.listener(|this, _, _, cx| this.download(cx))),
             )
         })
-        .child(history(editor, cx))
+        .children(crate::history::render(editor, cx))
 }
 
 /// `server wait 112 ms · download 16 ms` — the phases the client can measure.
@@ -323,48 +333,6 @@ fn timing_label(resp: &HttpResponse) -> String {
     } else {
         parts.join(" · ")
     }
-}
-
-/// Last sends, oldest → newest; click to reopen a stored response.
-fn history(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> impl IntoElement {
-    let shown = match &editor.response {
-        Some(Ok(r)) => r.response_id.as_str(),
-        _ => "",
-    };
-    let dots = editor.history.iter().take(16).rev().map(|s| {
-        let selected = s.id == shown;
-        let color = ui::status_color(s.status, cx);
-        let label = SharedString::from(format!(
-            "{} {} · {:.0} ms · {}",
-            s.status,
-            s.status_text,
-            s.total_ms,
-            ui::clock(&s.recorded_at)
-        ));
-        let id = s.id.clone();
-        div()
-            .id(SharedString::from(format!("hist-{}", s.id)))
-            .size(px(14.))
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded_full()
-            .cursor_pointer()
-            .when(selected, |d| {
-                d.border_1().border_color(cx.theme().foreground)
-            })
-            .child(div().size(px(6.)).rounded_full().bg(color))
-            .tooltip(move |window, cx| Tooltip::new(label.clone()).build(window, cx))
-            .on_click(
-                cx.listener(move |this, _, window, cx| this.show_history(id.clone(), window, cx)),
-            )
-    });
-    h_flex()
-        .gap_0p5()
-        .when(!editor.history.is_empty(), |s| {
-            s.child(div().pr_1().child("hist"))
-        })
-        .children(dots.collect::<Vec<_>>())
 }
 
 fn headers_table(resp: &HttpResponse, cx: &App) -> AnyElement {

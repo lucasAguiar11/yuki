@@ -408,10 +408,19 @@ impl Yuki {
                     .child(sidebar::render(self, cx)),
             );
         }
+        // The git panel's open diff takes the whole center while it's open.
+        let center = match self
+            .git_panel
+            .then(|| crate::git_changes::render_pane(self, cx))
+            .flatten()
+        {
+            Some(diff) => diff,
+            None => self.render_center(cx),
+        };
         group = group.child(
             resizable_panel()
                 .size_range(px(320.)..Pixels::MAX)
-                .child(self.render_center(cx)),
+                .child(center),
         );
         if right_on {
             let panel = if self.git_panel {

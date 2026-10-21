@@ -51,6 +51,11 @@ pub struct Git {
     pub has_message: bool,
     /// Input subscriptions; outlive workspace switches (which clear `Yuki::_subs`).
     subs: Vec<Subscription>,
+    /// The change whose diff is open under its row: path and text (`None`
+    /// while loading). See `git_changes.rs`.
+    pub diff: Option<(String, Option<SharedString>)>,
+    /// Changes listed under their folders instead of one flat list.
+    pub by_folder: bool,
 }
 
 impl Git {
@@ -77,13 +82,18 @@ impl Backend {
     /// `git diff` of a request's files (`req_{id}.yaml` and its notes) against
     /// HEAD, hunks only; empty when unchanged or not a repo.
     pub fn request_diff(&self, ws_id: &str, req_id: &str) -> String {
-        let dir = self.ws_dir(ws_id);
         [format!("req_{req_id}.yaml"), format!("req_{req_id}.md")]
             .iter()
-            .filter_map(|rel| yuki_git::entity_diff_text(&dir, rel).ok())
+            .map(|rel| self.file_diff(ws_id, rel))
             .filter(|d| !d.trim().is_empty())
             .collect::<Vec<_>>()
             .join("\n")
+    }
+
+    /// `git diff` of one workspace file against HEAD (added and deleted files
+    /// included), hunks only; empty when unchanged or not a repo.
+    pub fn file_diff(&self, ws_id: &str, rel: &str) -> String {
+        yuki_git::entity_diff_text(&self.ws_dir(ws_id), rel).unwrap_or_default()
     }
 }
 
@@ -212,6 +222,7 @@ impl Yuki {
             _ = this.update(cx, |this, cx| {
                 if let Ok(view) = view {
                     this.git.view = Some(view);
+                    this.reload_file_diff(cx);
                     // The `diff` pane of each tab follows the repo (save, commit, pull).
                     for tab in this.tabs.clone() {
                         let changed = this.git.change_of(&tab.read(cx).saved.id).is_some();
@@ -270,6 +281,7 @@ impl Yuki {
                 match out {
                     Ok((result, view, data)) => {
                         this.git.view = Some(view);
+                        this.reload_file_diff(cx);
                         match result {
                             Ok(msg) => this.status = msg.unwrap_or_default().into(),
                             Err(e) => this.git.error = e.to_string().into(),

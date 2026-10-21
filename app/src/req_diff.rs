@@ -37,19 +37,33 @@ impl RequestEditor {
     }
 
     pub(crate) fn render_diff(&self, cx: &mut Context<Self>) -> AnyElement {
-        let theme = cx.theme();
-        let (fg, muted, green, red) = (
-            theme.foreground,
-            theme.muted_foreground,
-            theme.green,
-            theme.red,
-        );
         let text = self.file_diff.clone().unwrap_or_default();
-        let lines = text.lines().map(|l| {
+        v_flex()
+            .id("req-diff")
+            .size_full()
+            .overflow_y_scroll()
+            .py_1()
+            .font_family(cx.theme().mono_font_family.clone())
+            .text_xs()
+            .children(lines(&text, cx))
+            .into_any_element()
+    }
+}
+
+/// Git's patch text as rows: `+` tinted green, `-` red, the rest muted.
+pub fn lines(text: &str, cx: &App) -> Vec<Div> {
+    let theme = cx.theme();
+    let (fg, muted, green, red) = (
+        theme.foreground,
+        theme.muted_foreground,
+        theme.green,
+        theme.red,
+    );
+    text.lines()
+        .map(|l| {
             let (bg, color) = match l.as_bytes().first() {
                 Some(b'+') => (Some(green.opacity(0.12)), fg),
                 Some(b'-') => (Some(red.opacity(0.12)), fg),
-                Some(b'@') => (None, muted),
                 _ => (None, muted),
             };
             div()
@@ -61,15 +75,6 @@ impl RequestEditor {
                 } else {
                     l.to_string()
                 })
-        });
-        v_flex()
-            .id("req-diff")
-            .size_full()
-            .overflow_y_scroll()
-            .py_1()
-            .font_family(theme.mono_font_family.clone())
-            .text_xs()
-            .children(lines)
-            .into_any_element()
-    }
+        })
+        .collect()
 }

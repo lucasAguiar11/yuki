@@ -27,6 +27,7 @@ mod env_view;
 mod envs;
 mod export_view;
 mod git;
+mod git_changes;
 mod git_ops;
 mod git_panel;
 mod import_render;

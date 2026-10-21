@@ -27,7 +27,7 @@ pub fn change_mark(change: GitChange, cx: &App) -> (&'static str, Hsla) {
     }
 }
 
-fn section(title: String, cx: &App) -> Div {
+pub(crate) fn section(title: String, cx: &App) -> Div {
     div()
         .pt_3()
         .pb_1()
@@ -122,7 +122,7 @@ pub fn render(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
         .pb_3()
         .text_xs()
         .font_family(mono)
-        .child(changes(yuki, view, cx))
+        .child(crate::git_changes::render(yuki, view, cx))
         .child(branches(yuki, view, cx))
         .child(remote(yuki, view, cx))
         .child(history(view, cx));
@@ -286,50 +286,6 @@ fn branches(yuki: &Yuki, view: &GitView, cx: &mut Context<Yuki>) -> impl IntoEle
                     .child(Input::new(&inputs.branch).small()),
             )
         })
-}
-
-fn changes(yuki: &Yuki, view: &GitView, cx: &mut Context<Yuki>) -> impl IntoElement {
-    let fg = cx.theme().foreground;
-    // What needs attention first (conflict, edit, delete), then additions;
-    // alphabetical inside each group.
-    let rank = |c: GitChange| match c {
-        GitChange::Conflicted => 0,
-        GitChange::Modified | GitChange::Renamed => 1,
-        GitChange::Deleted => 2,
-        GitChange::Added | GitChange::Untracked => 3,
-    };
-    let mut items: Vec<_> = view
-        .changes
-        .iter()
-        .map(|c| {
-            (
-                rank(c.change),
-                yuki.git_label(c.node_id.as_deref(), &c.path),
-                c.change,
-            )
-        })
-        .collect();
-    items.sort_by(|a, b| (a.0, &a.1).cmp(&(b.0, &b.1)));
-    let rows = items
-        .into_iter()
-        .map(|(_, label, change)| {
-            let (mark, color) = change_mark(change, cx);
-            h_flex()
-                .px_3()
-                .h(px(22.))
-                .gap_2()
-                .child(div().w(px(10.)).text_color(color).child(mark))
-                .child(div().flex_1().truncate().text_color(fg).child(label))
-        })
-        .collect::<Vec<_>>();
-    v_flex()
-        .when(!rows.is_empty(), |s| {
-            s.child(section(
-                t!("changes %{n}", n = view.changes.len()).into_owned(),
-                cx,
-            ))
-        })
-        .children(rows)
 }
 
 fn remote(yuki: &Yuki, view: &GitView, cx: &mut Context<Yuki>) -> impl IntoElement {

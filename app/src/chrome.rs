@@ -11,7 +11,8 @@ use crate::{
     update::{State, Updater},
     workspace::Yuki,
     ImportCollection, ImportVoleeo, InstallUpdate, NewRequest, OpenCommands, OpenEnvs, OpenMcp,
-    OpenRequests, OpenSettings, OpenWorkspaces, ToggleEditor, ToggleGit, ToggleSidebar, ToggleVars,
+    OpenRequests, OpenSettings, OpenWorkspaces, ToggleEditor, ToggleGit, ToggleLayout,
+    ToggleSidebar, ToggleVars,
 };
 
 /// `demo / JSONPlaceholder / photos                         env [Local ▾]`
@@ -199,6 +200,49 @@ pub fn status_line(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
             .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
             .on_click(|_, window, cx| window.dispatch_action(Box::new(InstallUpdate), cx))
     });
+    // Response below / beside the request: the current one lit, the other
+    // switches. Only while a request is open — it's that view's layout.
+    let beside = cx.global::<crate::prefs::Prefs>().response_beside;
+    let (fg, muted, lit, radius) = (
+        theme.foreground,
+        theme.muted_foreground,
+        theme.secondary,
+        theme.radius,
+    );
+    let layout = |id: &'static str, icon: IconName, on: bool, tip: String| {
+        let current = on == beside;
+        div()
+            .id(id)
+            .p_0p5()
+            .rounded(radius)
+            .cursor_pointer()
+            .text_color(if current { fg } else { muted })
+            .when(current, |d| d.bg(lit))
+            .hover(move |s| s.text_color(fg))
+            .child(Icon::new(icon).xsmall())
+            .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
+            .on_click(move |_, window, cx| {
+                if !current {
+                    window.dispatch_action(Box::new(ToggleLayout), cx)
+                }
+            })
+    };
+    let layouts = yuki.active_editor().is_some().then(|| {
+        h_flex()
+            .gap_0p5()
+            .child(layout(
+                "layout-below",
+                IconName::PanelBottom,
+                false,
+                t!("response below · ⌘⌥L").into_owned(),
+            ))
+            .child(layout(
+                "layout-beside",
+                IconName::PanelRight,
+                true,
+                t!("response beside · ⌘⌥L").into_owned(),
+            ))
+    });
     h_flex()
         .h(px(24.))
         .px_3()
@@ -228,6 +272,7 @@ pub fn status_line(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
         )
         .child(div().flex_1())
         .child(yuki.status.clone())
+        .children(layouts)
         .children(git)
         .child(mcp)
         .children(release)

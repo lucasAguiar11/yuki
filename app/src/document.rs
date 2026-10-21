@@ -7,8 +7,7 @@ use gpui_kit::component::{
     resizable_panel,
     select::Select,
     spinner::Spinner,
-    tooltip::Tooltip,
-    v_flex, v_resizable, ActiveTheme as _, Icon, IconName, ResizableState, Sizable as _,
+    v_flex, v_resizable, ActiveTheme as _, ResizableState, Sizable as _,
 };
 use gpui_kit::{prelude::FluentBuilder as _, *};
 
@@ -21,7 +20,7 @@ use crate::{
     response,
     session::Session,
     table::Which,
-    ui, var_view, Send, ToggleEditor, ToggleLayout, ToggleVars,
+    ui, var_view, Send, ToggleEditor, ToggleVars,
 };
 
 impl CompleteHost for RequestEditor {
@@ -269,43 +268,7 @@ impl RequestEditor {
         });
         let vars_segment = self.render_vars_segment(cx);
         let variation = self.render_variation(cx);
-        let beside = cx.global::<crate::prefs::Prefs>().response_beside;
         let theme = cx.theme();
-        let (fg, muted, selected_bg) = (theme.foreground, theme.muted_foreground, theme.secondary);
-        // Response below / beside: the current one lit; the other one switches.
-        let layout = |id: &'static str, icon: IconName, on: bool, tip: String| {
-            let current = on == beside;
-            div()
-                .id(id)
-                .p_0p5()
-                .rounded(theme.radius)
-                .cursor_pointer()
-                .text_color(if current { fg } else { muted })
-                .when(current, |d| d.bg(selected_bg))
-                .hover(move |s| s.text_color(fg))
-                .child(Icon::new(icon).xsmall())
-                .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
-                .on_click(move |_, window, cx| {
-                    if !current {
-                        window.dispatch_action(Box::new(ToggleLayout), cx)
-                    }
-                })
-        };
-        let layouts = h_flex()
-            .gap_0p5()
-            .mr_3()
-            .child(layout(
-                "layout-below",
-                IconName::PanelBottom,
-                false,
-                t!("response below · ⌘⌥L").into_owned(),
-            ))
-            .child(layout(
-                "layout-beside",
-                IconName::PanelRight,
-                true,
-                t!("response beside · ⌘⌥L").into_owned(),
-            ));
         let dot = || div().text_color(theme.muted_foreground).child("·");
         h_flex()
             .h(px(30.))
@@ -330,7 +293,6 @@ impl RequestEditor {
             .child(vars_segment)
             .when_some(diff, |s, d| s.child(dot()).child(d))
             .child(div().flex_1())
-            .child(layouts)
             .child(
                 div()
                     .id("toggle-editor")

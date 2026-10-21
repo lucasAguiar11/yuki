@@ -265,7 +265,7 @@ impl Yuki {
         cx.notify();
     }
 
-    fn active_editor(&self) -> Option<&Entity<RequestEditor>> {
+    pub(crate) fn active_editor(&self) -> Option<&Entity<RequestEditor>> {
         self.tabs.get(self.active).filter(|_| !self.scope_active)
     }
 

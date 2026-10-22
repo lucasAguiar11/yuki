@@ -14,6 +14,25 @@ struct DraggedTab(usize);
 /// Open requests as a terse strip: `GET photos •`. The active tab merges into
 /// the document; dirty shows `•`, which turns into × on hover.
 pub fn render(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
+    // Bring the shown tab into view once per change (not every frame, or a
+    // manual scroll of the strip would snap back). Not before the strip has
+    // been laid out: against zero bounds the scroll lands wrong (startup,
+    // first tab), so ask for one more frame. The scope tab follows the
+    // request tabs, so its child index is `tabs.len()`.
+    let shown = (yuki.active, yuki.scope_active, yuki.tabs.len());
+    if yuki.tabs_revealed.get() != Some(shown) {
+        if yuki.tabs_scroll.bounds().size.width > px(0.) {
+            yuki.tabs_revealed.set(Some(shown));
+            let ix = if yuki.scope_active {
+                yuki.tabs.len()
+            } else {
+                yuki.active
+            };
+            yuki.tabs_scroll.scroll_to_item(ix);
+        } else {
+            cx.notify();
+        }
+    }
     let theme = cx.theme();
     let drop_line = theme.ring;
     let last = yuki.tabs.len().saturating_sub(1);
@@ -164,6 +183,7 @@ pub fn render(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
         .h(px(30.))
         .flex_none()
         .bg(theme.tab_bar)
+        .track_scroll(&yuki.tabs_scroll)
         .overflow_x_scroll()
         .children(tabs.collect::<Vec<_>>())
         .children(scope)

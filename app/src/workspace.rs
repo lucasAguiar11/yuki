@@ -35,6 +35,9 @@ pub struct Yuki {
     pub tree_scroll: ScrollHandle,
     pub tabs: Vec<Entity<RequestEditor>>,
     pub active: usize,
+    pub(crate) tabs_scroll: ScrollHandle,
+    /// (active, scope_active, tab count) last brought into view in the strip.
+    pub(crate) tabs_revealed: std::cell::Cell<Option<(usize, bool, usize)>>,
     /// The folder/workspace tab, after the request tabs.
     pub(crate) scope: Option<(Entity<ScopeView>, Subscription)>,
     /// The scope tab is the one shown (else `tabs[active]`).
@@ -83,6 +86,8 @@ impl Yuki {
             tree_scroll: ScrollHandle::new(),
             tabs: vec![],
             active: 0,
+            tabs_scroll: ScrollHandle::new(),
+            tabs_revealed: Default::default(),
             scope: None,
             scope_active: false,
             sidebar,

@@ -41,7 +41,8 @@ app/              `yuki` binary (GPUI) — the only layer that knows gpui
   src/vars_panel.rs ⌘⇧E panel;  src/sidebar.rs, tabs.rs, chrome.rs, palette.rs
   src/env_screen.rs "environments" screen ⌘⌥E (state, autosave, create/rename/delete); env_view.rs render; envs.rs title-bar `env` select
   src/settings.rs "settings" screen ⌘, (workspace name, DNS overrides as hosts lines, shell-env allowlist, accept invalid certificates — machine-local `skipCertificateCheck`; sends then flag `⚠ unverified` via a `tls` timeline event); settings_view.rs render; prefs.rs font sizes + language; about.rs "about" section
-  src/session.rs  `Session` global ↔ `session.yaml`: window bounds, panel visibility/sizes (`on_resize`), per workspace open tabs, collapsed folders, env; restored on launch and workspace switch, written in `flush_blocking` (quit/close)
+  src/session.rs  `Session` global ↔ `session.yaml`: window bounds, panel visibility/sizes (`on_resize`), per workspace open tabs, collapsed folders, env; restored on launch and workspace switch, written by `windows::save_session` (quit/close)
+  src/windows.rs  several windows, one `Yuki` root (workspace) each: ⌘⇧O / welcome ⌘-click open one; a workspace open elsewhere brings its window forward (`windows::activate`, checked in `open_workspace`); ⌘Q (`windows::quit`) flushes every window; MCP edits are a broadcast each window subscribes to
   src/items.rs    tree CRUD (create/duplicate/delete); moving.rs drag & drop + "move to…"; rename.rs inline rename
   src/backend.rs  bridge to the engine: tokio runtime, load/save/send, Voleeo import
   src/mcp.rs      MCP: engine server on `mcp.sock` + `mcp-token` (data dir), `yuki mcp` stdio bridge; agent edits reload the tree and open tabs (`reload_clean_tabs`: clean tabs rebuild from disk, dirty ones keep their edits, deleted ones close); mcp_view.rs settings → agents (mcp): per-client setup snippet (this binary's path, no token), opened by the `● mcp` chip

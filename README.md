@@ -31,6 +31,7 @@ cargo build --release -p yuki
 |---|---|
 | ⌘↵ | send request |
 | ⌘P / ⌘⇧P / ⌘O | go to request / commands / switch workspace |
+| ⌘⇧O | open a workspace in a new window (or ⌘-click / right-click one on the welcome screen); a workspace open in another window is brought forward |
 | ⌘N / ⌘⇧N | new request / new folder |
 | ⌘E | toggle the request editor |
 | ⌘⌥L | response beside / below the request |

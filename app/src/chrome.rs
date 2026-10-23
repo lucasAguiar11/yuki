@@ -1,8 +1,12 @@
 //! Window chrome: breadcrumb title bar, `:command` status line, welcome screen.
 
 use gpui_kit::component::{
-    button::Button, h_flex, select::Select, tooltip::Tooltip, v_flex, ActiveTheme as _, Icon,
-    IconName, Sizable as _, TitleBar,
+    button::Button,
+    h_flex,
+    menu::{ContextMenuExt as _, PopupMenuItem},
+    select::Select,
+    tooltip::Tooltip,
+    v_flex, ActiveTheme as _, Icon, IconName, Sizable as _, TitleBar,
 };
 use gpui_kit::{prelude::FluentBuilder as _, *};
 
@@ -278,7 +282,8 @@ pub fn status_line(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
         .children(release)
 }
 
-/// Empty center: the logo and the workspaces, one click to switch.
+/// Empty center: the logo and the workspaces, one click to switch (⌘-click or
+/// right-click: in a new window).
 pub fn welcome(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
     let theme = cx.theme();
     let (fg, muted, hover_bg, mark, radius) = (
@@ -294,7 +299,7 @@ pub fn welcome(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
         .iter()
         .map(|ws| {
             let active = current == Some(ws.id.as_str());
-            let pick = ws.clone();
+            let (pick, id) = (ws.clone(), ws.id.clone());
             h_flex()
                 .id(SharedString::from(format!("welcome-ws-{}", ws.id)))
                 .h(px(28.))
@@ -313,9 +318,26 @@ pub fn welcome(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
                 }))
                 .child(div().flex_1().truncate().child(ws.name.clone()))
                 .when(!active, |row| {
-                    row.on_click(cx.listener(move |this, _, window, cx| {
-                        this.open_workspace(pick.clone(), window, cx)
+                    row.on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
+                        if ev.modifiers().platform {
+                            let id = pick.id.clone();
+                            cx.defer(move |cx| crate::windows::open_new(id, cx));
+                        } else {
+                            this.open_workspace(pick.clone(), window, cx)
+                        }
                     }))
+                })
+                .context_menu(move |m, _, _| {
+                    let id = id.clone();
+                    m.item(
+                        PopupMenuItem::new(t!("open in new window").into_owned())
+                            // This window already shows it.
+                            .disabled(active)
+                            .on_click(move |_, _, cx| {
+                                let id = id.clone();
+                                cx.defer(move |cx| crate::windows::open_new(id, cx));
+                            }),
+                    )
                 })
         })
         .collect();

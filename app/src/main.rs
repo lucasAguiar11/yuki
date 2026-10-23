@@ -71,13 +71,14 @@ mod var_view;
 mod variation;
 mod vars;
 mod vars_panel;
+mod windows;
 mod workspace;
 mod ws_folder;
 mod xml;
 
 use std::rc::Rc;
 
-use gpui_kit::component::{Theme, ThemeMode, ThemeRegistry, TitleBar};
+use gpui_kit::component::{Theme, ThemeMode, ThemeRegistry};
 use gpui_kit::*;
 
 actions!(
@@ -128,7 +129,8 @@ actions!(
         ReportBug,
         ImportCollection,
         ExportWorkspace,
-        CloseTransfer
+        CloseTransfer,
+        OpenWorkspaceInWindow
     ]
 );
 
@@ -175,6 +177,7 @@ fn bind_keys(cx: &mut App) {
         KeyBinding::new("cmd-p", OpenRequests, None),
         KeyBinding::new("cmd-shift-p", OpenCommands, None),
         KeyBinding::new("cmd-o", OpenWorkspaces, None),
+        KeyBinding::new("cmd-shift-o", OpenWorkspaceInWindow, None),
         KeyBinding::new("cmd-q", Quit, None),
         // Single-line inputs propagate tab, so it walks the table cells.
         KeyBinding::new("tab", FocusNext, None),
@@ -195,8 +198,8 @@ fn bind_keys(cx: &mut App) {
         // Clicking a folder focuses its tab; the handler ignores ↵ from fields inside it.
         KeyBinding::new("enter", RenameItem, Some("ScopeTab")),
     ]);
-    // Fallback when nothing is focused; the root view handles Quit with a flush.
-    cx.on_action(|_: &Quit, cx| cx.quit());
+    // Every window flushes, wherever ⌘Q came from.
+    cx.on_action(|_: &Quit, cx| windows::quit(cx));
     // Response below ⇄ beside the request; saved like any other pref.
     cx.on_action(|_: &ToggleLayout, cx| {
         let on = !cx.global::<prefs::Prefs>().response_beside;
@@ -311,10 +314,7 @@ fn main() {
             std::process::exit(1);
         }
     };
-    let mcp = mcp::Link {
-        edits: agent_edits,
-        clients: mcp::start(&backend),
-    };
+    let clients = mcp::start(&backend);
     gpui_kit::application().with_assets(Assets).run(move |cx| {
         gpui_kit::init(cx);
         apply_theme(cx);
@@ -324,14 +324,10 @@ fn main() {
         register_graphql();
         #[cfg(target_os = "macos")]
         set_dock_icon();
-        let options = WindowOptions {
-            window_bounds: Some(session::Session::init(cx)),
-            ..TitleBar::window_options()
-        };
-        gpui_kit::open_window(options, cx, |window, cx| {
-            cx.new(|cx| workspace::Yuki::new(backend, mcp, window, cx))
-        })
-        .expect("failed to open window");
+        update::watch(backend.clone(), cx);
+        let bounds = session::Session::init(cx);
+        windows::init(backend, agent_edits, clients, cx);
+        windows::open(None, bounds, cx);
         cx.activate(true);
     });
 }

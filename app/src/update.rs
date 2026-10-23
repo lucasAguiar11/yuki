@@ -7,12 +7,15 @@ use std::{
     fs,
     path::{Path, PathBuf},
     process::Command,
+    sync::Arc,
     time::Duration,
 };
 
 use gpui_kit::*;
 
-use crate::{settings::Section, workspace::Yuki, CheckUpdates, InstallUpdate, OpenAbout};
+use crate::{
+    backend::Backend, settings::Section, workspace::Yuki, CheckUpdates, InstallUpdate, OpenAbout,
+};
 
 const LATEST: &str = "https://api.github.com/repos/lucasAguiar11/yuki/releases/latest";
 /// Re-check while the app stays open; GitHub allows 60 unauthenticated calls/h.
@@ -174,49 +177,49 @@ pub(crate) fn on_actions(el: Div, cx: &mut Context<Yuki>) -> Div {
     )
     .on_action(cx.listener(|this, _: &CheckUpdates, window, cx| {
         this.open_settings(Section::About, window, cx);
-        this.check_update(cx);
+        check(&this.backend, cx);
     }))
     .on_action(cx.listener(|this, _: &InstallUpdate, _, cx| this.install_update(cx)))
 }
 
+/// Launch and every `RECHECK`, app-wide (not per window): only from a bundle,
+/// where an update can land.
+pub(crate) fn watch(backend: Arc<Backend>, cx: &mut App) {
+    if bundle().is_none() {
+        return;
+    }
+    cx.spawn(async move |cx| loop {
+        cx.update(|cx| check(&backend, cx));
+        cx.background_executor().timer(RECHECK).await;
+    })
+    .detach();
+}
+
+pub(crate) fn check(backend: &Backend, cx: &mut App) {
+    if matches!(
+        cx.global::<Updater>().state,
+        State::Checking | State::Installing
+    ) {
+        return;
+    }
+    set(cx, |u| u.state = State::Checking);
+    let task = backend.rt.spawn(latest());
+    cx.spawn(async move |cx| {
+        let result = task.await.map_err(|e| e.to_string()).and_then(|r| r);
+        cx.update(|cx| {
+            set(cx, |u| match result {
+                Ok(release) => {
+                    u.release = release;
+                    u.state = State::Checked;
+                }
+                Err(e) => u.state = State::Failed(e.into()),
+            })
+        });
+    })
+    .detach();
+}
+
 impl Yuki {
-    /// Launch and every `RECHECK`: only from a bundle, where an update can land.
-    pub(crate) fn watch_updates(&self, cx: &mut Context<Self>) {
-        if bundle().is_none() {
-            return;
-        }
-        cx.spawn(async move |this, cx| {
-            while this.update(cx, |this, cx| this.check_update(cx)).is_ok() {
-                cx.background_executor().timer(RECHECK).await;
-            }
-        })
-        .detach();
-    }
-
-    pub(crate) fn check_update(&self, cx: &mut Context<Self>) {
-        if matches!(
-            cx.global::<Updater>().state,
-            State::Checking | State::Installing
-        ) {
-            return;
-        }
-        set(cx, |u| u.state = State::Checking);
-        let task = self.backend.rt.spawn(latest());
-        cx.spawn(async move |_, cx| {
-            let result = task.await.map_err(|e| e.to_string()).and_then(|r| r);
-            cx.update(|cx| {
-                set(cx, |u| match result {
-                    Ok(release) => {
-                        u.release = release;
-                        u.state = State::Checked;
-                    }
-                    Err(e) => u.state = State::Failed(e.into()),
-                })
-            });
-        })
-        .detach();
-    }
-
     pub(crate) fn install_update(&self, cx: &mut Context<Self>) {
         let u = cx.global::<Updater>();
         if u.state == State::Installing {
@@ -232,7 +235,7 @@ impl Yuki {
         };
         set(cx, |u| u.state = State::Installing);
         let dl = self.backend.rt.spawn(download(url));
-        cx.spawn(async move |this, cx| {
+        cx.spawn(async move |_, cx| {
             let result = match dl.await.map_err(|e| e.to_string()).and_then(|r| r) {
                 Ok(zip) => {
                     let app = app.clone();
@@ -242,11 +245,9 @@ impl Yuki {
                 Err(e) => Err(e),
             }
             .and_then(|()| relaunch(&app));
-            let _ = this.update(cx, |this, cx| match result {
-                Ok(()) => {
-                    this.flush_blocking(cx);
-                    cx.quit();
-                }
+            cx.update(|cx| match result {
+                // Every window flushes before the relaunched app takes over.
+                Ok(()) => crate::windows::quit(cx),
                 Err(e) => {
                     let e = t!("update failed: %{e}", e = e).into_owned();
                     set(cx, |u| u.state = State::Failed(e.into()));

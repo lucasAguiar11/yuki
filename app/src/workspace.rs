@@ -63,6 +63,8 @@ pub struct Yuki {
     pub status: SharedString,
     /// Agents connected over MCP; `None` once the server is down.
     pub mcp: Option<usize>,
+    /// Workspace this window was opened for; taken by the first list load.
+    start_ws: Option<String>,
     _subs: Vec<Subscription>,
 }
 
@@ -70,6 +72,7 @@ impl Yuki {
     pub fn new(
         backend: Arc<Backend>,
         mcp: crate::mcp::Link,
+        start_ws: Option<String>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -104,19 +107,20 @@ impl Yuki {
             palette: None,
             renaming: None,
             status: "".into(),
-            mcp: Some(0),
+            mcp: Some(*mcp.clients.borrow()),
+            start_ws,
             _subs: vec![],
         };
         this.focus.focus(window, cx);
         this.init_git_inputs(window, cx);
         this.reload_workspaces(window, cx);
         this.watch_mcp(mcp, window, cx);
-        this.watch_updates(cx);
         Session::track_window(window, cx);
         let weak = cx.entity().downgrade();
         window.on_window_should_close(cx, move |_, cx| {
             if let Some(this) = weak.upgrade() {
                 this.read(cx).flush_blocking(cx);
+                crate::windows::save_session(Some(this.entity_id()), cx);
             }
             true
         });
@@ -129,7 +133,8 @@ impl Yuki {
         cx.spawn_in(window, async move |this, cx| {
             let list = task.await;
             this.update_in(cx, |this, window, cx| {
-                let last = cx.global::<Session>().workspace.clone();
+                let last =
+                    (this.start_ws.take()).or_else(|| cx.global::<Session>().workspace.clone());
                 let first = list
                     .iter()
                     .find(|w| Some(&w.id) == last.as_ref())
@@ -154,6 +159,10 @@ impl Yuki {
     }
 
     pub fn open_workspace(&mut self, ws: Workspace, window: &mut Window, cx: &mut Context<Self>) {
+        // Already in another window: go there instead of editing it twice.
+        if crate::windows::activate(&ws.id, Some(cx.entity_id()), cx) {
+            return;
+        }
         let backend = self.backend.clone();
         let id = ws.id.clone();
         let task = cx.background_spawn(async move { backend.load(&id) });
@@ -295,7 +304,6 @@ impl Yuki {
                 }
             }
         }
-        self.save_session(cx);
     }
 
     pub fn close_tab(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
@@ -468,9 +476,8 @@ impl Render for Yuki {
             .map(|el| crate::update::on_actions(el, cx))
             .map(|el| crate::mcp_view::on_actions(el, cx))
             .map(|el| crate::transfer_ui::on_actions(el, cx))
-            .on_action(cx.listener(|this, _: &Quit, _, cx| {
-                this.flush_blocking(cx);
-                cx.quit();
+            .on_action(cx.listener(|this, _: &OpenWorkspaceInWindow, window, cx| {
+                this.open_palette(Kind::NewWindow, window, cx)
             }))
             .on_action(cx.listener(|this, _: &ToggleEditor, _, cx| {
                 if let Some(e) = this.active_editor() {

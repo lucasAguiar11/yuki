@@ -99,6 +99,16 @@ impl Session {
         })
         .detach();
     }
+
+    /// Synchronous: quit and window close, where a background write would die.
+    pub fn write(&self) {
+        let written = serde_yaml::to_string(self)
+            .map_err(|e| e.to_string())
+            .and_then(|t| yuki_storage::write_atomic(path(), t).map_err(|e| e.to_string()));
+        if let Err(e) = written {
+            eprintln!("[yuki] failed to save session: {e}");
+        }
+    }
 }
 
 impl Yuki {
@@ -121,20 +131,13 @@ impl Yuki {
         cx.global_mut::<Session>().workspaces.insert(id, ws);
     }
 
-    /// Quit: write the session synchronously.
-    pub(crate) fn save_session(&self, cx: &App) {
-        let mut s = cx.global::<Session>().clone();
-        if let Some(ws) = &self.ws {
-            s.workspace = Some(ws.id.clone());
-            s.workspaces.insert(ws.id.clone(), self.ws_session(cx));
-        }
-        (s.sidebar, s.vars_panel, s.git_panel) = (self.sidebar, self.vars_panel, self.git_panel);
-        let written = serde_yaml::to_string(&s)
-            .map_err(|e| e.to_string())
-            .and_then(|t| yuki_storage::write_atomic(path(), t).map_err(|e| e.to_string()));
-        if let Err(e) = written {
-            eprintln!("[yuki] failed to save session: {e}");
-        }
+    /// This window's share of the session: its workspace's tabs, and the panels.
+    pub(crate) fn session_entry(&self, cx: &App) -> (Option<(String, WsSession)>, [bool; 3]) {
+        let ws = self
+            .ws
+            .as_ref()
+            .map(|w| (w.id.clone(), self.ws_session(cx)));
+        (ws, [self.sidebar, self.vars_panel, self.git_panel])
     }
 
     /// Open `ids` as tabs (missing ones skipped), `active` selected.

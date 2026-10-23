@@ -14,6 +14,8 @@ pub enum Kind {
     Commands,
     /// ⌘O — switch workspace.
     Workspaces,
+    /// ⌘⇧O — a workspace in a new window.
+    NewWindow,
     /// Pick the destination folder of this item.
     Move(SharedString),
 }
@@ -25,6 +27,7 @@ pub enum Target {
     Action,
     Request(SharedString),
     Workspace(String),
+    Window(String),
     MoveTo {
         item: SharedString,
         folder: Option<String>,
@@ -79,6 +82,7 @@ impl Palette {
             Kind::Requests => t!("Go to request…"),
             Kind::Commands => t!("Run command…"),
             Kind::Workspaces => t!("Switch workspace…"),
+            Kind::NewWindow => t!("Open workspace in new window…"),
             Kind::Move(_) => t!("Move to…"),
         };
         let theme = cx.theme();
@@ -177,6 +181,10 @@ impl Yuki {
                     action(&t!("Connect an AI agent (MCP)…"), Box::new(OpenMcp)),
                     action(&t!("Go to request…"), Box::new(OpenRequests)),
                     action(&t!("Switch workspace…"), Box::new(OpenWorkspaces)),
+                    action(
+                        &t!("Open workspace in new window…"),
+                        Box::new(OpenWorkspaceInWindow),
+                    ),
                     action(&t!("Report a bug…"), Box::new(ReportBug)),
                     action(&t!("Open folder as workspace…"), Box::new(OpenFolder)),
                     action(&t!("Import collection…"), Box::new(ImportCollection)),
@@ -210,6 +218,18 @@ impl Yuki {
                     .chain([(open, Target::Action), (import, Target::Action)])
                     .collect()
             }
+            // The open one is already in this window: not offered.
+            Kind::NewWindow => {
+                let current = self.ws.as_ref().map(|w| w.id.as_str());
+                self.workspaces
+                    .iter()
+                    .filter(|w| current != Some(w.id.as_str()))
+                    .map(|w| {
+                        let item = CommandItem::new().label(w.name.clone());
+                        (item, Target::Window(w.id.clone()))
+                    })
+                    .collect()
+            }
             Kind::Move(item) => self.move_targets(item),
         };
         self.palette = Some(Palette::new(kind, items, window, cx));
@@ -235,6 +255,8 @@ impl Yuki {
                     self.open_workspace(ws, window, cx);
                 }
             }
+            // Deferred: the new window must not open while this one is mid-update.
+            Some(Target::Window(id)) => cx.defer(move |cx| crate::windows::open_new(id, cx)),
             Some(Target::MoveTo { item, folder }) => {
                 self.move_item(item, Dest::Into(folder), window, cx)
             }

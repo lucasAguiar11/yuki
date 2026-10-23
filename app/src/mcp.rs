@@ -5,7 +5,7 @@
 use std::{fs, io, path::PathBuf, sync::Arc};
 
 use gpui_kit::*;
-use tokio::sync::{mpsc, watch, RwLock};
+use tokio::sync::{broadcast, watch, RwLock};
 use yuki_mcp::api::NotifyFn;
 
 use crate::{backend, backend::Backend, workspace::Yuki};
@@ -46,13 +46,14 @@ fn token() -> io::Result<String> {
     Ok(token)
 }
 
-/// What the window listens to: agent edits and how many agents are connected.
+/// What a window listens to: agent edits and how many agents are connected.
 pub struct Link {
-    pub edits: mpsc::UnboundedReceiver<Edit>,
+    pub edits: broadcast::Receiver<Edit>,
     pub clients: watch::Receiver<usize>,
 }
 
 /// What an agent changed (only MCP tools fire these).
+#[derive(Clone)]
 pub enum Edit {
     /// Requests, folders or envs of this workspace.
     Items(String),
@@ -99,9 +100,11 @@ pub fn bridge() -> io::Result<()> {
     result
 }
 
-/// The engine's notify hook, narrowed to the edits the window shows.
-pub fn changes() -> (NotifyFn, mpsc::UnboundedReceiver<Edit>) {
-    let (tx, rx) = mpsc::unbounded_channel();
+/// The engine's notify hook, narrowed to the edits the windows show; each
+/// window subscribes to the sender.
+pub fn changes() -> (NotifyFn, broadcast::Sender<Edit>) {
+    let (tx, _) = broadcast::channel(64);
+    let sender = tx.clone();
     let notify: NotifyFn = Arc::new(move |event, payload| {
         let edit = match event {
             "mcp:workspaces:changed" => Edit::Workspaces,
@@ -111,9 +114,10 @@ pub fn changes() -> (NotifyFn, mpsc::UnboundedReceiver<Edit>) {
             },
             _ => return,
         };
+        // No window subscribed yet: nobody to refresh.
         let _ = tx.send(edit);
     });
-    (notify, rx)
+    (notify, sender)
 }
 
 impl Yuki {
@@ -138,12 +142,24 @@ impl Yuki {
     /// Workspace edits reload the list (and the open one's copy).
     fn watch_agent_edits(
         &self,
-        mut changes: mpsc::UnboundedReceiver<Edit>,
+        mut changes: broadcast::Receiver<Edit>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         cx.spawn_in(window, async move |this, cx| {
-            while let Some(edit) = changes.recv().await {
+            loop {
+                let edit = match changes.recv().await {
+                    Ok(edit) => edit,
+                    // Fell behind a burst: reload whatever this window shows.
+                    Err(broadcast::error::RecvError::Lagged(_)) => {
+                        match this.update(cx, |this, _| this.ws.as_ref().map(|w| w.id.clone())) {
+                            Ok(Some(id)) => Edit::Items(id),
+                            Ok(None) => continue,
+                            Err(_) => break,
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Closed) => break,
+                };
                 let ws_id = match edit {
                     Edit::Items(id) => id,
                     Edit::Workspaces => {

@@ -1,13 +1,16 @@
 use gpui_kit::base::text::TextView;
 use gpui_kit::component::{
-    h_flex, input::Editor, tooltip::Tooltip, v_flex, ActiveTheme as _, Icon, Sizable as _,
+    h_flex,
+    input::{Copy, Editor, SelectAll},
+    tooltip::Tooltip,
+    v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 use gpui_kit::{prelude::FluentBuilder as _, *};
 use yuki_core::HttpResponse;
 
 use crate::{
     editor::{RequestEditor, RespTab},
-    sent, ui, CaptureField, CopyForLlm,
+    sent, ui, CaptureField, CopyForLlm, CopySelector,
 };
 
 /// Body text for the read-only viewer + highlighter language.
@@ -96,12 +99,34 @@ pub fn render(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> AnyEle
                     .on_action(cx.listener(|this, _: &CaptureField, window, cx| {
                         this.start_capture(window, cx)
                     }))
-                    .child(
+                    .on_action(cx.listener(|this, _: &CopySelector, _, cx| this.copy_selector(cx)))
+                    .child({
+                        // Replaces the read-only default (copy, select all) and adds the
+                        // field actions; right-click moves the caret, so they act on the
+                        // field under the click.
+                        let this = cx.entity().downgrade();
                         Editor::new(&editor.response_body)
                             .appearance(false)
                             .readonly(true)
-                            .h_full(),
-                    )
+                            .h_full()
+                            .context_menu(move |m, _, cx| {
+                                let no_field =
+                                    this.upgrade().is_none_or(|e| e.read(cx).caret.is_none());
+                                m.menu(t!("copy"), Box::new(Copy))
+                                    .menu(t!("select all"), Box::new(SelectAll))
+                                    .separator()
+                                    .menu_with_disabled(
+                                        t!("copy selector"),
+                                        no_field,
+                                        Box::new(CopySelector),
+                                    )
+                                    .menu_with_disabled(
+                                        t!("→ variable"),
+                                        no_field,
+                                        Box::new(CaptureField),
+                                    )
+                            })
+                    })
                     .into_any_element(),
                 RespTab::Preview if is_csv(resp) => crate::csv::render(&resp.body, cx),
                 RespTab::Preview => TextView::html("resp-html", resp.body.clone())

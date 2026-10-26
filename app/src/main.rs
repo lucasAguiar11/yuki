@@ -120,6 +120,7 @@ actions!(
         CopyForLlm,
         ToggleLayout,
         CaptureField,
+        CopySelector,
         CancelRename,
         OpenAbout,
         OpenMcp,

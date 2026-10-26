@@ -356,6 +356,8 @@
 "e.g.": "ex.:"
 "letters, digits and _ only": "só letras, números e _"
 "→ variable": "→ variável"
+"copy selector": "copiar seletor"
+"select all": "selecionar tudo"
 "click a JSON value to use it as a variable": "clique num valor do JSON para usá-lo como variável"
 "↵ save · esc cancel": "↵ salvar · esc cancelar"
 "Response beside / below the request": "Resposta ao lado / abaixo do request"

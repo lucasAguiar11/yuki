@@ -8,6 +8,7 @@
 use gpui_kit::component::{
     h_flex,
     input::{Input, InputEvent, InputState},
+    tooltip::Tooltip,
     ActiveTheme as _, Sizable as _,
 };
 use gpui_kit::*;
@@ -81,6 +82,13 @@ impl RequestEditor {
             _sub,
         });
         cx.notify();
+    }
+
+    /// The `{{ $response.body(…) }}` → variable would write, to paste anywhere.
+    pub(crate) fn copy_selector(&mut self, cx: &mut Context<Self>) {
+        if let Some(f) = &self.caret {
+            cx.write_to_clipboard(ClipboardItem::new_string(formula(&self.saved.id, &f.path)));
+        }
     }
 
     fn save_capture(&mut self, cx: &mut Context<Self>) {
@@ -177,37 +185,52 @@ impl RequestEditor {
                 )
                 .child(div().text_color(faint).child(t!("↵ save · esc cancel")))
                 .children(c.error.clone().map(|e| div().text_color(red).child(e))),
-            // Caret on a field: `$.data.token = abc   → variable ⌥↵`
-            (None, Some(f)) => h_flex()
-                .gap_2()
-                .min_w_0()
-                .child(div().flex_none().text_color(blue).child(f.path.clone()))
-                .child(div().flex_none().text_color(faint).child("="))
-                .child(
-                    div()
-                        .min_w_0()
-                        .max_w(px(320.))
-                        .truncate()
-                        .text_color(green)
-                        .child(f.value.clone()),
-                )
-                .child(
-                    h_flex()
-                        .id("to-var")
-                        .flex_none()
-                        .gap_1()
-                        .ml_2()
-                        .px_1p5()
-                        .rounded(theme.radius)
-                        .cursor_pointer()
-                        .text_color(accent)
-                        .hover(move |s| s.bg(chip_bg))
-                        .child(t!("→ variable"))
-                        .child(div().text_color(faint).child("⌥↵"))
-                        .on_click(
-                            cx.listener(|this, _, window, cx| this.start_capture(window, cx)),
-                        ),
-                ),
+            // Caret on a field: `$.data.token = abc   → variable ⌥↵   copy`
+            (None, Some(f)) => {
+                let tip = SharedString::from(formula(&self.saved.id, &f.path));
+                h_flex()
+                    .gap_2()
+                    .min_w_0()
+                    .child(div().flex_none().text_color(blue).child(f.path.clone()))
+                    .child(div().flex_none().text_color(faint).child("="))
+                    .child(
+                        div()
+                            .min_w_0()
+                            .max_w(px(320.))
+                            .truncate()
+                            .text_color(green)
+                            .child(f.value.clone()),
+                    )
+                    .child(
+                        h_flex()
+                            .id("to-var")
+                            .flex_none()
+                            .gap_1()
+                            .ml_2()
+                            .px_1p5()
+                            .rounded(theme.radius)
+                            .cursor_pointer()
+                            .text_color(accent)
+                            .hover(move |s| s.bg(chip_bg))
+                            .child(t!("→ variable"))
+                            .child(div().text_color(faint).child("⌥↵"))
+                            .on_click(
+                                cx.listener(|this, _, window, cx| this.start_capture(window, cx)),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .id("copy-selector")
+                            .flex_none()
+                            .px_1p5()
+                            .rounded(theme.radius)
+                            .cursor_pointer()
+                            .hover(move |s| s.bg(chip_bg).text_color(fg))
+                            .child(t!("copy"))
+                            .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
+                            .on_click(cx.listener(|this, _, _, cx| this.copy_selector(cx))),
+                    )
+            }
             (None, None) => h_flex().child(
                 div()
                     .text_color(faint)

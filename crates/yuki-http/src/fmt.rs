@@ -54,27 +54,33 @@ pub(crate) fn push_event(
     push_event_at(events, started.elapsed().as_secs_f64() * 1000.0, kind, text);
 }
 
-pub(crate) fn http_error_message(e: reqwest::Error) -> String {
-    use std::error::Error as StdError;
+/// Each source in `e`'s chain, outermost first.
+fn causes(e: &reqwest::Error) -> impl Iterator<Item = &dyn std::error::Error> {
+    std::iter::successors(std::error::Error::source(e), |s| s.source())
+}
 
+pub(crate) fn http_error_message(e: reqwest::Error) -> String {
     if e.is_builder() {
-        let root = {
-            let mut source: Option<&dyn StdError> = e.source();
-            let mut deepest = source;
-            while let Some(s) = source {
-                deepest = Some(s);
-                source = s.source();
-            }
-            deepest.map(|s| s.to_string())
-        };
-        return match root {
-            Some(msg) => format!("Could not build request: {msg}"),
+        return match causes(&e).last() {
+            Some(root) => format!("Could not build request: {root}"),
             None => "Could not build request — check that the URL is valid and all headers contain only printable ASCII characters".into(),
         };
     }
 
+    // reqwest's Display stops at "error sending request"; DNS, refused, TLS
+    // and connect timeouts all land here, so name the real cause.
     if e.is_connect() {
-        return format!("Connection refused or timed out: {e}");
+        let host = e.url().and_then(|u| u.host_str()).unwrap_or("host");
+        let Some(root) = causes(&e).last() else {
+            return format!("Could not connect to {host}: {e}");
+        };
+        // ponytail: matches hyper-util's ConnectError text; if it changes we fall back to "could not connect"
+        let what = if causes(&e).any(|s| s.to_string() == "dns error") {
+            "Could not resolve host"
+        } else {
+            "Could not connect to"
+        };
+        return format!("{what} {host}: {root}");
     }
 
     if e.is_timeout() {

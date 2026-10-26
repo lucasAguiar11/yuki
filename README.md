@@ -4,7 +4,7 @@
 
 **English** · [Português](README.pt-BR.md)
 
-A native, keyboard-first API console for macOS, written in Rust on GPUI. One document per request (`GET ▸ url`), monospace wherever there's data, color only where it means something. Website: [lucasaguiar11.github.io/yuki](https://lucasaguiar11.github.io/yuki/).
+A native, keyboard-first API console for macOS, written in Rust on GPUI: an open-source Postman alternative. One document per request (`GET ▸ url`), monospace wherever there's data, color only where it means something. Website: [lucasaguiar11.github.io/yuki](https://lucasaguiar11.github.io/yuki/).
 
 Download `Yuki-macos-aarch64.dmg` (Apple Silicon) or `Yuki-macos-x86_64.dmg` (Intel) from the [latest release](https://github.com/lucasAguiar11/yuki/releases/latest) and drag Yuki to Applications (it updates itself afterwards), or run it from source.
 

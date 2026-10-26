@@ -88,6 +88,8 @@ impl RequestEditor {
             TextView::markdown("notes-md", self.notes_text(cx))
                 .scrollable(true)
                 .size_full()
+                .px_16()
+                .py_2()
                 .font_family(ui_font)
                 .into_any_element()
         } else {

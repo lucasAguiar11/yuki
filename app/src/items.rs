@@ -122,7 +122,7 @@ impl Yuki {
                 e.saved = disk;
                 e.refresh_dirty(cx);
                 if moved {
-                    e.set_env(env.clone(), window, cx);
+                    e.set_env(env.clone(), cx);
                 }
             });
         }

@@ -266,7 +266,7 @@ impl Yuki {
                 |this, _, _: &crate::capture_view::VarsChanged, window, cx| {
                     for tab in &this.tabs {
                         tab.update(cx, |e, cx| {
-                            e.load_vars(window, cx);
+                            e.load_vars(cx);
                             e.sync_history(window, cx);
                         });
                     }
@@ -473,6 +473,8 @@ impl Render for Yuki {
             .text_color(theme.foreground)
             .key_context("Yuki")
             .track_focus(&self.focus)
+            // ⌘ turns `{{ }}` chips into links (`var_view::chip`): redraw on press/release.
+            .on_modifiers_changed(|_, window, _| window.refresh())
             .map(|el| crate::update::on_actions(el, cx))
             .map(|el| crate::mcp_view::on_actions(el, cx))
             .map(|el| crate::transfer_ui::on_actions(el, cx))
@@ -500,11 +502,16 @@ impl Render for Yuki {
                 this.refresh_git(cx);
                 cx.notify();
             }))
+            .on_action(
+                cx.listener(|this, a: &crate::var_view::GoToOrigin, window, cx| {
+                    this.go_to_origin(&a.0, window, cx)
+                }),
+            )
             .on_action(cx.listener(|this, _: &OpenEnvs, window, cx| {
                 if this.env_screen.is_some() {
                     this.close_envs(window, cx)
                 } else {
-                    this.open_envs(None, window, cx)
+                    this.open_envs(None, false, window, cx)
                 }
             }))
             .on_action(cx.listener(|this, _: &CloseEnvs, window, cx| this.close_envs(window, cx)))

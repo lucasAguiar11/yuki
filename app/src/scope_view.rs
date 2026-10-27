@@ -21,7 +21,7 @@ use crate::{
     complete_view,
     kv::{KvChanged, KvRows},
     secrets, var_view,
-    vars::Vars,
+    vars::{self, Refs, Vars},
 };
 
 const AUTOSAVE_DELAY: Duration = Duration::from_millis(400);
@@ -63,6 +63,7 @@ pub struct ScopeView {
     saving: bool,
     /// What `{{ }}` resolves to here (env + folders), for chips and autocomplete.
     resolved: Rc<Vars>,
+    refs: Rc<Refs>,
     env_id: Option<String>,
     complete: Option<Completion>,
     _subs: Vec<Subscription>,
@@ -93,8 +94,7 @@ impl AuthHost for ScopeView {
         self.update_completion(input, cx);
     }
     fn decorate(&self, input: Input) -> Input {
-        let vars = self.resolved.clone();
-        input.token(move |ctx, _, cx| var_view::chip(ctx, &vars, &[], cx).into_any_element())
+        var_view::chips(input, self.resolved.clone(), self.refs.clone(), vec![])
     }
 }
 
@@ -233,6 +233,7 @@ impl ScopeView {
             autosave: None,
             saving: false,
             resolved: Rc::default(),
+            refs: Rc::default(),
             env_id,
             complete: None,
             _subs,
@@ -246,17 +247,29 @@ impl ScopeView {
         self.load_vars(cx);
     }
 
+    /// Switch to the variables pane with the cursor in `key`'s value.
+    pub fn reveal_var(&mut self, key: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.pane = Pane::Variables;
+        self.vars.update(cx, |v, cx| v.reveal(key, window, cx));
+        cx.notify();
+    }
+
     /// The variables a request directly in this folder would see.
     fn load_vars(&mut self, cx: &mut Context<Self>) {
         let backend = self.backend.clone();
         let (ws, folder, env) = (self.ws_id.clone(), self.folder.clone(), self.env_id.clone());
+        let texts = self.form.texts(cx);
+        let mut calls = vars::used(texts.iter().map(|s| s.as_ref()));
+        calls.retain(|e| yuki_mcp::resolve::response_args(e).is_some());
         let task = cx.background_spawn(async move {
-            backend.variables(&ws, folder.as_deref(), env.as_deref())
+            let vars = backend.variables(&ws, folder.as_deref(), env.as_deref());
+            (vars, backend.refs(&ws, calls))
         });
         cx.spawn(async move |this, cx| {
-            let vars = Rc::new(task.await);
+            let (vars, refs) = task.await;
             _ = this.update(cx, |this, cx| {
-                this.resolved = vars;
+                this.resolved = Rc::new(vars);
+                this.refs = Rc::new(refs);
                 cx.notify();
             });
         })

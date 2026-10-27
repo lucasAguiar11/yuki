@@ -10,10 +10,12 @@ use crate::{
 };
 
 impl Yuki {
-    /// Open the folder's tab (`None`: the workspace's).
+    /// Open the folder's tab (`None`: the workspace's); `reveal` = a variable
+    /// to show there.
     pub fn open_scope(
         &mut self,
         folder: Option<String>,
+        reveal: Option<String>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -22,13 +24,17 @@ impl Yuki {
         };
         self.close_envs(window, cx);
         self.close_settings(window, cx);
-        if self
+        if let Some((view, _)) = self
             .scope
             .as_ref()
-            .is_some_and(|(v, _)| v.read(cx).folder == folder)
+            .filter(|(v, _)| v.read(cx).folder == folder)
         {
+            let view = view.clone();
             self.scope_active = true;
             self.focus_active(window, cx);
+            if let Some(key) = reveal {
+                view.update(cx, |v, cx| v.reveal_var(&key, window, cx));
+            }
             cx.notify();
             return;
         }
@@ -49,16 +55,16 @@ impl Yuki {
                         let view =
                             cx.new(|cx| ScopeView::new(backend, ws, folder, data, env, window, cx));
                         // Folder variables feed every open request's `{{ }}`.
-                        let sub = cx.subscribe_in(
-                            &view,
-                            window,
-                            |this, _, _: &ScopeSaved, window, cx| {
+                        let sub =
+                            cx.subscribe_in(&view, window, |this, _, _: &ScopeSaved, _, cx| {
                                 for tab in &this.tabs {
-                                    tab.update(cx, |e, cx| e.load_vars(window, cx));
+                                    tab.update(cx, |e, cx| e.load_vars(cx));
                                 }
                                 this.refresh_git(cx);
-                            },
-                        );
+                            });
+                        if let Some(key) = reveal {
+                            view.update(cx, |v, cx| v.reveal_var(&key, window, cx));
+                        }
                         this.scope = Some((view, sub));
                         this.scope_active = true;
                         this.focus_active(window, cx);

@@ -15,7 +15,7 @@ use yuki_mcp::{
 use yuki_storage::StoredHttpResponseSummary;
 
 use crate::secrets;
-use crate::vars::{Source, Var, Vars};
+use crate::vars::{Refs, Source, Var, Vars};
 
 /// Engine handle shared by every view. Stores do blocking YAML I/O — call them
 /// off the UI thread (`cx.background_spawn`); `send` runs on the tokio runtime
@@ -213,6 +213,26 @@ impl Backend {
             .resolved_request
     }
 
+    /// Request names for `$response.body` chips and the current value of
+    /// each call in `exprs`.
+    pub fn refs(&self, ws_id: &str, exprs: Vec<String>) -> Refs {
+        let api = &self.api;
+        let names = (api
+            .requests
+            .list_requests(ws_id)
+            .unwrap_or_default()
+            .into_iter())
+        .map(|r| (r.id, r.name))
+        .collect();
+        let values = (exprs.into_iter())
+            .map(|e| {
+                let v = resolve::response_value(&e, ws_id, &api.responses);
+                (e, v)
+            })
+            .collect();
+        Refs { names, values }
+    }
+
     /// Every variable visible to a request in `folder_id` under `env_id`, resolved,
     /// with the layer that wins: nearest folder > personal env > global > system.
     pub fn variables(&self, ws_id: &str, folder_id: Option<&str>, env_id: Option<&str>) -> Vars {
@@ -250,7 +270,10 @@ impl Backend {
                 let (source, secret) = chain
                     .iter()
                     .find_map(|f| {
-                        defined(&f.variables, name).map(|s| (Source::Folder(f.name.clone()), s))
+                        defined(&f.variables, name).map(|s| {
+                            let (name, id) = (f.name.clone(), f.id.clone());
+                            (Source::Folder { name, id }, s)
+                        })
                     })
                     .or_else(|| {
                         personal.and_then(|e| {

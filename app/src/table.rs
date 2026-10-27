@@ -400,11 +400,7 @@ impl RequestEditor {
                         .w(relative(0.3))
                         .text_color(blue)
                         .when(!f.enabled, |d| d.opacity(0.45))
-                        .child(
-                            Input::new(&row.name)
-                                .appearance(false)
-                                .token(self.chip_renderer()),
-                        ),
+                        .child(self.chips(Input::new(&row.name).appearance(false))),
                 )
                 .child(
                     h_flex()
@@ -413,11 +409,9 @@ impl RequestEditor {
                         .text_color(value_color)
                         .when(!f.enabled, |d| d.opacity(0.45))
                         .child(
-                            div().flex_1().child(
-                                Input::new(&row.value)
-                                    .appearance(false)
-                                    .token(self.chip_renderer()),
-                            ),
+                            div()
+                                .flex_1()
+                                .child(self.chips(Input::new(&row.value).appearance(false))),
                         )
                         .children(pick),
                 )

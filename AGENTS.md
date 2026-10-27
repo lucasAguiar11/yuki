@@ -37,7 +37,7 @@ app/              `yuki` binary (GPUI) — the only layer that knows gpui
   src/past.rs     picking an older history entry shows the request as it was then (read-only, in place of the editor) with restore/back; history stores it as `edited_request` (templates kept)
   src/capture.rs  response field → variable (pure: JSONPath under the caret, name, `$response.body` formula, readers); capture_view.rs the bar under a JSON response (⌥↵, name in place, readers ✕). The engine prefills `$response.body` (`resolve::prefill_responses`) before `resolve_str`
   src/sent.rs     timeline tab: resolved request as sent + engine event log (credentials masked until `show tokens`)
-  src/var_view.rs `{{ VAR }}` chips + tooltip; src/vars.rs model/tokenization (pure)
+  src/var_view.rs `{{ VAR }}` chips + tooltip card, ⌘-click → origin (`vars::origin`: source request, folder tab, env row; missing = create); `$response.body` chips read `request › field` with the last value (`vars::Refs`, `Backend::refs`); src/vars.rs model/tokenization (pure)
   src/vars_panel.rs ⌘⇧E panel;  src/sidebar.rs, tabs.rs, chrome.rs, palette.rs
   src/env_screen.rs "environments" screen ⌘⌥E (state, autosave, create/rename/delete); env_view.rs render; envs.rs title-bar `env` select
   src/settings.rs "settings" screen ⌘, (workspace name, DNS overrides as hosts lines, shell-env allowlist, accept invalid certificates — machine-local `skipCertificateCheck`; sends then flag `⚠ unverified` via a `tls` timeline event); settings_view.rs render; prefs.rs font sizes + language; about.rs "about" section

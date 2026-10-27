@@ -118,6 +118,8 @@ pub struct RequestEditor {
     /// Personal env the vars resolve against (globals always apply).
     pub env_id: Option<String>,
     pub vars: Rc<Vars>,
+    /// Names/values behind the `$response.body` chips (`vars::Refs`).
+    pub refs: Rc<crate::vars::Refs>,
     pub(crate) complete: Option<Completion>,
     /// URL length at the last change: a jump of more than one char is a paste.
     pub(crate) url_len: usize,
@@ -290,6 +292,7 @@ impl RequestEditor {
             caret_at: None,
             env_id,
             vars: Rc::default(),
+            refs: Rc::default(),
             complete: None,
             url_len,
             autosave: None,
@@ -299,7 +302,7 @@ impl RequestEditor {
         };
         this.sync_path_params(window, cx);
         this.refresh_history(true, window, cx);
-        this.load_vars(window, cx);
+        this.load_vars(cx);
         this.load_notes(window, cx);
         this
     }
@@ -431,6 +434,13 @@ impl RequestEditor {
         self.shown = req.shown();
         self.saved = req;
         self.notes_saved = notes;
+        // A response chip added since the last read: show its source and value.
+        let refs = &self.refs;
+        if (self.used_vars(cx).iter())
+            .any(|e| yuki_mcp::resolve::response_args(e).is_some() && !refs.values.contains_key(e))
+        {
+            self.load_vars(cx);
+        }
         self.refresh_dirty(cx);
         cx.emit(EditorChanged);
     }

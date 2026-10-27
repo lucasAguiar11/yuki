@@ -176,11 +176,10 @@ impl RequestEditor {
                         .child(format!(":{}", r.name)),
                 )
                 .child(
-                    div().flex_1().text_color(fg).child(
-                        Input::new(&r.value)
-                            .appearance(false)
-                            .token(self.chip_renderer()),
-                    ),
+                    div()
+                        .flex_1()
+                        .text_color(fg)
+                        .child(self.chips(Input::new(&r.value).appearance(false))),
                 )
         });
         v_flex()

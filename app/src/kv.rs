@@ -170,6 +170,18 @@ impl KvRows {
         self.filled(cx).count()
     }
 
+    /// Put the cursor in the value of the row named `key`, if there is one.
+    pub fn reveal(&self, key: &str, window: &mut Window, cx: &mut App) {
+        let row = self
+            .rows
+            .iter()
+            .find(|r| r.key.read(cx).value().trim() == key);
+        if let Some(focus) = row.map(|r| r.value.read(cx).focus_handle(cx)) {
+            // Next frame: the pane may not have drawn this input yet.
+            window.defer(cx, move |window, cx| focus.focus(window, cx));
+        }
+    }
+
     fn toggle_secret(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
         let Some(r) = self.rows.get_mut(ix) else {
             return;

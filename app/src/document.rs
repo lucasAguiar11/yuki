@@ -3,7 +3,7 @@
 
 use gpui_kit::component::{
     h_flex, h_resizable,
-    input::{InlineTokenContext, Input, InputState},
+    input::{Input, InputState},
     resizable_panel,
     select::Select,
     spinner::Spinner,
@@ -71,7 +71,7 @@ impl AuthHost for RequestEditor {
         self.update_completion(input, cx);
     }
     fn decorate(&self, input: Input) -> Input {
-        input.token(self.chip_renderer())
+        self.chips(input)
     }
     fn can_fetch_token(&self) -> bool {
         true
@@ -200,11 +200,7 @@ impl RequestEditor {
                     .flex_1()
                     .text_size(px(14.))
                     .font_family(theme.mono_font_family.clone())
-                    .child(
-                        Input::new(&self.url)
-                            .appearance(false)
-                            .token(self.chip_renderer()),
-                    ),
+                    .child(self.chips(Input::new(&self.url).appearance(false))),
             )
             .child(
                 div()
@@ -325,12 +321,9 @@ impl RequestEditor {
             .into_any_element()
     }
 
-    pub(crate) fn chip_renderer(
-        &self,
-    ) -> impl Fn(&InlineTokenContext, &mut Window, &mut App) -> AnyElement + 'static {
-        let vars = self.vars.clone();
-        let params = self.params.entries();
-        move |ctx, _, cx| var_view::chip(ctx, &vars, &params, cx).into_any_element()
+    pub(crate) fn chips(&self, input: Input) -> Input {
+        let refs = self.refs.clone();
+        var_view::chips(input, self.vars.clone(), refs, self.params.entries())
     }
 
     /// `vars 4` — or `vars 4 · 1 missing` in red; opens the variables panel.

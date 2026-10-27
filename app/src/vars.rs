@@ -1,7 +1,10 @@
 //! `{{ … }}` template variables: where they sit in text, what they resolve to,
 //! and which layer defines them.
 
-use std::{collections::BTreeMap, ops::Range};
+use std::{
+    collections::{BTreeMap, HashMap},
+    ops::Range,
+};
 
 use gpui_kit::component::input::{InlineToken, InputContent};
 use yuki_mcp::resolve::{funcs, is_identifier, response_args};
@@ -9,7 +12,7 @@ use yuki_mcp::resolve::{funcs, is_identifier, response_args};
 /// The layer a variable comes from, strongest first.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Source {
-    Folder(String),
+    Folder { name: String, id: String },
     Env(String),
     Global,
     System,
@@ -18,11 +21,47 @@ pub enum Source {
 impl Source {
     pub fn label(&self) -> String {
         match self {
-            Source::Folder(name) => t!("folder · %{name}", name = name).into_owned(),
+            Source::Folder { name, .. } => t!("folder · %{name}", name = name).into_owned(),
             Source::Env(name) => name.clone(),
             Source::Global => "global".into(),
             Source::System => t!("system").into_owned(),
         }
+    }
+}
+
+/// Where ⌘-click on a chip goes.
+#[derive(Clone, PartialEq, Debug)]
+pub enum Origin {
+    /// `$response.body(…)`: the request whose response it reads.
+    Request(String),
+    Folder {
+        id: String,
+        var: String,
+    },
+    /// The active env (global when none) or the global one; a missing `var`
+    /// is started there.
+    Env {
+        global: bool,
+        var: String,
+    },
+}
+
+pub fn origin(expr: &str, vars: &Vars) -> Option<Origin> {
+    if response_args(expr).is_some() {
+        return response_ref(expr).map(|(id, _)| Origin::Request(id));
+    }
+    if !is_identifier(expr) {
+        return None;
+    }
+    let var = expr.to_string();
+    match vars.get(expr).map(|v| &v.source) {
+        Some(Source::Folder { id, .. }) => Some(Origin::Folder {
+            id: id.clone(),
+            var,
+        }),
+        Some(Source::Env(_)) | None => Some(Origin::Env { global: false, var }),
+        Some(Source::Global) => Some(Origin::Env { global: true, var }),
+        Some(Source::System) => None,
     }
 }
 
@@ -37,6 +76,28 @@ pub struct Var {
 }
 
 pub type Vars = BTreeMap<String, Var>;
+
+/// What `$response.body(…)` chips show: the workspace's request names and,
+/// per call, its value in the source's latest response (`None`: none yet).
+#[derive(Default)]
+pub struct Refs {
+    pub names: HashMap<String, String>,
+    pub values: HashMap<String, Option<String>>,
+}
+
+/// A response call's source request id and the field it reads, as shown:
+/// the selector without `$.`, `body` for the whole body.
+pub fn response_ref(expr: &str) -> Option<(String, String)> {
+    let args = response_args(expr)?;
+    let arg = |k: &str| args.iter().find(|(n, _)| *n == k).map(|(_, v)| v.as_str());
+    let sel = arg("selector").unwrap_or("");
+    let field = sel
+        .strip_prefix("$.")
+        .or_else(|| sel.strip_prefix('$'))
+        .unwrap_or(sel);
+    let field = if field.is_empty() { "body" } else { field };
+    Some((arg("requestId")?.to_string(), field.to_string()))
+}
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Kind {
@@ -89,11 +150,13 @@ pub fn spans(text: &str) -> Vec<(Range<usize>, &str)> {
 }
 
 /// Atomic chip for one template; the id is the expression, the label hides
-/// the braces — and, for a response call, the request id.
+/// the braces — and, for a response call, the request id (the chip renders
+/// the request's name in its place once known).
 pub fn token(source: &str, expr: &str) -> InlineToken {
-    let label = response_args(expr)
-        .and_then(|args| args.into_iter().find(|(k, _)| *k == "selector"))
-        .map_or_else(|| expr.to_string(), |(_, sel)| format!("$response {sel}"));
+    let label = response_ref(expr).map_or_else(
+        || expr.to_string(),
+        |(_, field)| format!("response › {field}"),
+    );
     InlineToken::new(expr.to_string(), source.to_string()).with_label(label)
 }
 
@@ -245,6 +308,55 @@ mod tests {
         assert_eq!(kind("nope.fn()", &vars), Kind::Missing);
         assert_eq!(kind("TOKEN", &vars), Kind::Function);
         assert_eq!(used(["{{ A }}{{B}}", "{{ A }}"]), ["A", "B"]);
+    }
+
+    #[test]
+    fn origin_follows_the_winning_layer() {
+        let var = |source| Var {
+            raw: String::new(),
+            value: String::new(),
+            source,
+            secret: false,
+        };
+        let folder = Source::Folder {
+            name: "f".into(),
+            id: "fid".into(),
+        };
+        let vars: Vars = [
+            ("F".to_string(), var(folder)),
+            ("G".to_string(), var(Source::Global)),
+            ("E".to_string(), var(Source::Env("dev".into()))),
+            ("S".to_string(), var(Source::System)),
+        ]
+        .into();
+        let env = |global, var: &str| {
+            Some(Origin::Env {
+                global,
+                var: var.into(),
+            })
+        };
+        let folder = Some(Origin::Folder {
+            id: "fid".into(),
+            var: "F".into(),
+        });
+        assert_eq!(origin("F", &vars), folder);
+        assert_eq!(origin("G", &vars), env(true, "G"));
+        assert_eq!(origin("E", &vars), env(false, "E"));
+        assert_eq!(origin("NEW", &vars), env(false, "NEW"));
+        assert_eq!(origin("S", &vars), None);
+        assert_eq!(origin("$fake.email()", &vars), None);
+        assert_eq!(
+            origin(r#"response.body(requestId="r1", selector="$.t")"#, &vars),
+            Some(Origin::Request("r1".into()))
+        );
+        assert_eq!(
+            response_ref(r#"$response.body(requestId="r1", selector="$")"#),
+            Some(("r1".into(), "body".into()))
+        );
+        assert_eq!(
+            response_ref(r#"$response.body(requestId="r1", selector="$.data.token")"#),
+            Some(("r1".into(), "data.token".into()))
+        );
     }
 
     #[test]

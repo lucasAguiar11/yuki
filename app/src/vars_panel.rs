@@ -84,7 +84,7 @@ pub fn render(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
                         .hover(move |s| s.text_color(fg))
                         .child(t!("+ create"))
                         .on_click(cx.listener(move |this, _, window, cx| {
-                            this.open_envs(Some(key.clone()), window, cx)
+                            this.open_envs(Some(key.clone()), false, window, cx)
                         })),
                 )
             }));

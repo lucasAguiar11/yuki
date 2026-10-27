@@ -171,7 +171,7 @@ pub fn render(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
                         if this.collapsed.remove(id.as_ref()) {
                             this.refresh_rows();
                         }
-                        this.open_scope(Some(id.to_string()), window, cx);
+                        this.open_scope(Some(id.to_string()), None, window, cx);
                     } else {
                         this.open_request(&id, window, cx);
                     }
@@ -372,7 +372,7 @@ fn menu(
             }))
             .when(id.is_none(), |m| {
                 m.item(item(this, "workspace auth & headers…", |y, w, cx| {
-                    y.open_scope(None, w, cx)
+                    y.open_scope(None, None, w, cx)
                 }))
             });
     }

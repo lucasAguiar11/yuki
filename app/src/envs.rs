@@ -11,6 +11,7 @@ use yuki_core::{Environment, EnvironmentKind};
 
 use crate::{
     env_screen::{EnvScreen, EnvsChanged},
+    vars::Origin,
     workspace::Yuki,
 };
 
@@ -49,9 +50,7 @@ impl Yuki {
         self.env_sub = Some(cx.subscribe_in(
             &env,
             window,
-            |this, _, _: &SelectEvent<SearchableVec<SharedString>>, window, cx| {
-                this.reresolve(window, cx)
-            },
+            |this, _, _: &SelectEvent<SearchableVec<SharedString>>, _, cx| this.reresolve(cx),
         ));
         self.env = Some(env);
     }
@@ -74,10 +73,10 @@ impl Yuki {
     }
 
     /// Every open request re-resolves its variables (env picked or edited).
-    fn reresolve(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn reresolve(&mut self, cx: &mut Context<Self>) {
         let env_id = self.env_id(cx);
         for tab in &self.tabs {
-            tab.update(cx, |e, cx| e.set_env(env_id.clone(), window, cx));
+            tab.update(cx, |e, cx| e.set_env(env_id.clone(), cx));
         }
         if let Some((scope, _)) = &self.scope {
             scope.update(cx, |s, cx| s.set_env(env_id.clone(), cx));
@@ -85,21 +84,51 @@ impl Yuki {
         cx.notify();
     }
 
+    /// ⌘-click on a `{{ }}` chip.
+    pub fn go_to_origin(&mut self, origin: &Origin, window: &mut Window, cx: &mut Context<Self>) {
+        match origin {
+            Origin::Request(id) => self.open_request(id, window, cx),
+            Origin::Folder { id, var } => {
+                self.open_scope(Some(id.clone()), Some(var.clone()), window, cx)
+            }
+            Origin::Env { global, var } => self.open_envs(Some(var.clone()), *global, window, cx),
+        }
+    }
+
     /// Show the "Environments" screen on the active environment (global when
-    /// none); `add` starts a variable with that name there.
-    pub fn open_envs(&mut self, add: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
+    /// none, or with `global`); `add` starts a variable with that name there.
+    pub fn open_envs(
+        &mut self,
+        add: Option<String>,
+        global: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(ws) = self.ws.as_ref().map(|w| w.id.clone()) else {
             return;
         };
         self.close_settings(window, cx);
+        let active = self.env_id(cx).filter(|_| !global);
+        let pick = move |envs: &[Environment]| {
+            active
+                .as_ref()
+                .and_then(|id| envs.iter().position(|e| &e.id == id))
+                .or_else(|| envs.iter().position(|e| e.kind == EnvironmentKind::Global))
+                .unwrap_or(0)
+        };
         if let Some((screen, _)) = &self.env_screen {
             let screen = screen.clone();
             if let Some(key) = add {
-                screen.update(cx, |s, cx| s.add_var(&key, window, cx));
+                screen.update(cx, |s, cx| {
+                    let ix = pick(&s.envs);
+                    if ix != s.selected {
+                        s.select(ix, window, cx);
+                    }
+                    s.add_var(&key, window, cx)
+                });
             }
             return;
         }
-        let active = self.env_id(cx);
         let backend = self.backend.clone();
         let task = cx.background_spawn({
             let ws = ws.clone();
@@ -109,9 +138,7 @@ impl Yuki {
             let envs = task.await;
             _ = this.update_in(cx, |this, window, cx| match envs {
                 Ok(envs) => {
-                    let ix = active
-                        .and_then(|id| envs.iter().position(|e| e.id == id))
-                        .unwrap_or(0);
+                    let ix = pick(&envs);
                     let backend = this.backend.clone();
                     let screen = cx.new(|cx| EnvScreen::new(backend, ws, envs, ix, window, cx));
                     let sub = cx.subscribe_in(&screen, window, Self::envs_changed);
@@ -155,7 +182,7 @@ impl Yuki {
             data.environments = ev.envs.clone();
         }
         self.set_envs(&ev.envs, ev.activate.clone(), window, cx);
-        self.reresolve(window, cx);
+        self.reresolve(cx);
     }
 
     /// Quit: write a pending env edit synchronously.

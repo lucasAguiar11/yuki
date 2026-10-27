@@ -5,16 +5,46 @@ use std::rc::Rc;
 
 use gpui_kit::component::{
     h_flex,
-    input::{InlineTokenContext, InputState},
+    input::{InlineTokenContext, Input, InputState},
     tooltip::Tooltip,
     v_flex, ActiveTheme as _,
 };
-use gpui_kit::*;
+use gpui_kit::{prelude::FluentBuilder as _, *};
+use yuki_mcp::resolve::response_args;
 
 use crate::{
     editor::RequestEditor,
-    vars::{self, Kind, Var, Vars},
+    ui,
+    vars::{self, Kind, Origin, Refs, Vars},
 };
+
+/// ⌘-click on a chip: open where it's defined (`vars::origin`).
+#[derive(Clone, PartialEq, Action)]
+#[action(namespace = yuki, no_json)]
+pub struct GoToOrigin(pub Origin);
+
+/// Template/path-param chips on `input`; ⌘-click goes to the origin.
+pub fn chips(
+    input: Input,
+    vars: Rc<Vars>,
+    refs: Rc<Refs>,
+    params: Vec<(String, Entity<InputState>)>,
+) -> Input {
+    let click = vars.clone();
+    input
+        .token(move |ctx, window, cx| {
+            let cmd = window.modifiers().platform;
+            chip(ctx, &vars, &refs, &params, cmd, cx).into_any_element()
+        })
+        .on_token_click(move |ev, window, cx| {
+            if !ev.click().modifiers().platform {
+                return;
+            }
+            if let Some(origin) = vars::origin(ev.token().id(), &click) {
+                window.dispatch_action(Box::new(GoToOrigin(origin)), cx);
+            }
+        })
+}
 
 /// Turn any freshly typed `{{ … }}` in an input/textarea entity into a chip.
 /// A macro because `InputState` and `TextareaState` share the token API
@@ -61,25 +91,29 @@ pub fn chip_path_params(url: &Entity<InputState>, window: &mut Window, cx: &mut 
 pub const MASK: &str = "••••••••";
 
 impl RequestEditor {
-    pub fn set_env(&mut self, env_id: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn set_env(&mut self, env_id: Option<String>, cx: &mut Context<Self>) {
         self.env_id = env_id;
-        self.load_vars(window, cx);
+        self.load_vars(cx);
     }
 
-    pub fn load_vars(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn load_vars(&mut self, cx: &mut Context<Self>) {
         let backend = self.backend.clone();
         let (ws, folder, env) = (
             self.saved.workspace_id.clone(),
             self.saved.folder_id.clone(),
             self.env_id.clone(),
         );
+        let mut calls = self.used_vars(cx);
+        calls.retain(|e| response_args(e).is_some());
         let task = cx.background_spawn(async move {
-            backend.variables(&ws, folder.as_deref(), env.as_deref())
+            let vars = backend.variables(&ws, folder.as_deref(), env.as_deref());
+            (vars, backend.refs(&ws, calls))
         });
-        cx.spawn_in(window, async move |this, cx| {
-            let vars = task.await;
+        cx.spawn(async move |this, cx| {
+            let (vars, refs) = task.await;
             this.update(cx, |this, cx| {
                 this.vars = Rc::new(vars);
+                this.refs = Rc::new(refs);
                 this.body.paint(&this.vars, cx);
                 cx.notify();
             })
@@ -114,12 +148,95 @@ pub(crate) fn kind_color(kind: Kind, cx: &App) -> Hsla {
     }
 }
 
-/// Inline chip: the expression without braces, tinted by state; hovering shows
-/// the resolved value and its origin.
-pub fn chip(
+/// What a chip's tooltip shows; built when it opens.
+struct Card {
+    /// Where it's defined (top right).
+    place: String,
+    /// What it sends, or why there's nothing to show (red when missing).
+    value: Result<String, String>,
+    note: Option<String>,
+    hint: Option<String>,
+}
+
+/// Long values (tokens, JSON) are cut: the card is a glance, not a viewer.
+fn clip(s: &str) -> String {
+    match s.char_indices().nth(160) {
+        Some((at, _)) => format!("{}…", &s[..at]),
+        None => s.to_string(),
+    }
+}
+
+/// The chip's text and the card's title: the label, or `request › field`
+/// for a response call once the request's name is known.
+fn title(ctx: &InlineTokenContext, refs: &Refs) -> SharedString {
+    let token = ctx.token();
+    vars::response_ref(token.id())
+        .and_then(|(id, field)| Some(format!("{} › {field}", refs.names.get(&id)?).into()))
+        .unwrap_or_else(|| token.label().clone())
+}
+
+fn describe(expr: &str, kind: Kind, vars: &Vars, refs: &Refs) -> Card {
+    let open = vars::origin(expr, vars).map(|_| t!("⌘-click to open").into_owned());
+    let name_of = |id: &str| refs.names.get(id).cloned();
+    let sent_first = |name: &str| t!("%{name} is sent first", name = name).into_owned();
+    if let Some((id, _)) = vars::response_ref(expr) {
+        let name = name_of(&id).unwrap_or_else(|| t!("response").into_owned());
+        let value = match refs.values.get(expr) {
+            Some(Some(v)) => Ok(clip(v)),
+            Some(None) => Err(t!("no response yet").into_owned()),
+            None => Err("…".into()),
+        };
+        return Card {
+            place: t!("response").into_owned(),
+            value,
+            note: Some(sent_first(&name)),
+            hint: open,
+        };
+    }
+    match vars.get(expr) {
+        // Its value still reads a response that isn't there yet.
+        Some(v) if kind == Kind::Function => Card {
+            place: v.source.label(),
+            value: Err(t!("no response yet").into_owned()),
+            note: (vars::spans(&v.raw).into_iter())
+                .find_map(|(_, e)| vars::response_ref(e))
+                .and_then(|(id, _)| name_of(&id))
+                .map(|name| sent_first(&name)),
+            hint: open,
+        },
+        Some(v) => Card {
+            place: v.source.label(),
+            value: Ok(if v.secret {
+                MASK.into()
+            } else {
+                clip(&v.value)
+            }),
+            note: (!v.secret && v.raw != v.value).then(|| format!("= {}", clip(&v.raw))),
+            hint: open,
+        },
+        None if kind == Kind::Function => Card {
+            place: t!("function").into_owned(),
+            value: Err(t!("evaluated at send time").into_owned()),
+            note: None,
+            hint: None,
+        },
+        None => Card {
+            place: t!("not defined").into_owned(),
+            value: Err(t!("no value in the current environment").into_owned()),
+            note: None,
+            hint: open.map(|_| t!("⌘-click to create").into_owned()),
+        },
+    }
+}
+
+/// Inline chip, tinted by state; hovering shows its card. With ⌘ held
+/// (`cmd`), one that leads somewhere looks like a link under the pointer.
+fn chip(
     ctx: &InlineTokenContext,
-    vars: &Vars,
+    vars: &Rc<Vars>,
+    refs: &Rc<Refs>,
     params: &[(String, Entity<InputState>)],
+    cmd: bool,
     cx: &App,
 ) -> impl IntoElement {
     let expr = ctx.token().id().clone();
@@ -127,16 +244,25 @@ pub fn chip(
         return path_chip(ctx, name, params, cx).into_any_element();
     }
     let kind = vars::kind(&expr, vars);
-    let var = vars.get(expr.as_ref()).cloned();
-    let color = kind_color(kind, cx);
-    shell(ctx, color, kind == Kind::Missing, cx)
-        // A tooltip, not app state: re-rendering the input on hover would reset
-        // its token hover tracking.
-        .tooltip(move |window, cx| {
-            let (expr, var) = (expr.clone(), var.clone());
-            Tooltip::element(move |_, cx| card(&expr, kind, var.as_ref(), cx)).build(window, cx)
-        })
-        .into_any_element()
+    let link = cmd && vars::origin(&expr, vars).is_some();
+    let title = title(ctx, refs);
+    let (vars, refs) = (vars.clone(), refs.clone());
+    shell(
+        ctx,
+        kind_color(kind, cx),
+        kind == Kind::Missing,
+        link,
+        title.clone(),
+        cx,
+    )
+    // A tooltip, not app state: re-rendering the input on hover would reset
+    // its token hover tracking.
+    .tooltip(move |window, cx| {
+        let c = describe(&expr, kind, &vars, &refs);
+        let title = title.clone();
+        Tooltip::element(move |_, cx| card(&title, &c, kind, cx)).build(window, cx)
+    })
+    .into_any_element()
 }
 
 /// `:name` chip; the tooltip shows the value it gets from the params tab.
@@ -153,7 +279,7 @@ fn path_chip(
     let empty = value.as_ref().is_none_or(|v| v.read(cx).value().is_empty());
     let color = cx.theme().blue;
     let label = ctx.token().label().clone();
-    shell(ctx, color, empty, cx).tooltip(move |window, cx| {
+    shell(ctx, color, empty, false, label.clone(), cx).tooltip(move |window, cx| {
         let (label, value) = (label.clone(), value.clone());
         Tooltip::element(move |_, cx| {
             let theme = cx.theme();
@@ -190,14 +316,30 @@ fn path_chip(
     })
 }
 
-/// Tinted pill around the token's label; `strong` = emphasized border.
-fn shell(ctx: &InlineTokenContext, color: Hsla, strong: bool, cx: &App) -> Stateful<Div> {
+/// Tinted pill around `text`; `strong` = emphasized border. A `link` (⌘
+/// held, chip leads somewhere) gets the pointer and, under it, an underline.
+fn shell(
+    ctx: &InlineTokenContext,
+    color: Hsla,
+    strong: bool,
+    link: bool,
+    text: SharedString,
+    cx: &App,
+) -> Stateful<Div> {
+    // Text-changing hover styles (decoration) don't apply: the text is shaped
+    // before hover is known. A border is painted, so it follows the pointer.
+    let label = div().min_w_0().text_ellipsis().child(text).when(link, |d| {
+        d.border_b_1()
+            .border_color(color.opacity(0.45))
+            .group_hover("chip", |s| s.border_color(color))
+    });
     div()
         .id(SharedString::from(format!(
             "chip-{}-{}",
             ctx.token().id(),
             ctx.range().start
         )))
+        .group("chip")
         .flex()
         .items_center()
         .h(ctx.line_height())
@@ -208,53 +350,22 @@ fn shell(ctx: &InlineTokenContext, color: Hsla, strong: bool, cx: &App) -> State
         .border_1()
         .border_color(color.opacity(if strong { 0.7 } else { 0.25 }))
         .text_color(color)
-        .child(
-            div()
-                .min_w_0()
-                .text_ellipsis()
-                .child(ctx.token().label().clone()),
-        )
+        .when(link, |d| d.cursor_pointer())
+        .child(label)
 }
 
-/// Name, origin, resolved value (secrets masked), or why there is none.
-fn card(expr: &str, kind: Kind, var: Option<&Var>, cx: &App) -> impl IntoElement {
+/// Title and origin, the value (or why there is none), a note, the ⌘ hint.
+fn card(title: &SharedString, c: &Card, kind: Kind, cx: &App) -> impl IntoElement {
     let theme = cx.theme();
-    let muted = |text: String| div().text_color(theme.muted_foreground).child(text);
-    let origin = match (kind, var) {
-        (Kind::Function, _) => t!("function").into_owned(),
-        (_, Some(v)) => v.source.label(),
-        (_, None) => t!("not defined").into_owned(),
+    let (muted, faint) = (theme.muted_foreground, ui::faint(cx));
+    let value = match &c.value {
+        Ok(v) => div().text_color(theme.foreground).child(v.clone()),
+        Err(why) if kind == Kind::Missing => div().text_color(theme.red).child(why.clone()),
+        Err(why) => div().text_color(muted).child(why.clone()),
     };
-    let mut lines = v_flex().gap_1();
-    match (kind, var) {
-        (Kind::Function, _) => {
-            lines = lines.child(muted(t!("evaluated at send time").into_owned()))
-        }
-        (_, Some(v)) => {
-            let shown = if v.secret {
-                MASK.to_string()
-            } else {
-                v.value.clone()
-            };
-            lines = lines.child(div().text_color(theme.foreground).child(shown));
-            if !v.secret && v.raw != v.value {
-                lines = lines.child(muted(format!("= {}", v.raw)));
-            }
-        }
-        (_, None) => lines = lines
-            .child(
-                div()
-                    .text_color(theme.red)
-                    .child(t!("no value in the current environment")),
-            )
-            .child(muted(
-                t!("define it in the environment, in global or in a folder · ⌘⇧E lists everything")
-                    .into_owned(),
-            )),
-    }
     v_flex()
         .max_w(px(360.))
-        .gap_1p5()
+        .gap_1()
         .text_xs()
         .font_family(theme.mono_font_family.clone())
         .child(
@@ -263,10 +374,18 @@ fn card(expr: &str, kind: Kind, var: Option<&Var>, cx: &App) -> impl IntoElement
                 .gap_4()
                 .child(
                     div()
+                        .min_w_0()
+                        .truncate()
                         .text_color(kind_color(kind, cx))
-                        .child(expr.to_string()),
+                        .child(title.clone()),
                 )
-                .child(muted(origin)),
+                .child(div().flex_none().text_color(muted).child(c.place.clone())),
         )
-        .child(lines)
+        .child(value)
+        .children(c.note.clone().map(|n| div().text_color(muted).child(n)))
+        .children(
+            c.hint
+                .clone()
+                .map(|h| div().pt_1().text_color(faint).child(h)),
+        )
 }

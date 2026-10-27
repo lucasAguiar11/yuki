@@ -107,7 +107,8 @@ fn strings(v: &Value, out: &mut Vec<String>) {
     }
 }
 
-fn body(expr: &str, ws_id: &str, responses: &ResponseStore) -> Option<String> {
+/// A response call's value in its source's latest stored response.
+pub fn body(expr: &str, ws_id: &str, responses: &ResponseStore) -> Option<String> {
     let args = args(expr)?;
     let arg = |k: &str| args.iter().find(|(n, _)| *n == k).map(|(_, v)| v.as_str());
     let stored = responses.latest(ws_id, arg("requestId")?).ok()??;

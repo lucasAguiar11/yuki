@@ -1,11 +1,12 @@
 //! How `{{ VAR }}` templates look and explain themselves: inline chips in the
-//! URL/headers, with a tooltip card showing the resolved value and its origin.
+//! URL/headers and in the code editors (body), with a tooltip card showing
+//! the resolved value and its origin.
 
 use std::rc::Rc;
 
 use gpui_kit::component::{
     h_flex,
-    input::{InlineTokenContext, Input, InputState},
+    input::{EditorState, InlineTokenClickEvent, InlineTokenContext, Input, InputState},
     tooltip::Tooltip,
     v_flex, ActiveTheme as _,
 };
@@ -23,32 +24,52 @@ use crate::{
 #[action(namespace = yuki, no_json)]
 pub struct GoToOrigin(pub Origin);
 
-/// Template/path-param chips on `input`; ⌘-click goes to the origin.
-pub fn chips(
-    input: Input,
+type Params = Vec<(String, Entity<InputState>)>;
+
+/// Draws each chip; `⌘` held turns the ones that lead somewhere into links.
+fn renderer(
     vars: Rc<Vars>,
     refs: Rc<Refs>,
-    params: Vec<(String, Entity<InputState>)>,
-) -> Input {
-    let click = vars.clone();
-    input
-        .token(move |ctx, window, cx| {
-            let cmd = window.modifiers().platform;
-            chip(ctx, &vars, &refs, &params, cmd, cx).into_any_element()
-        })
-        .on_token_click(move |ev, window, cx| {
-            if !ev.click().modifiers().platform {
-                return;
-            }
-            if let Some(origin) = vars::origin(ev.token().id(), &click) {
-                window.dispatch_action(Box::new(GoToOrigin(origin)), cx);
-            }
-        })
+    params: Params,
+) -> impl Fn(&InlineTokenContext, &mut Window, &mut App) -> AnyElement + 'static {
+    move |ctx, window, cx| {
+        let cmd = window.modifiers().platform;
+        chip(ctx, &vars, &refs, &params, cmd, cx).into_any_element()
+    }
 }
 
-/// Turn any freshly typed `{{ … }}` in an input/textarea entity into a chip.
-/// A macro because `InputState` and `TextareaState` share the token API
-/// without sharing a trait.
+/// ⌘-click goes to the origin.
+fn on_click(vars: Rc<Vars>) -> impl Fn(&InlineTokenClickEvent, &mut Window, &mut App) + 'static {
+    move |ev, window, cx| {
+        if !ev.click().modifiers().platform {
+            return;
+        }
+        if let Some(origin) = vars::origin(ev.token().id(), &vars) {
+            window.dispatch_action(Box::new(GoToOrigin(origin)), cx);
+        }
+    }
+}
+
+/// Template/path-param chips on `input`.
+pub fn chips(input: Input, vars: Rc<Vars>, refs: Rc<Refs>, params: Params) -> Input {
+    let click = on_click(vars.clone());
+    input
+        .token(renderer(vars, refs, params))
+        .on_token_click(click)
+}
+
+/// The same chips in a code editor. Its `Editor` control has no token
+/// builder, so they're pinned on the state (patched gpui-base); called on
+/// every render so they read the current variables.
+pub fn pin_chips(editor: &Entity<EditorState>, vars: Rc<Vars>, refs: Rc<Refs>, cx: &mut App) {
+    let click = Rc::new(on_click(vars.clone()));
+    let draw = Rc::new(renderer(vars, refs, vec![]));
+    editor.update(cx, |s, _| s.pin_token_presentation(draw, Some(click)));
+}
+
+/// Turn any freshly typed `{{ … }}` in an input/textarea/code-editor entity
+/// into a chip. A macro because the three states share the token API without
+/// sharing a trait.
 #[macro_export]
 macro_rules! chip_templates {
     ($entity:expr, $window:expr, $cx:expr) => {
@@ -114,7 +135,6 @@ impl RequestEditor {
             this.update(cx, |this, cx| {
                 this.vars = Rc::new(vars);
                 this.refs = Rc::new(refs);
-                this.body.paint(&this.vars, cx);
                 cx.notify();
             })
         })

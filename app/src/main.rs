@@ -14,7 +14,6 @@ mod body;
 mod capture;
 mod capture_view;
 mod chrome;
-mod code_vars;
 mod complete;
 mod complete_view;
 mod csv;

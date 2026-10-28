@@ -1,6 +1,6 @@
 //! Body pane: a kind select plus the input that kind edits — code editor
-//! (syntax colors + `{{ VAR }}` chips drawn on top, see `code_chips.rs`) for
-//! raw/graphql, a name/value table for form/multipart, a path for binary.
+//! (syntax colors + `{{ VAR }}` chips, `var_view::pin_chips`) for raw/graphql,
+//! a name/value table for form/multipart, a path for binary.
 
 use std::path::PathBuf;
 
@@ -15,13 +15,12 @@ use gpui_kit::*;
 use yuki_core::{BodyKind, RequestBody};
 
 use crate::{
-    code_vars::CodeVars,
+    chip_templates,
     complete::CompleteHost as _,
     draft,
     editor::RequestEditor,
     table::{Table, Which},
-    ui,
-    vars::Vars,
+    ui, var_view, vars,
 };
 
 const KINDS: [BodyKind; 9] = [
@@ -53,7 +52,6 @@ pub struct BodyInputs {
     kind: Entity<KindSelect>,
     pub(crate) text: Entity<EditorState>,
     pub(crate) graphql_vars: Entity<EditorState>,
-    code: [CodeVars; 2],
     pub(crate) fields: Table,
     file: Entity<InputState>,
 }
@@ -68,22 +66,20 @@ impl BodyInputs {
         let names: Vec<SharedString> = KINDS.iter().map(|k| ui::kind_name(k).into()).collect();
         let ix = KINDS.iter().position(|k| *k == t.kind).map(IndexPath::new);
         let kind = cx.new(|cx| SelectState::new(SearchableVec::new(names), ix, window, cx));
+        // Code editors with `{{ }}` chips, like the URL (patched gpui-base).
         let text = cx.new(|cx| {
-            EditorState::new(window, cx)
-                .language(lang(&t.kind))
-                .default_value(t.text)
+            let mut s = EditorState::new(window, cx).language(lang(&t.kind));
+            s.set_value(vars::content(&t.text), window, cx);
+            s
         });
         let graphql_vars = cx.new(|cx| {
-            EditorState::new(window, cx)
+            let mut s = EditorState::new(window, cx)
                 .language("json")
-                .placeholder("{ \"id\": 1 }")
-                .default_value(t.graphql_vars)
+                .placeholder("{ \"id\": 1 }");
+            s.set_value(vars::content(&t.graphql_vars), window, cx);
+            s
         });
         let fields = Table::new(Which::Fields, t.fields, window, cx);
-        let code = [
-            CodeVars::new(text.clone(), cx),
-            CodeVars::new(graphql_vars.clone(), cx),
-        ];
         let file = cx.new(|cx| {
             let mut s = InputState::new(window, cx).placeholder(t!("/path/to/file").into_owned());
             s.set_value(t.file, window, cx);
@@ -111,7 +107,6 @@ impl BodyInputs {
             text,
             graphql_vars,
             fields,
-            code,
             file,
         };
         (inputs, subs)
@@ -121,20 +116,13 @@ impl BodyInputs {
         this: &mut RequestEditor,
         editor: &Entity<EditorState>,
         ev: &InputEvent,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<RequestEditor>,
     ) {
         if matches!(ev, InputEvent::Change) {
+            chip_templates!(editor, window, cx);
             this.update_completion(editor, cx);
             this.refresh_dirty(cx);
-            this.body.paint(&this.vars, cx);
-        }
-    }
-
-    /// Repaint `{{ VAR }}` badges in the code editors (text or vars changed).
-    pub fn paint(&self, vars: &Vars, cx: &mut App) {
-        for c in &self.code {
-            c.paint(vars, cx);
         }
     }
 
@@ -178,6 +166,9 @@ impl RequestEditor {
     pub(crate) fn render_body(&self, cx: &mut Context<Self>) -> AnyElement {
         let b = &self.body;
         let kind = b.kind(cx);
+        for s in [&b.text, &b.graphql_vars] {
+            var_view::pin_chips(s, self.vars.clone(), self.refs.clone(), cx);
+        }
         let editor = |s: &Entity<EditorState>| Editor::new(s).appearance(false).h_full();
         let content = match kind {
             BodyKind::None => div()

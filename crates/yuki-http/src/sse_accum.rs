@@ -151,6 +151,7 @@ impl SseAccum {
             captured_cookies: std::mem::take(&mut self.captured_cookies),
             attached_cookies: std::mem::take(&mut self.attached_cookies),
             sse_frames: self.frames.into_iter().collect(),
+            load_log: vec![],
         }
     }
 }
@@ -299,6 +300,7 @@ mod tests {
             captured_cookies: vec![],
             attached_cookies: vec![],
             sse_frames: vec![],
+            load_log: vec![],
         }
     }
 }

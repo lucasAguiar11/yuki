@@ -97,6 +97,61 @@ pub struct HttpRequest {
     /// Id of the variation sent by default; `None` = the base.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_variation: Option<String>,
+    /// Base-only (variations don't override it).
+    #[serde(default, skip_serializing_if = "RequestSettings::is_default")]
+    pub settings: RequestSettings,
+}
+
+/// How a request is sent. The default is what every send did before these
+/// existed: no timeout, follow up to `MAX_REDIRECTS` redirects.
+#[derive(Type, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RequestSettings {
+    /// Whole send, connect to last body byte; `None` = no limit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_ms: Option<u32>,
+    /// `false`: a 3xx is the response.
+    #[serde(default = "yes", skip_serializing_if = "is_yes")]
+    pub follow_redirects: bool,
+    /// `None` = `MAX_REDIRECTS`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_redirects: Option<u32>,
+}
+
+impl RequestSettings {
+    /// The engine's own redirect cap.
+    pub const MAX_REDIRECTS: u32 = 10;
+
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// Redirects to follow; 0 = none.
+    pub fn redirect_limit(&self) -> u32 {
+        if self.follow_redirects {
+            self.max_redirects.unwrap_or(Self::MAX_REDIRECTS)
+        } else {
+            0
+        }
+    }
+}
+
+impl Default for RequestSettings {
+    fn default() -> Self {
+        Self {
+            timeout_ms: None,
+            follow_redirects: true,
+            max_redirects: None,
+        }
+    }
+}
+
+fn yes() -> bool {
+    true
+}
+
+fn is_yes(b: &bool) -> bool {
+    *b
 }
 
 /// A named alternative of a request: an independent copy of its sendable
@@ -365,6 +420,28 @@ pub struct HttpResponse {
     /// the response so each run keeps its stream in history.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sse_frames: Vec<SseFrame>,
+    /// A load run's log, on the one answer it keeps: a header, one entry per
+    /// send (`#3 200 OK · 18 ms`, with its request and response), the summary.
+    /// Empty for a plain send.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub load_log: Vec<LoadLogEntry>,
+}
+
+/// One line of a load run's log. A send keeps what went over the wire: its
+/// timeline (`>` request line and headers, `<` status and headers) and the
+/// start of the response body; header/summary lines have neither.
+#[derive(Type, Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct LoadLogEntry {
+    pub at_ms: f64,
+    /// `info`, `done` (answered < 400) or `error`.
+    pub kind: String,
+    pub text: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub events: Vec<TimelineEvent>,
+    /// Response body, cut to a few KB; `None` = not kept (or no answer).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
 }
 
 /// Immutable, point-in-time snapshot of a fully-resolved request and the

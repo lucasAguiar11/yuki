@@ -1,11 +1,11 @@
-//! Response "timeline" tab: what actually went out (resolved URL, body) and
-//! the engine's event log — request line, wire headers, timings — `curl -v`
-//! style.
+//! Response "log" tab: what actually went out (resolved URL, body) and the
+//! engine's event log (the timeline) — request line, wire headers, timings —
+//! `curl -v` style. A load run's answer shows `load_log.rs` there instead.
 
 use gpui_kit::base::SelectableText;
 use gpui_kit::component::{v_flex, ActiveTheme as _};
 use gpui_kit::{prelude::FluentBuilder as _, *};
-use yuki_core::{BodyKind, HttpRequest, HttpResponse};
+use yuki_core::{BodyKind, HttpRequest, TimelineEvent};
 
 use crate::var_view::MASK;
 
@@ -69,7 +69,7 @@ pub(crate) fn body_text(req: &HttpRequest) -> Option<String> {
     (!text.trim().is_empty()).then_some(text)
 }
 
-fn ms(at: f64) -> String {
+pub(crate) fn ms(at: f64) -> String {
     if at < 10. {
         format!("{at:.1} ms")
     } else {
@@ -77,25 +77,34 @@ fn ms(at: f64) -> String {
     }
 }
 
+/// The line mark for an event kind, and whether it's wire traffic (bright).
+pub(crate) fn mark(kind: &str) -> (&'static str, bool) {
+    match kind {
+        "send" => (">", true),
+        "recv" => ("<", true),
+        "done" => ("✓", false),
+        "error" => ("✕", false),
+        _ => ("*", false),
+    }
+}
+
 /// The timeline as plain lines (what ⌘C / "copy" yield), each flagged as
 /// wire traffic (bright) or an engine note (muted). `curl -v` shaped.
-fn lines(resp: &HttpResponse, sent: Option<&HttpRequest>, reveal: bool) -> Vec<(String, bool)> {
+pub(crate) fn lines(
+    events: &[TimelineEvent],
+    sent: Option<&HttpRequest>,
+    reveal: bool,
+) -> Vec<(String, bool)> {
     let mut out = Vec::new();
     if let Some(req) = sent {
         out.push((format!("{} {}", req.method, req.url), true));
     }
     // A stamp only when it changes: bursts at the same instant read as a block.
     let mut prev = String::new();
-    for ev in &resp.events {
+    for ev in events {
         let at = ms(ev.at_ms);
         let stamp = if at == prev { "" } else { at.as_str() };
-        let (mark, wire) = match ev.kind.as_str() {
-            "send" => (">", true),
-            "recv" => ("<", true),
-            "done" => ("✓", false),
-            "error" => ("✕", false),
-            _ => ("*", false),
-        };
+        let (mark, wire) = mark(&ev.kind);
         let text = if reveal {
             ev.text.clone()
         } else {
@@ -108,8 +117,8 @@ fn lines(resp: &HttpResponse, sent: Option<&HttpRequest>, reveal: bool) -> Vec<(
 }
 
 /// The whole timeline as text, for "copy all" — masked like the screen.
-pub fn copy_text(resp: &HttpResponse, sent: Option<&HttpRequest>, reveal: bool) -> String {
-    let mut out: Vec<String> = lines(resp, sent, reveal)
+pub fn copy_text(events: &[TimelineEvent], sent: Option<&HttpRequest>, reveal: bool) -> String {
+    let mut out: Vec<String> = lines(events, sent, reveal)
         .into_iter()
         .map(|(l, _)| l)
         .collect();
@@ -117,8 +126,9 @@ pub fn copy_text(resp: &HttpResponse, sent: Option<&HttpRequest>, reveal: bool) 
     out.join("\n")
 }
 
+/// `events` under the request line and above the body as sent (`sent`).
 pub fn render(
-    resp: &HttpResponse,
+    events: &[TimelineEvent],
     sent: Option<&HttpRequest>,
     reveal: bool,
     focus: &FocusHandle,
@@ -126,7 +136,7 @@ pub fn render(
 ) -> AnyElement {
     let theme = cx.theme();
     let (fg, muted) = (theme.foreground, theme.muted_foreground);
-    let lines = lines(resp, sent, reveal);
+    let lines = lines(events, sent, reveal);
     let body = sent.and_then(body_text);
 
     // Every line is its own selectable run; document order keeps a drag
@@ -167,7 +177,7 @@ pub fn render(
         .text_xs()
         .font_family(theme.mono_font_family.clone())
         .children(rows.collect::<Vec<_>>());
-    if resp.events.is_empty() {
+    if events.is_empty() {
         col = col.child(
             div()
                 .text_color(muted)

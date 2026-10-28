@@ -203,9 +203,22 @@ fn ingest_captured_blocking(
 /// What the caller picks over the stored request: a URL (MCP `urlOverride`)
 /// and a variation (id or name; `None` = the active one).
 #[derive(Default)]
-struct Pick {
+pub(super) struct Pick {
     url_override: Option<String>,
     variation: Option<String>,
+}
+
+/// A request resolved for the wire, plus what its send and history need.
+pub(super) struct Prepared {
+    pub req: HttpRequest,
+    pub cookies: Vec<StoredCookie>,
+    pub jar_id: String,
+    /// The "as sent" record for history (static auth config restored).
+    pub resolved: HttpRequest,
+    /// As edited (templates kept, variation applied): what "restore" brings back.
+    pub edited: HttpRequest,
+    pub dns: Vec<yuki_core::DnsOverride>,
+    pub skip_certs: bool,
 }
 
 impl ApiBackend {
@@ -272,35 +285,47 @@ impl ApiBackend {
         Box::pin(async move {
             let mut chain = chain;
             chain.push(req_id.clone());
-            for src in self
-                .response_sources(
-                    &ws_id,
-                    &req_id,
-                    env_id.as_deref(),
-                    pick.variation.as_deref(),
-                )
-                .await
-            {
-                if chain.contains(&src) {
-                    continue;
-                }
-                let name = self
-                    .requests
-                    .get_request(&ws_id, &src)
-                    .map_or_else(|_| src.clone(), |r| r.name);
-                self.send_chain(
-                    ws_id.clone(),
-                    src,
-                    env_id.clone(),
-                    Pick::default(),
-                    agent,
-                    chain.clone(),
-                )
-                .await
-                .map_err(|e| format!("{name} (read by $response.body): {e}"))?;
-            }
+            let variation = pick.variation.as_deref();
+            self.send_sources(&ws_id, &req_id, env_id.as_deref(), variation, agent, &chain)
+                .await?;
             self.send_once(ws_id, req_id, env_id, pick, agent).await
         })
+    }
+
+    /// Send every request whose response `req_id` reads first (skipping those
+    /// already up `chain`), so `$response.body` sees the current value.
+    pub(super) async fn send_sources(
+        &self,
+        ws_id: &str,
+        req_id: &str,
+        env_id: Option<&str>,
+        variation: Option<&str>,
+        agent: bool,
+        chain: &[String],
+    ) -> Result<(), String> {
+        for src in self
+            .response_sources(ws_id, req_id, env_id, variation)
+            .await
+        {
+            if chain.contains(&src) {
+                continue;
+            }
+            let name = self
+                .requests
+                .get_request(ws_id, &src)
+                .map_or_else(|_| src.clone(), |r| r.name);
+            self.send_chain(
+                ws_id.to_string(),
+                src,
+                env_id.map(str::to_string),
+                Pick::default(),
+                agent,
+                chain.to_vec(),
+            )
+            .await
+            .map_err(|e| format!("{name} (read by $response.body): {e}"))?;
+        }
+        Ok(())
     }
 
     /// `$response.body` sources of a stored request (see `resolve::response_sources`).
@@ -340,14 +365,16 @@ impl ApiBackend {
         .unwrap_or_default()
     }
 
-    async fn send_once(
+    /// Load, resolve and authorize `req_id` for the wire, with its cookie jar,
+    /// DNS overrides and certificate setting. Nothing is sent.
+    pub(super) async fn prepare(
         &self,
-        ws_id: String,
-        req_id: String,
+        ws_id: &str,
+        req_id: &str,
         env_id: Option<String>,
         pick: Pick,
         agent: bool,
-    ) -> Result<HttpResponse, String> {
+    ) -> Result<Prepared, String> {
         let Pick {
             url_override,
             variation,
@@ -359,10 +386,8 @@ impl ApiBackend {
         let selections = self.selections.clone();
         let responses = self.responses.clone();
         let app_data_dir = self.app_data_dir.clone();
-        let ws_id2 = ws_id.clone();
-        let req_id2 = req_id.clone();
-        let env_id2 = env_id.clone();
-        let t0 = std::time::Instant::now();
+        let ws_id2 = ws_id.to_string();
+        let req_id2 = req_id.to_string();
 
         let prepared = tokio::task::spawn_blocking(move || -> Result<_, String> {
             let mut req = requests
@@ -375,7 +400,7 @@ impl ApiBackend {
 
             // Require an explicit env when personal ones exist: defaulting to
             // globals would leave their {{ VAR }} tokens unresolved.
-            if agent && env_id2.is_none() {
+            if agent && env_id.is_none() {
                 let personal: Vec<_> = envs
                     .iter()
                     .filter(|e| e.kind == EnvironmentKind::Personal)
@@ -399,7 +424,7 @@ impl ApiBackend {
                 &envs,
                 &responses,
                 &app_data_dir,
-                env_id2.as_deref(),
+                env_id.as_deref(),
                 &mut req,
             );
 
@@ -423,7 +448,7 @@ impl ApiBackend {
         })
         .await;
 
-        let (mut req, attach_cookies, jar_id, stored_auth, edited) = match prepared {
+        let (mut req, cookies, jar_id, stored_auth, edited) = match prepared {
             Ok(r) => r?,
             Err(e) => return Err(format!("Internal error: {e}")),
         };
@@ -435,7 +460,7 @@ impl ApiBackend {
         // runs, so a later "save as pair" can promote it without re-resolving
         // (which would regenerate non-deterministic template fns like
         // `uuid.v4()`).
-        let mut resolved_request = req.clone();
+        let mut resolved = req.clone();
         // Static / OAuth2 auth was folded into a header above, leaving `req.auth`
         // as None. Restore the original config on the snapshot so its AUTH tab
         // shows the real scheme — replay ignores it (the executor only applies
@@ -444,8 +469,44 @@ impl ApiBackend {
             && stored_auth.is_active()
             && !stored_auth.is_dynamic()
         {
-            resolved_request.auth = stored_auth;
+            resolved.auth = stored_auth;
         }
+
+        let dns = self
+            .workspaces
+            .get(ws_id)
+            .map(|w| w.dns_overrides)
+            .unwrap_or_default();
+        let skip_certs = crate::resolve::skip_cert_check(ws_id, &self.app_data_dir);
+        Ok(Prepared {
+            req,
+            cookies,
+            jar_id,
+            resolved,
+            edited,
+            dns,
+            skip_certs,
+        })
+    }
+
+    async fn send_once(
+        &self,
+        ws_id: String,
+        req_id: String,
+        env_id: Option<String>,
+        pick: Pick,
+        agent: bool,
+    ) -> Result<HttpResponse, String> {
+        let t0 = std::time::Instant::now();
+        let Prepared {
+            req,
+            cookies: attach_cookies,
+            jar_id,
+            resolved: resolved_request,
+            edited,
+            dns: dns_overrides,
+            skip_certs,
+        } = self.prepare(&ws_id, &req_id, env_id, pick, agent).await?;
 
         eprintln!(
             "[send] prepared in {:.0}ms — sending {} {} (jar={jar_id}, {} cookie(s))",
@@ -455,12 +516,6 @@ impl ApiBackend {
             attach_cookies.len(),
         );
 
-        let dns_overrides = self
-            .workspaces
-            .get(&ws_id)
-            .map(|w| w.dns_overrides)
-            .unwrap_or_default();
-        let skip_certs = crate::resolve::skip_cert_check(&ws_id, &self.app_data_dir);
         let send = async {
             if agent {
                 self.executor

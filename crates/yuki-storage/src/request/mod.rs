@@ -185,6 +185,7 @@ mod tests {
             updated_at: now,
             variations: vec![],
             active_variation: None,
+            settings: Default::default(),
         };
         s.write_bulk(std::slice::from_ref(&folder), std::slice::from_ref(&req))
             .unwrap();

@@ -85,10 +85,12 @@ pub fn build(
 
 /// `edited` (what the editor shows) as it goes to disk over `saved`: into the
 /// active variation (all five fields — each variation is an independent copy),
-/// else into the base. Identity (name, folder, order…) always comes from `saved`.
+/// else into the base. Method and settings are base-only. Identity (name,
+/// folder, order…) always comes from `saved`.
 pub fn fold(saved: &HttpRequest, edited: HttpRequest) -> HttpRequest {
     let mut out = HttpRequest {
         method: edited.method.clone(),
+        settings: edited.settings.clone(),
         ..saved.clone()
     };
     match out.active_mut() {
@@ -304,6 +306,13 @@ mod tests {
         );
         assert_eq!(out.variations[0].url.as_deref(), Some("https://admin"));
         assert_eq!(out.variations[0].auth, Some(bearer("admin")));
+
+        // Settings edited while `admin` is active: they're the base's.
+        let mut timed = shown.clone();
+        timed.settings.timeout_ms = Some(500);
+        let out = fold(&saved, timed);
+        assert_eq!(out.settings.timeout_ms, Some(500));
+        assert_eq!(out.shown().settings.timeout_ms, Some(500));
 
         // Base active: edits go to the base and never reach the variation;
         // identity always from `saved`.

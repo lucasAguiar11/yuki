@@ -470,6 +470,7 @@ mod tests {
             updated_at: "2024-01-01T00:00:00.000000".into(),
             variations: vec![],
             active_variation: None,
+            settings: Default::default(),
         }
     }
 
@@ -498,6 +499,7 @@ mod tests {
             captured_cookies: vec![],
             attached_cookies: vec![],
             sse_frames: vec![],
+            load_log: vec![],
         }
     }
 

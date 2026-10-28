@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     rc::Rc,
     sync::Arc,
     time::{Duration, Instant},
@@ -22,6 +23,7 @@ use crate::{
     complete::{CompleteHost as _, Completion},
     draft,
     params::PathParams,
+    req_settings::ReqSettings,
     response,
     table::{param_field, Table, Which},
     vars,
@@ -44,6 +46,8 @@ pub enum ReqTab {
     Notes,
     /// The request's file vs the last commit (`req_diff.rs`).
     Diff,
+    /// Timeout, redirects, load run (`req_settings.rs`).
+    Settings,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -52,8 +56,9 @@ pub enum RespTab {
     /// Rendered HTML (only offered for `text/html` responses).
     Preview,
     Headers,
-    /// What was actually sent + the engine's event log.
-    Timeline,
+    /// What was actually sent + the engine's event log; for a load run's
+    /// answer, every send of the run (`load_log.rs`).
+    Log,
 }
 
 /// Emitted when the saved/dirty state changes so the tab bar re-renders.
@@ -106,6 +111,8 @@ pub struct RequestEditor {
     pub timeline_focus: FocusHandle,
     /// Timeline shows credential headers in full (masked by default).
     pub reveal_tokens: bool,
+    /// Log tab entries opened with ▸ (`load_log.rs`), by index.
+    pub(crate) log_open: HashSet<usize>,
     pub resp_tab: RespTab,
     pub response_body: Entity<EditorState>,
     pub history: Vec<StoredHttpResponseSummary>,
@@ -129,6 +136,7 @@ pub struct RequestEditor {
     pub(crate) saving: bool,
     /// The variation name box (`variation.rs`), when open.
     pub(crate) naming: Option<crate::variation::Naming>,
+    pub(crate) settings: ReqSettings,
     _subs: Vec<Subscription>,
 }
 
@@ -191,6 +199,7 @@ impl RequestEditor {
         );
         let (body, body_subs) = BodyInputs::new(shown.body.as_ref(), window, cx);
         let (auth, auth_sub) = AuthForm::new(&shown.auth, Owner::Request, window, cx);
+        let (settings, settings_subs) = ReqSettings::new(&req.settings, window, cx);
         let notes = cx.new(|cx| {
             EditorState::new(window, cx)
                 .language("markdown")
@@ -234,6 +243,7 @@ impl RequestEditor {
         ];
         _subs.extend(body_subs);
         _subs.push(auth_sub);
+        _subs.extend(settings_subs);
         _subs.push(cx.subscribe_in(&notes, window, Self::on_input));
         _subs.push(cx.observe(&response_body, |this, _, cx| this.track_caret(cx)));
         let has_body = shown
@@ -285,6 +295,7 @@ impl RequestEditor {
             response_body,
             timeline_focus: cx.focus_handle(),
             reveal_tokens: false,
+            log_open: HashSet::new(),
             history: vec![],
             response_json: false,
             capture: None,
@@ -298,6 +309,7 @@ impl RequestEditor {
             autosave: None,
             saving: false,
             naming: None,
+            settings,
             _subs,
         };
         this.sync_path_params(window, cx);
@@ -359,6 +371,7 @@ impl RequestEditor {
         if let Some(auth) = self.auth.draft(cx) {
             req.auth = auth;
         }
+        req.settings = self.settings.draft(&self.saved.settings, cx);
         req
     }
 
@@ -473,21 +486,32 @@ impl RequestEditor {
             let result = backend.save_and_send(req.clone(), env_id).await;
             this.update_in(cx, |this, window, cx| {
                 this.sending = false;
-                this.past = None;
-                let notes = this.notes_saved.clone();
-                this.mark_saved(req, notes, cx);
-                let resp_id = result.as_ref().map(|r| r.response_id.clone()).ok();
-                this.sent = None;
-                this.show_response(result, window, cx);
-                if let Some(id) = resp_id.filter(|id| !id.is_empty()) {
-                    this.load_sent(id, window, cx);
-                }
-                this.refresh_history(false, window, cx);
-                // Variables reading this response (`$response.body`) changed.
-                cx.emit(crate::capture_view::VarsChanged);
+                this.land(req, result, window, cx);
             })
         })
         .detach();
+    }
+
+    /// A send (or load run) settled: `req` is on disk, `result` is its answer.
+    pub(crate) fn land(
+        &mut self,
+        req: HttpRequest,
+        result: Result<HttpResponse, String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.past = None;
+        let notes = self.notes_saved.clone();
+        self.mark_saved(req, notes, cx);
+        let resp_id = result.as_ref().map(|r| r.response_id.clone()).ok();
+        self.sent = None;
+        self.show_response(result, window, cx);
+        if let Some(id) = resp_id.filter(|id| !id.is_empty()) {
+            self.load_sent(id, window, cx);
+        }
+        self.refresh_history(false, window, cx);
+        // Variables reading this response (`$response.body`) changed.
+        cx.emit(crate::capture_view::VarsChanged);
     }
 
     /// Elapsed time of the in-flight send: `1.2 s`, `340 ms`.
@@ -622,6 +646,7 @@ impl RequestEditor {
         self.file_note = None;
         self.caret = None;
         self.caret_at = None;
+        self.log_open.clear();
         self.response = Some(result);
         self.load_media(cx);
         cx.notify();

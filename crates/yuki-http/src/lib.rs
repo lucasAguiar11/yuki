@@ -21,8 +21,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use yuki_core::{
-    DnsOverride, HttpRequest, HttpResponse, HttpResponseHeader, SseFrame, StoredCookie,
-    TimelineEvent, YukiError,
+    DnsOverride, HttpRequest, HttpResponse, HttpResponseHeader, RequestSettings, SseFrame,
+    StoredCookie, TimelineEvent, YukiError,
 };
 
 pub enum SseEvent {
@@ -43,7 +43,6 @@ pub enum SseEvent {
 pub type SseSink = Arc<dyn Fn(SseEvent) + Send + Sync>;
 
 pub(crate) const POOL_IDLE_TIMEOUT: Duration = Duration::from_secs(90);
-pub(crate) const MAX_REDIRECTS: usize = 10;
 
 /// Per-send cancel entry: (send token, cancel sender). The token lets a
 /// completing send remove only its own handle, never a later send's.
@@ -71,6 +70,9 @@ tokio::task_local! {
     pub(crate) static SSE_SINK: Option<SseSink>;
     /// Accept expired/self-signed/mismatched certificates (workspace setting).
     pub(crate) static SKIP_CERT_CHECK: bool;
+    /// Redirects this send may follow (`RequestSettings::redirect_limit`);
+    /// 0 = the 3xx is the response.
+    pub(crate) static REDIRECT_LIMIT: u32;
 }
 
 /// Shared HTTP client: one `reqwest::Client` (and its connection pool) reused
@@ -127,8 +129,15 @@ impl HttpExecutor {
 fn build_client(skip_cert_check: bool) -> Result<reqwest::Client, YukiError> {
     reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::custom(|attempt| {
-            if attempt.previous().len() >= MAX_REDIRECTS {
-                return attempt.error(format!("too many redirects (max {MAX_REDIRECTS})"));
+            let limit = REDIRECT_LIMIT
+                .try_with(|l| *l)
+                .unwrap_or(RequestSettings::MAX_REDIRECTS);
+            if limit == 0 {
+                return attempt.stop();
+            }
+            // `previous` holds the first URL too: `len - 1` hops followed so far.
+            if attempt.previous().len() > limit as usize {
+                return attempt.error(format!("too many redirects (max {limit})"));
             }
             // Guarded (AI/MCP) sends: a redirect to a literal-IP metadata/
             // link-local target skips the DNS resolver's guard, so reject it
@@ -274,6 +283,8 @@ impl HttpExecutor {
         let result = SSE_SINK
             .scope(
                 sse_sink,
+                REDIRECT_LIMIT.scope(
+                    request.settings.redirect_limit(),
                 GUARD_INTERNAL.scope(
                     guard_internal,
                     REQ_START.scope(
@@ -298,6 +309,7 @@ impl HttpExecutor {
                             ),
                         ),
                     ),
+                ),
                 ),
             )
             .await;
@@ -338,6 +350,7 @@ mod tests {
             updated_at: "2024-01-01T00:00:00.000000".into(),
             variations: vec![],
             active_variation: None,
+            settings: Default::default(),
         }
     }
 
@@ -550,6 +563,37 @@ mod tests {
         assert_eq!(resp.status, 200);
         assert_eq!(resp.body, "hello");
         assert!(resp.body_is_text);
+    }
+
+    #[tokio::test]
+    async fn redirects_off_returns_the_3xx() {
+        let port = spawn_server(
+            b"HTTP/1.1 302 Found\r\nLocation: /next\r\nContent-Length: 0\r\n\r\n".to_vec(),
+        )
+        .await;
+        let ex = HttpExecutor::new().unwrap();
+        let mut req = bare_request(&format!("http://127.0.0.1:{port}/"), "GET");
+        req.settings.follow_redirects = false;
+        let resp = ex.send(&req, Vec::new(), Vec::new()).await.unwrap();
+        assert_eq!(resp.status, 302);
+        assert!(resp.events.iter().any(|e| e.text == "redirects = off"));
+    }
+
+    #[tokio::test]
+    async fn timeout_aborts_a_silent_server() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            let (_stream, _) = listener.accept().await.unwrap();
+            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+        });
+        let ex = HttpExecutor::new().unwrap();
+        let mut req = bare_request(&format!("http://127.0.0.1:{port}/"), "GET");
+        req.settings.timeout_ms = Some(150);
+        let t = std::time::Instant::now();
+        let err = ex.send(&req, Vec::new(), Vec::new()).await.unwrap_err();
+        assert!(t.elapsed() < std::time::Duration::from_secs(2));
+        assert!(err.to_string().contains("timed out"), "{err}");
     }
 
     #[tokio::test]

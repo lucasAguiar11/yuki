@@ -39,6 +39,8 @@ mod tools;
 mod websocket;
 mod workspace;
 
+pub use request::load::{LoadReport, LOAD_MAX_PARALLEL, LOAD_MAX_TOTAL};
+
 /// Called after every mutating MCP tool call so the host can push events to
 /// the frontend. Keeping this as a callback avoids a Tauri dependency in this crate.
 pub type NotifyFn = Arc<dyn Fn(&str, Value) + Send + Sync>;
@@ -394,6 +396,7 @@ mod tests {
             captured_cookies: vec![],
             attached_cookies: vec![],
             sse_frames: frames,
+            load_log: vec![],
         };
         let resolved_request = HttpRequest {
             id: req.into(),
@@ -413,6 +416,7 @@ mod tests {
             updated_at: "2024-01-01T00:00:00.000000".into(),
             variations: vec![],
             active_variation: None,
+            settings: Default::default(),
         };
         b.responses
             .append(ws, req, response, resolved_request, None, 20)
@@ -1805,6 +1809,77 @@ mod tests {
         assert_eq!(r.is_error, Some(true));
     }
 
+    /// Parallel sends of one request must not cancel each other (the executor
+    /// aborts a second in-flight send with the same id); one answer is kept.
+    #[tokio::test]
+    async fn load_run_counts_every_parallel_send_and_keeps_one_answer() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut s, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    while s.read(&mut buf).await.unwrap_or(0) > 0 {
+                        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                        let ok = b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok";
+                        if s.write_all(ok).await.is_err() {
+                            break;
+                        }
+                    }
+                });
+            }
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let b = make_backend(&dir);
+        let ws = b.workspaces.create("WS".into(), false).unwrap();
+        let url = format!("http://127.0.0.1:{port}/");
+        let req = b
+            .requests
+            .create_request(ws.id.clone(), None, "R".into(), "GET".into(), url)
+            .unwrap();
+        let done = Arc::new(AtomicUsize::new(0));
+        let report = b
+            .load_http(ws.id.clone(), req.id.clone(), None, 20, 5, done.clone())
+            .await
+            .unwrap();
+        assert_eq!(report.statuses, vec![(200, 20)], "{:?}", report.errors);
+        assert_eq!(done.load(Ordering::Relaxed), 20);
+        assert_eq!(b.responses.list(&ws.id, &req.id).unwrap().len(), 1);
+        let sample = report.sample.unwrap();
+        assert_eq!(sample.request_id, req.id);
+        // Every send is in the kept answer's load log, with its request (`>`)
+        // and response (`<` + body) — not in its own timeline.
+        let sends = |log: &[yuki_core::LoadLogEntry]| {
+            log.iter().filter(|e| e.text.starts_with('#')).count()
+        };
+        assert_eq!(sends(&sample.load_log), 20);
+        assert!(!sample.events.iter().any(|e| e.text.starts_with('#')));
+        let first = sample
+            .load_log
+            .iter()
+            .find(|e| e.text.starts_with('#'))
+            .unwrap();
+        assert!(first
+            .events
+            .iter()
+            .any(|e| e.kind == "send" && e.text.starts_with("GET /")));
+        assert!(first
+            .events
+            .iter()
+            .any(|e| e.kind == "recv" && e.text.contains("200")));
+        assert_eq!(first.body.as_deref(), Some("ok"));
+        let stored = b.responses.list(&ws.id, &req.id).unwrap();
+        let full = b
+            .responses
+            .get(&ws.id, &req.id, &stored[0].id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(sends(&full.response.load_log), 20);
+        assert_eq!(full.response.load_log[1].body, sample.load_log[1].body);
+    }
+
     #[tokio::test]
     async fn snapshot_tools_save_list_get_and_replay_guard() {
         use yuki_core::{AuthConfig, HttpRequest, HttpResponse, HttpTiming, RequestParameter};
@@ -1864,6 +1939,7 @@ mod tests {
             updated_at: "2024-01-01T00:00:00.000000".into(),
             variations: vec![],
             active_variation: None,
+            settings: Default::default(),
         };
         let response = HttpResponse {
             request_id: req.id.clone(),
@@ -1889,6 +1965,7 @@ mod tests {
             captured_cookies: vec![],
             attached_cookies: vec![],
             sse_frames: vec![],
+            load_log: vec![],
         };
         let stored = b
             .responses

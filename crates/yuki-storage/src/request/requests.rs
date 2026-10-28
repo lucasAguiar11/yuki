@@ -130,6 +130,7 @@ impl RequestStore {
             updated_at: now,
             variations: vec![],
             active_variation: None,
+            settings: Default::default(),
         };
         let content = serde_yaml::to_string(&req).map_err(|e| YukiError::Storage(e.to_string()))?;
         crate::write_atomic(self.req_path(&workspace_id, &id)?, content)?;
@@ -165,6 +166,7 @@ impl RequestStore {
             updated_at: now,
             variations: src.variations.clone(),
             active_variation: src.active_variation.clone(),
+            settings: src.settings.clone(),
         };
         let content = serde_yaml::to_string(&req).map_err(|e| YukiError::Storage(e.to_string()))?;
         crate::write_atomic(self.req_path(&req.workspace_id, &id)?, content)?;

@@ -424,5 +424,6 @@ fn build_response(
         captured_cookies: Vec::new(),
         attached_cookies: Vec::new(),
         sse_frames: Vec::new(),
+        load_log: Vec::new(),
     }
 }

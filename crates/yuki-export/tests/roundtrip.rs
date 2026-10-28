@@ -54,6 +54,7 @@ fn http(
         updated_at: ts(),
         variations: vec![],
         active_variation: None,
+        settings: Default::default(),
     }
 }
 

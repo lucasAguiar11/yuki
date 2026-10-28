@@ -1,8 +1,6 @@
 use crate::fmt::{fmt_age, fmt_bytes, fmt_dur_ms, http_error_message, push_event, push_event_at};
 use crate::redirect::{compute_redirect_warning, drain_redirect_hops, RedirectHop};
-use crate::{
-    HttpExecutor, DNS_OVERRIDES, GUARD_INTERNAL, MAX_REDIRECTS, POOL_IDLE_TIMEOUT, SSE_SINK,
-};
+use crate::{HttpExecutor, DNS_OVERRIDES, GUARD_INTERNAL, POOL_IDLE_TIMEOUT, SSE_SINK};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use yuki_core::{
@@ -115,13 +113,16 @@ impl HttpExecutor {
         let mut events: Vec<yuki_core::TimelineEvent> = Vec::new();
         let now_ms = || started.elapsed().as_secs_f64() * 1000.0;
 
-        push_event(
-            &mut events,
-            started,
-            "config",
-            format!("redirects = follow (max {MAX_REDIRECTS})"),
-        );
-        push_event(&mut events, started, "config", "timeout = ∞");
+        let settings = &request.settings;
+        let redirects = match settings.redirect_limit() {
+            0 => "redirects = off".to_string(),
+            n => format!("redirects = follow (max {n})"),
+        };
+        push_event(&mut events, started, "config", redirects);
+        let timeout = settings
+            .timeout_ms
+            .map_or_else(|| "timeout = ∞".into(), |ms| format!("timeout = {ms} ms"));
+        push_event(&mut events, started, "config", timeout);
         // accept-encoding header is set automatically by reqwest's gzip/br/deflate
         // features; we surface it so the user can verify what's negotiated. After
         // decompression reqwest strips Content-Encoding + Content-Length, so a
@@ -171,6 +172,10 @@ impl HttpExecutor {
         }
 
         let mut builder = self.client().request(method, &url);
+        if let Some(ms) = settings.timeout_ms {
+            // reqwest's per-request timeout: connect through the last body byte.
+            builder = builder.timeout(std::time::Duration::from_millis(ms.into()));
+        }
 
         // Attach request headers — validate eagerly so we surface a specific
         // error instead of reqwest's opaque "builder error".
@@ -471,6 +476,7 @@ impl HttpExecutor {
             // Streamed sends fill this via the command's `SseAccum`; the no-sink
             // SSE path sets it below. Empty for plain (non-SSE) bodies.
             sse_frames: no_sink_frames.unwrap_or_default(),
+            load_log: vec![],
         };
 
         Ok(response)
@@ -543,6 +549,7 @@ mod tests {
             updated_at: "2024-01-01T00:00:00.000000".into(),
             variations: vec![],
             active_variation: None,
+            settings: Default::default(),
         };
         assert_eq!(effective_method(&req).unwrap(), reqwest::Method::GET);
 

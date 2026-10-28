@@ -123,6 +123,7 @@ fn convert_items(
                     updated_at: now,
                     variations: vec![],
                     active_variation: None,
+                    settings: Default::default(),
                 });
             }
         }

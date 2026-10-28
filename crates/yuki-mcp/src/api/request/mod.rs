@@ -4,4 +4,5 @@
 
 mod crud;
 pub(super) use crud::{auth_arg, auth_to_store};
+pub(super) mod load;
 mod send;

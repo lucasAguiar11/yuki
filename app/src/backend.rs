@@ -1,7 +1,7 @@
 use std::{
     fs, io,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{atomic::AtomicUsize, Arc},
 };
 
 use yuki_core::{
@@ -9,7 +9,7 @@ use yuki_core::{
     Workspace, YukiError,
 };
 use yuki_mcp::{
-    api::{ApiBackend, NotifyFn},
+    api::{ApiBackend, LoadReport, NotifyFn},
     resolve,
 };
 use yuki_storage::StoredHttpResponseSummary;
@@ -118,6 +118,28 @@ impl Backend {
             })
             .await
             .map_err(|e| e.to_string())?
+    }
+
+    /// Save, then a load run (`ApiBackend::load_http`) on the engine runtime;
+    /// aborting the handle stops every send in flight.
+    pub fn load_run(
+        &self,
+        req: HttpRequest,
+        env_id: Option<String>,
+        total: usize,
+        parallel: usize,
+        done: Arc<AtomicUsize>,
+    ) -> tokio::task::JoinHandle<Result<LoadReport, String>> {
+        let api = self.api.clone();
+        self.rt.spawn(async move {
+            let (api2, to_save) = (api.clone(), req.clone());
+            tokio::task::spawn_blocking(move || save(&api2, &to_save))
+                .await
+                .map_err(|e| e.to_string())?
+                .map_err(|e| e.to_string())?;
+            api.load_http(req.workspace_id, req.id, env_id, total, parallel, done)
+                .await
+        })
     }
 
     /// `req` (draft) resolved as `save_and_send` would put it on the wire.

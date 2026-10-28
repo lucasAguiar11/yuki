@@ -44,7 +44,11 @@ fn body_stream_err(
     started: Instant,
     e: reqwest::Error,
 ) -> YukiError {
-    let msg = format!("Body stream failed: {e}");
+    let msg = if e.is_timeout() {
+        "Request timed out while reading the body".to_string()
+    } else {
+        format!("Body stream failed: {e}")
+    };
     push_event(events, started, "error", msg.clone());
     YukiError::HttpFailed(HttpFailure {
         message: msg,

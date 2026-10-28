@@ -72,27 +72,27 @@ pub fn render(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> AnyEle
             .into_any_element();
     }
     let theme = cx.theme();
-    let content =
-        match &editor.response {
-            None => empty(editor, cx),
-            Some(Err(e)) => v_flex()
-                .p_4()
-                .gap_2()
-                .text_sm()
-                .child(div().text_color(theme.red).child(t!("✕ send failed")))
-                .child(div().text_color(theme.foreground).child(e.clone()))
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(theme.muted_foreground)
-                        .child(t!("check the URL and the selected environment")),
-                )
-                .into_any_element(),
-            Some(Ok(resp)) => match shown_tab(editor, resp) {
-                RespTab::Body if !resp.body_is_text && resp.sse_frames.is_empty() => {
-                    crate::binary::render(editor, resp, cx)
-                }
-                RespTab::Body => div()
+    let content = match &editor.response {
+        None => empty(editor, cx),
+        Some(Err(e)) => v_flex()
+            .p_4()
+            .gap_2()
+            .text_sm()
+            .child(div().text_color(theme.red).child(t!("✕ send failed")))
+            .child(div().text_color(theme.foreground).child(e.clone()))
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(theme.muted_foreground)
+                    .child(t!("check the URL and the selected environment")),
+            )
+            .into_any_element(),
+        Some(Ok(resp)) => match shown_tab(editor, resp) {
+            RespTab::Body if !resp.body_is_text && resp.sse_frames.is_empty() => {
+                crate::binary::render(editor, resp, cx)
+            }
+            RespTab::Body => {
+                div()
                     .size_full()
                     .pl_2()
                     .key_context("ResponseBody")
@@ -127,24 +127,34 @@ pub fn render(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> AnyEle
                                     )
                             })
                     })
-                    .into_any_element(),
-                RespTab::Preview if is_csv(resp) => crate::csv::render(&resp.body, cx),
-                RespTab::Preview => TextView::html("resp-html", resp.body.clone())
-                    .scrollable(true)
-                    .selectable(true)
-                    .size_full()
-                    .px_4()
-                    .into_any_element(),
-                RespTab::Headers => headers_table(resp, cx),
-                RespTab::Timeline => sent::render(
-                    resp,
-                    editor.sent.as_ref(),
-                    editor.reveal_tokens,
-                    &editor.timeline_focus,
-                    cx,
-                ),
-            },
-        };
+                    .into_any_element()
+            }
+            RespTab::Preview if is_csv(resp) => crate::csv::render(&resp.body, cx),
+            RespTab::Preview => TextView::html("resp-html", resp.body.clone())
+                .scrollable(true)
+                .selectable(true)
+                .size_full()
+                .px_4()
+                .into_any_element(),
+            RespTab::Headers => headers_table(resp, cx),
+            // A load run's answer lists its sends; any other, its own events.
+            RespTab::Log if !resp.load_log.is_empty() => crate::load_log::render(
+                &resp.load_log,
+                &editor.log_open,
+                editor.sent.as_ref(),
+                editor.reveal_tokens,
+                &editor.timeline_focus,
+                cx,
+            ),
+            RespTab::Log => sent::render(
+                &resp.events,
+                editor.sent.as_ref(),
+                editor.reveal_tokens,
+                &editor.timeline_focus,
+                cx,
+            ),
+        },
+    };
     v_flex()
         .size_full()
         // Nothing sent yet: the sleeping cat says it; an empty strip would too.
@@ -165,7 +175,7 @@ pub fn render(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> AnyEle
         .into_any_element()
 }
 
-/// `200 OK · 128 ms · 1.0 KB · 14:03:12   body  headers 20  timeline   ●●●●`
+/// `200 OK · 128 ms · 1.0 KB · 14:03:12   body  headers 20  log   ●●●●`
 fn strip(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> impl IntoElement {
     let toggle = cx.listener(|this, _, _, cx| this.toggle_response(cx));
     let theme = cx.theme();
@@ -264,19 +274,19 @@ fn strip(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> impl IntoEl
                 RespTab::Headers,
                 cx,
             ))
-            .child(tab(
-                "resp-timeline",
-                "timeline".into(),
-                RespTab::Timeline,
-                cx,
-            ))
-            // Outside the timeline itself: clicks there start a selection.
-            .when(editor.resp_tab == RespTab::Timeline, |r| {
-                let text = sent::copy_text(resp, editor.sent.as_ref(), editor.reveal_tokens);
+            .child(tab("resp-log", "log".into(), RespTab::Log, cx))
+            // Outside the log itself: clicks there start a selection.
+            .when(shown_tab(editor, resp) == RespTab::Log, |r| {
+                let (sent, reveal) = (editor.sent.as_ref(), editor.reveal_tokens);
+                let text = if resp.load_log.is_empty() {
+                    sent::copy_text(&resp.events, sent, reveal)
+                } else {
+                    crate::load_log::copy_text(&resp.load_log, sent, reveal)
+                };
                 let fg = cx.theme().foreground;
                 r.child(
                     div()
-                        .id("timeline-copy")
+                        .id("log-copy")
                         .px_1p5()
                         .cursor_pointer()
                         .hover(move |s| s.text_color(fg))
@@ -287,7 +297,7 @@ fn strip(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> impl IntoEl
                 )
                 .child(
                     div()
-                        .id("timeline-reveal")
+                        .id("log-reveal")
                         .px_1p5()
                         .cursor_pointer()
                         .hover(move |s| s.text_color(fg))

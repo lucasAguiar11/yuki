@@ -26,3 +26,7 @@ embeds Lucide icons (ISC) through gpui-kit-assets. Each keeps its own license
 (MIT, Apache-2.0, ISC, BSD-2/3-Clause, Zlib, Unicode-3.0, MPL-2.0, CC0, ...).
 Binary distributions must ship those license texts, e.g. generated with
 `cargo about generate`.
+
+vendor/gpui-base is gpui-base 0.7.1 (https://github.com/longbridge/gpui-kit,
+Apache-2.0, license text in vendor/gpui-base/LICENSE-APACHE), modified to show
+inline tokens in its code editor; each change is marked `yuki:`.

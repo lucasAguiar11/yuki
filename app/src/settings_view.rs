@@ -237,6 +237,12 @@ impl SettingsScreen {
                 cx,
             ))
             .child(field(
+                "user-agent",
+                Input::new(&self.user_agent).small(),
+                Some(t!("sent when the request and its folders set none · empty sends Yuki · goes to git.").into_owned()),
+                cx,
+            ))
+            .child(field(
                 t!("certificates").into_owned(),
                 Checkbox::new("skip-certs")
                     .checked(self.skip_certs)

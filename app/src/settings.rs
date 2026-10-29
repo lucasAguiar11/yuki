@@ -1,5 +1,5 @@
 //! "Configurações" screen (⌘,): general (workspaces folder), the workspace
-//! (name, DNS overrides, shell env allowlist, certificate check), the app's appearance (font
+//! (name, DNS overrides, shell env allowlist, user-agent, certificate check), the app's appearance (font
 //! sizes, language) and about (version,
 //! updates). Workspace edits go to disk 400 ms after typing stops; appearance
 //! applies and saves on click.
@@ -50,20 +50,21 @@ pub struct SettingsScreen {
     pub name: Entity<InputState>,
     pub dns: Entity<TextareaState>,
     pub env: Entity<InputState>,
+    pub user_agent: Entity<InputState>,
     pub ui_family: Entity<FamilySelect>,
     pub code_family: Entity<FamilySelect>,
     pub focus: FocusHandle,
     pub error: SharedString,
     autosave: Option<Task<()>>,
     saving: bool,
-    _subs: [Subscription; 5],
+    _subs: [Subscription; 6],
 }
 
 impl EventEmitter<WorkspaceSaved> for SettingsScreen {}
 
 impl Backend {
-    /// Name/DNS go onto the workspace as stored now (a pull may have changed
-    /// other fields); writes only what differs.
+    /// Name/DNS/user-agent go onto the workspace as stored now (a pull or the
+    /// workspace tab may have changed other fields); writes only what differs.
     fn save_ws_settings(
         &self,
         ws: &Workspace,
@@ -71,9 +72,16 @@ impl Backend {
     ) -> Result<Workspace, YukiError> {
         let store = &self.api.workspaces;
         let mut stored = store.get(&ws.id)?;
-        if stored.name != ws.name || stored.dns_overrides != ws.dns_overrides {
+        let ua = draft::user_agent(&ws.headers);
+        if stored.name != ws.name
+            || stored.dns_overrides != ws.dns_overrides
+            || draft::user_agent(&stored.headers) != ua
+        {
             stored.name = ws.name.clone();
             stored.dns_overrides = ws.dns_overrides.clone();
+            if draft::user_agent(&stored.headers) != ua {
+                stored.headers = draft::set_user_agent(&stored.headers, ua);
+            }
             stored.updated_at = chrono::Utc::now()
                 .format("%Y-%m-%dT%H:%M:%S%.6f")
                 .to_string();
@@ -110,6 +118,11 @@ impl SettingsScreen {
                 .default_value(draft::hosts_text(&ws.dns_overrides))
         });
         let env = cx.new(|cx| InputState::new(window, cx).default_value(allow.join(", ")));
+        let user_agent = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder(yuki_core::DEFAULT_USER_AGENT)
+                .default_value(draft::user_agent(&ws.headers).to_string())
+        });
         let on_change = |this: &mut Self, ev: &InputEvent, cx: &mut Context<Self>| {
             if matches!(ev, InputEvent::Change) {
                 this.changed(cx);
@@ -134,6 +147,7 @@ impl SettingsScreen {
             cx.subscribe(&name, move |this, _, ev, cx| on_change(this, ev, cx)),
             cx.subscribe(&dns, move |this, _, ev, cx| on_change(this, ev, cx)),
             cx.subscribe(&env, move |this, _, ev, cx| on_change(this, ev, cx)),
+            cx.subscribe(&user_agent, move |this, _, ev, cx| on_change(this, ev, cx)),
             cx.subscribe(&ui_family, on_family(Font::Ui)),
             cx.subscribe(&code_family, on_family(Font::Code)),
         ];
@@ -148,6 +162,7 @@ impl SettingsScreen {
             name,
             dns,
             env,
+            user_agent,
             ui_family,
             code_family,
             focus: cx.focus_handle(),
@@ -182,7 +197,7 @@ impl SettingsScreen {
     }
 
     /// The workspace as edited, plus the allowlist when it changed. An empty
-    /// name keeps the old one; untouched DNS text keeps the stored rows as-is.
+    /// name keeps the old one; untouched DNS/user-agent keep the stored rows as-is.
     fn draft(&self, cx: &App) -> (Workspace, Option<Vec<String>>) {
         let mut ws = self.ws.clone();
         let name = self.name.read(cx).value().trim().to_string();
@@ -193,12 +208,19 @@ impl SettingsScreen {
         if dns != draft::hosts_text(&ws.dns_overrides) {
             ws.dns_overrides = draft::hosts_rows(&dns, &ws.dns_overrides);
         }
+        let ua = self.user_agent.read(cx).value().trim().to_string();
+        if ua != draft::user_agent(&ws.headers) {
+            ws.headers = draft::set_user_agent(&ws.headers, &ua);
+        }
         let allow = parse_names(&self.env.read(cx).value());
         (ws, (allow != self.allow).then_some(allow))
     }
 
     fn dirty(&self, ws: &Workspace, allow: &Option<Vec<String>>) -> bool {
-        ws.name != self.ws.name || ws.dns_overrides != self.ws.dns_overrides || allow.is_some()
+        ws.name != self.ws.name
+            || ws.dns_overrides != self.ws.dns_overrides
+            || ws.headers != self.ws.headers
+            || allow.is_some()
     }
 
     fn changed(&mut self, cx: &mut Context<Self>) {

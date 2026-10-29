@@ -178,6 +178,38 @@ pub fn hosts_rows(text: &str, prev: &[DnsOverride]) -> Vec<DnsOverride> {
         .collect()
 }
 
+fn is_user_agent(h: &RequestParameter) -> bool {
+    h.name.trim().eq_ignore_ascii_case("user-agent")
+}
+
+/// The enabled `User-Agent` header's value; "" = none, sends use the default.
+pub fn user_agent(headers: &[RequestParameter]) -> &str {
+    headers
+        .iter()
+        .find(|h| h.enabled && is_user_agent(h))
+        .map_or("", |h| &h.value)
+}
+
+/// `headers` with the `User-Agent` row set to `value` (in place, id kept);
+/// an empty value drops it so the engine's default applies.
+pub fn set_user_agent(headers: &[RequestParameter], value: &str) -> Vec<RequestParameter> {
+    let mut out = headers.to_vec();
+    if value.is_empty() {
+        out.retain(|h| !is_user_agent(h));
+    } else if let Some(h) = out.iter_mut().find(|h| is_user_agent(h)) {
+        h.value = value.to_string();
+        h.enabled = true;
+    } else {
+        out.push(RequestParameter {
+            id: new_id(),
+            name: "User-Agent".into(),
+            value: value.to_string(),
+            enabled: true,
+        });
+    }
+    out
+}
+
 /// Re-indents JSON (2 spaces) token by token instead of parsing it, so key
 /// order, number spelling and unquoted `{{ VAR }}` survive; only whitespace
 /// outside strings changes. `None` when brackets or strings don't balance.
@@ -248,6 +280,30 @@ pub fn pretty_json(text: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn user_agent_row_is_set_in_place_or_dropped() {
+        let row = |id: &str, name: &str, value: &str, enabled| RequestParameter {
+            id: id.into(),
+            name: name.into(),
+            value: value.into(),
+            enabled,
+        };
+        let headers = vec![
+            row("a", "Accept", "*/*", true),
+            row("u", "user-agent", "old", false),
+        ];
+        assert_eq!(user_agent(&headers), "");
+        let set = set_user_agent(&headers, "me/1");
+        assert_eq!(set[1], row("u", "user-agent", "me/1", true));
+        assert_eq!(user_agent(&set), "me/1");
+        assert_eq!(set_user_agent(&set, ""), vec![headers[0].clone()]);
+        let added = set_user_agent(&headers[..1], "me/1");
+        assert_eq!(
+            (added[1].name.as_str(), user_agent(&added)),
+            ("User-Agent", "me/1")
+        );
+    }
 
     #[test]
     fn pretty_json_keeps_content_and_templates() {

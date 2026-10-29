@@ -271,6 +271,7 @@
 "Send request": "Enviar request"
 "sending… %{elapsed}": "enviando… %{elapsed}"
 "sent body": "body enviado"
+"sent when the request and its folders set none · empty sends Yuki · goes to git.": "enviado quando o request e as pastas não definem um · vazio envia Yuki · vai para o git."
 "server wait": "espera do servidor"
 "service": "serviço"
 "setting remote…": "configurando remote…"

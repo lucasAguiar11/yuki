@@ -16,3 +16,6 @@ pub use error::{GrpcFailure, HttpFailure, YukiError};
 pub use git::*;
 pub use net::is_link_local_or_metadata;
 pub use types::*;
+
+/// `User-Agent` of a send whose request, folders and workspace set none.
+pub const DEFAULT_USER_AGENT: &str = "Yuki";

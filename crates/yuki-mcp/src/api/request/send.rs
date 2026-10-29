@@ -659,6 +659,18 @@ fn inherit(
     let (ws_headers, ws_auth) = ws.map(|w| (w.headers, w.auth)).unwrap_or_default();
     let folder = req.folder_id.as_deref();
     req.headers = resolve::merge_inherited_metadata(&req.headers, folder, folders, &ws_headers);
+    if !req
+        .headers
+        .iter()
+        .any(|h| h.name.eq_ignore_ascii_case("user-agent"))
+    {
+        req.headers.push(RequestParameter {
+            id: "default-user-agent".into(),
+            name: "User-Agent".into(),
+            value: yuki_core::DEFAULT_USER_AGENT.into(),
+            enabled: true,
+        });
+    }
     req.auth = resolve::effective_auth(&req.auth, folder, folders, &ws_auth);
     if let Some(k) = key {
         for (secret, encrypted) in req.auth.secret_fields_mut() {

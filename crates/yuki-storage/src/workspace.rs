@@ -3,20 +3,12 @@ use std::path::{Path, PathBuf};
 use yuki_core::{new_workspace_id, AuthConfig, RequestParameter, Workspace, YukiError};
 
 fn default_workspace_headers() -> Vec<RequestParameter> {
-    vec![
-        RequestParameter {
-            id: "default-user-agent".to_string(),
-            name: "User-Agent".to_string(),
-            value: "yuki".to_string(),
-            enabled: true,
-        },
-        RequestParameter {
-            id: "default-accept".to_string(),
-            name: "Accept".to_string(),
-            value: "*/*".to_string(),
-            enabled: true,
-        },
-    ]
+    vec![RequestParameter {
+        id: "default-accept".to_string(),
+        name: "Accept".to_string(),
+        value: "*/*".to_string(),
+        enabled: true,
+    }]
 }
 
 #[derive(Clone)]

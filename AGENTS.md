@@ -12,7 +12,7 @@ Pre-release: no migration shims for internal formats. **Exception:** on-disk dat
 
 - **Code: MIT, 100% open.** Same model as Yaak: what's charged is *commercial use of the official binaries* (terms in `docs/legal/TERMS.md`, Portuguese in `TERMS.pt-BR.md`), never features. Forbidden: feature paywalls, closed modules, changing the code license, locking the app when the trial ends.
 - `LICENSE` carries Voleeo's copyright (required: `crates/yuki-*` derive from it) and Yuki's; provenance in `NOTICE`. Never remove the Voleeo line.
-- Visible strings say **Yuki** (UI, default User-Agent, MCP `serverInfo`, OAuth pages, import messages). "Voleeo" only for origin/import and the `VoleeoBundle` format.
+- Visible strings say **Yuki** (UI, default User-Agent `yuki_core::DEFAULT_USER_AGENT`, MCP `serverInfo`, OAuth pages, import messages). "Voleeo" only for origin/import and the `VoleeoBundle` format.
 - New dependency: nothing GPL/LGPL/AGPL (check with `cargo metadata`). Distributed binaries must ship third-party licenses (`cargo about generate`).
 
 ## Layout

@@ -1881,6 +1881,52 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn send_defaults_user_agent_and_workspace_overrides_it() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        // Answers each request with the `user-agent:` line it received.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut s, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    while let Ok(n @ 1..) = s.read(&mut buf).await {
+                        let head = String::from_utf8_lossy(&buf[..n]).to_ascii_lowercase();
+                        let ua = head.lines().find(|l| l.starts_with("user-agent:"));
+                        let ua = ua.unwrap_or("none").trim().to_string();
+                        let res = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{ua}",
+                            ua.len()
+                        );
+                        if s.write_all(res.as_bytes()).await.is_err() {
+                            break;
+                        }
+                    }
+                });
+            }
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let b = make_backend(&dir);
+        let mut ws = b.workspaces.create("WS".into(), false).unwrap();
+        let url = format!("http://127.0.0.1:{port}/");
+        let req = b
+            .requests
+            .create_request(ws.id.clone(), None, "R".into(), "GET".into(), url)
+            .unwrap();
+        let send = || b.send_http(ws.id.clone(), req.id.clone(), None, None, None, false);
+        assert_eq!(send().await.unwrap().body, "user-agent: yuki");
+        ws.headers.push(yuki_core::RequestParameter {
+            id: "ua".into(),
+            name: "User-Agent".into(),
+            value: "Mine/2".into(),
+            enabled: true,
+        });
+        b.workspaces.save(&ws).unwrap();
+        let send = || b.send_http(ws.id.clone(), req.id.clone(), None, None, None, false);
+        assert_eq!(send().await.unwrap().body, "user-agent: mine/2");
+    }
+
+    #[tokio::test]
     async fn snapshot_tools_save_list_get_and_replay_guard() {
         use yuki_core::{AuthConfig, HttpRequest, HttpResponse, HttpTiming, RequestParameter};
         let dir = tempfile::tempdir().unwrap();

@@ -34,6 +34,8 @@ impl Source {
 pub enum Origin {
     /// `$response.body(…)`: the request whose response it reads.
     Request(String),
+    /// A `:name` path param: its row in the params tab.
+    PathParam(String),
     Folder {
         id: String,
         var: String,
@@ -47,6 +49,9 @@ pub enum Origin {
 }
 
 pub fn origin(expr: &str, vars: &Vars) -> Option<Origin> {
+    if let Some(name) = expr.strip_prefix(':') {
+        return Some(Origin::PathParam(name.to_string()));
+    }
     if response_args(expr).is_some() {
         return response_ref(expr).map(|(id, _)| Origin::Request(id));
     }
@@ -120,13 +125,13 @@ pub fn kind(expr: &str, vars: &Vars) -> Kind {
     if funcs::lookup(expr).is_some() || response_args(expr).is_some() {
         Kind::Function
     } else {
+        // Not only identifiers: the engine also sends imported names like
+        // `api-gateway` when the env defines them.
         match vars.get(expr) {
             Some(v) if pending(v) => Kind::Function,
             Some(_) => Kind::Defined,
             None => Kind::Missing,
         }
-        // Not only identifiers: the engine also sends imported names like
-        // `api-gateway` when the env defines them.
     }
 }
 
@@ -307,13 +312,13 @@ mod tests {
         assert_eq!(kind("B", &vars), Kind::Missing);
         assert_eq!(kind("$uuid.v4()", &vars), Kind::Function);
         assert_eq!(kind("uuid.v4()", &vars), Kind::Missing);
+        assert_eq!(kind("api-gateway", &vars), Kind::Defined);
+        assert_eq!(kind("api-portal", &vars), Kind::Missing);
         assert_eq!(kind("nope.fn()", &vars), Kind::Missing);
         assert_eq!(kind("TOKEN", &vars), Kind::Function);
         assert_eq!(used(["{{ A }}{{B}}", "{{ A }}"]), ["A", "B"]);
     }
 
-        assert_eq!(kind("api-gateway", &vars), Kind::Defined);
-        assert_eq!(kind("api-portal", &vars), Kind::Missing);
     #[test]
     fn origin_follows_the_winning_layer() {
         let var = |source| Var {
@@ -349,6 +354,10 @@ mod tests {
         assert_eq!(origin("NEW", &vars), env(false, "NEW"));
         assert_eq!(origin("S", &vars), None);
         assert_eq!(origin("$fake.email()", &vars), None);
+        assert_eq!(
+            origin(":code", &vars),
+            Some(Origin::PathParam("code".into()))
+        );
         assert_eq!(
             origin(r#"response.body(requestId="r1", selector="$.t")"#, &vars),
             Some(Origin::Request("r1".into()))

@@ -84,10 +84,15 @@ impl Yuki {
         cx.notify();
     }
 
-    /// ⌘-click on a `{{ }}` chip.
+    /// ⌘-click on a `{{ }}` or `:name` chip.
     pub fn go_to_origin(&mut self, origin: &Origin, window: &mut Window, cx: &mut Context<Self>) {
         match origin {
             Origin::Request(id) => self.open_request(id, window, cx),
+            Origin::PathParam(name) => {
+                if let Some(e) = self.active_editor().cloned() {
+                    e.update(cx, |e, cx| e.reveal_param(name, window, cx));
+                }
+            }
             Origin::Folder { id, var } => {
                 self.open_scope(Some(id.clone()), Some(var.clone()), window, cx)
             }

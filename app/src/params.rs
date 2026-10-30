@@ -110,6 +110,21 @@ impl RequestEditor {
         self.params.len() + self.query.active_count(cx)
     }
 
+    /// ⌘-click on a `:name` chip: the params tab, caret in its value.
+    pub fn reveal_param(&mut self, name: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.req_tab = ReqTab::Params;
+        self.editor_open = true;
+        let row = self.params.rows.iter().find(|r| r.name == name);
+        if let Some(focus) = row.map(|r| r.value.read(cx).focus_handle(cx)) {
+            // After the pane's first draw: focusing an input not drawn yet
+            // lands elsewhere. A callback runs before its frame draws, so two.
+            window.on_next_frame(move |window, _| {
+                window.on_next_frame(move |window, cx| focus.focus(window, cx))
+            });
+        }
+        cx.notify();
+    }
+
     fn param_row(&self, name: String, window: &mut Window, cx: &mut Context<Self>) -> Row {
         let stored = self
             .shown

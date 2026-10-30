@@ -261,7 +261,7 @@ fn chip(
 ) -> impl IntoElement {
     let expr = ctx.token().id().clone();
     if let Some(name) = expr.strip_prefix(':') {
-        return path_chip(ctx, name, params, cx).into_any_element();
+        return path_chip(ctx, name, params, cmd, cx).into_any_element();
     }
     let kind = vars::kind(&expr, vars);
     let link = cmd && vars::origin(&expr, vars).is_some();
@@ -285,11 +285,13 @@ fn chip(
     .into_any_element()
 }
 
-/// `:name` chip; the tooltip shows the value it gets from the params tab.
+/// `:name` chip; the tooltip shows the value it gets from the params tab,
+/// ⌘-click goes there.
 fn path_chip(
     ctx: &InlineTokenContext,
     name: &str,
     params: &[(String, Entity<InputState>)],
+    cmd: bool,
     cx: &App,
 ) -> impl IntoElement {
     let value = params
@@ -299,7 +301,7 @@ fn path_chip(
     let empty = value.as_ref().is_none_or(|v| v.read(cx).value().is_empty());
     let color = cx.theme().blue;
     let label = ctx.token().label().clone();
-    shell(ctx, color, empty, false, label.clone(), cx).tooltip(move |window, cx| {
+    shell(ctx, color, empty, cmd, label.clone(), cx).tooltip(move |window, cx| {
         let (label, value) = (label.clone(), value.clone());
         Tooltip::element(move |_, cx| {
             let theme = cx.theme();
@@ -331,6 +333,11 @@ fn path_chip(
                         ),
                 )
                 .child(line)
+                .child(
+                    div()
+                        .text_color(theme.muted_foreground)
+                        .child(t!("⌘-click to open")),
+                )
         })
         .build(window, cx)
     })

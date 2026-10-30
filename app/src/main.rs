@@ -14,6 +14,7 @@ mod body;
 mod capture;
 mod capture_view;
 mod chrome;
+mod clip_curl;
 mod complete;
 mod complete_view;
 mod csv;

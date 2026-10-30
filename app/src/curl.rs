@@ -27,7 +27,9 @@ impl Yuki {
             _ = this.update(cx, |this, cx| {
                 this.status = match result {
                     Ok(r) => {
-                        cx.write_to_clipboard(ClipboardItem::new_string(curl(&r)));
+                        let text = curl(&r);
+                        crate::clip_curl::mark_seen(&text, cx);
+                        cx.write_to_clipboard(ClipboardItem::new_string(text));
                         t!("copied as cURL").into_owned().into()
                     }
                     Err(e) => t!("failed: %{e}", e = e).into_owned().into(),

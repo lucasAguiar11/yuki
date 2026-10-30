@@ -67,7 +67,7 @@ No variable needed: in any template field — a folder's or the workspace's auth
 
 ⌘⇧P → **Import collection…** (or ⌘O → **+ import collection…**) reads a Voleeo bundle, Yaak, Postman (v2.0/2.1), Insomnia (v4 JSON or v5 YAML), OpenAPI/Swagger or Bruno file: pick what comes in from the tree, into a new workspace or into a folder of the open one. Auth and headers set on the collection or a folder are copied onto each request. **Export workspace…** writes the open workspace as Voleeo, Yaak, Postman (environments as sibling files) or Insomnia v4; secret values are left empty unless you tick **include secrets**.
 
-A `curl …` command pasted into the URL bar (DevTools **Copy as cURL**, API docs) becomes the open request: method, URL and query, headers, body and basic auth.
+A `curl …` command pasted into the URL bar (DevTools **Copy as cURL**, API docs) becomes the open request: method, URL and query, headers, body and basic auth. Copy one anywhere and come back to Yuki: **▸ import cURL** shows in the status bar and makes it a new request in one click (✕ dismisses it).
 
 ## MCP
 

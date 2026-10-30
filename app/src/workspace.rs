@@ -63,6 +63,11 @@ pub struct Yuki {
     pub status: SharedString,
     /// Agents connected over MCP; `None` once the server is down.
     pub mcp: Option<usize>,
+    /// A `curl …` from the clipboard, offered as a new request (`clip_curl`).
+    pub(crate) clip_curl: Option<String>,
+    /// Window activation → `check_clipboard`; apart from `_subs`, which a
+    /// workspace switch clears.
+    _activation: Option<Subscription>,
     /// Workspace this window was opened for; taken by the first list load.
     start_ws: Option<String>,
     _subs: Vec<Subscription>,
@@ -108,6 +113,8 @@ impl Yuki {
             renaming: None,
             status: "".into(),
             mcp: Some(*mcp.clients.borrow()),
+            clip_curl: None,
+            _activation: None,
             start_ws,
             _subs: vec![],
         };
@@ -116,6 +123,11 @@ impl Yuki {
         this.reload_workspaces(window, cx);
         this.watch_mcp(mcp, window, cx);
         Session::track_window(window, cx);
+        this._activation = Some(cx.observe_window_activation(window, |this, window, cx| {
+            if window.is_window_active() {
+                this.check_clipboard(cx);
+            }
+        }));
         let weak = cx.entity().downgrade();
         window.on_window_should_close(cx, move |_, cx| {
             if let Some(this) = weak.upgrade() {

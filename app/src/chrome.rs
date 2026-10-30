@@ -124,6 +124,44 @@ pub fn title_bar(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
 
 /// Vim-flavoured hints, each one clickable: `:requests ⌘P  :commands ⌘⇧P …`
 pub fn status_line(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
+    // `▸ import cURL ✕` — a cURL in the clipboard (`clip_curl`). Built before
+    // `theme` borrows `cx`: the clicks need `cx.listener`.
+    let (blue, fg) = (cx.theme().blue, cx.theme().foreground);
+    let clip = yuki
+        .clip_curl
+        .as_ref()
+        .filter(|_| yuki.ws.is_some())
+        .map(|cmd| {
+            let mut short: String = cmd.split_whitespace().collect::<Vec<_>>().join(" ");
+            if short.chars().count() > 100 {
+                short = short.chars().take(100).collect::<String>() + "…";
+            }
+            let tip: SharedString = t!("new request from the clipboard: %{cmd}", cmd = short)
+                .into_owned()
+                .into();
+            h_flex()
+                .gap_2()
+                .child(
+                    div()
+                        .id("clip-curl")
+                        .cursor_pointer()
+                        .text_color(blue)
+                        .hover(move |s| s.text_color(fg))
+                        .child(t!("▸ import cURL").into_owned())
+                        .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
+                        .on_click(
+                            cx.listener(|this, _, window, cx| this.import_clip_curl(window, cx)),
+                        ),
+                )
+                .child(
+                    div()
+                        .id("clip-curl-dismiss")
+                        .cursor_pointer()
+                        .hover(move |s| s.text_color(fg))
+                        .child("✕")
+                        .on_click(cx.listener(|this, _, _, cx| this.dismiss_clip_curl(cx))),
+                )
+        });
     let theme = cx.theme();
     let commands: [(&str, &str, Box<dyn Action>); 8] = [
         (":requests", "⌘P", Box::new(OpenRequests)),
@@ -276,6 +314,7 @@ pub fn status_line(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
         )
         .child(div().flex_1())
         .child(yuki.status.clone())
+        .children(clip)
         .children(layouts)
         .children(git)
         .child(mcp)

@@ -126,6 +126,10 @@ impl Yuki {
         this._activation = Some(cx.observe_window_activation(window, |this, window, cx| {
             if window.is_window_active() {
                 this.check_clipboard(cx);
+                // Files created or edited outside the app (an agent, an editor, git).
+                if let Some(ws) = this.ws.as_ref() {
+                    crate::windows::reload(ws.id.clone(), cx);
+                }
             }
         }));
         let weak = cx.entity().downgrade();

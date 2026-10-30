@@ -39,6 +39,13 @@ pub fn init(
     });
 }
 
+/// Reload workspace `ws` from disk in the window that shows it, the same way
+/// an agent edit does.
+pub fn reload(ws: String, cx: &App) {
+    // No window subscribed: nothing shows it.
+    let _ = cx.global::<Windows>().edits.send(Edit::Items(ws));
+}
+
 /// A window on workspace `ws` (`None`: the one from the last session).
 pub fn open(ws: Option<String>, bounds: WindowBounds, cx: &mut App) {
     let w = cx.global::<Windows>();

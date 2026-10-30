@@ -52,7 +52,8 @@ pub struct Link {
     pub clients: watch::Receiver<usize>,
 }
 
-/// What an agent changed (only MCP tools fire these).
+/// What changed on disk: MCP tools fire these, and so does returning to a
+/// window (`windows::reload`), for files edited outside the app.
 #[derive(Clone)]
 pub enum Edit {
     /// Requests, folders or envs of this workspace.

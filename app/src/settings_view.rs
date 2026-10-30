@@ -65,6 +65,27 @@ pub(crate) fn field(
         )
 }
 
+/// One option of a pick-one row (`below | beside`).
+pub(crate) fn choice(id: &'static str, label: String, selected: bool, cx: &App) -> Stateful<Div> {
+    let theme = cx.theme();
+    let (fg, muted, active_bg, hover_bg) = (
+        theme.foreground,
+        theme.muted_foreground,
+        theme.list_active,
+        theme.list_hover,
+    );
+    div()
+        .id(id)
+        .px_2()
+        .py_0p5()
+        .rounded_sm()
+        .cursor_pointer()
+        .text_color(if selected { fg } else { muted })
+        .when(selected, |s| s.bg(active_bg))
+        .hover(move |s| s.bg(hover_bg))
+        .child(label)
+}
+
 impl SettingsScreen {
     fn render_list(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
@@ -239,16 +260,30 @@ impl SettingsScreen {
             .child(field(
                 "user-agent",
                 Input::new(&self.user_agent).small(),
-                Some(t!("sent when the request and its folders set none · empty sends Yuki · goes to git.").into_owned()),
+                Some(t!("sent when the request and its folders set none · empty uses the general one · goes to git.").into_owned()),
                 cx,
             ))
             .child(field(
                 t!("certificates").into_owned(),
-                Checkbox::new("skip-certs")
-                    .checked(self.skip_certs)
-                    .label(t!("accept invalid certificates").into_owned())
-                    .on_click(cx.listener(|this, on: &bool, _, cx| this.set_skip_certs(*on, cx))),
-                Some(t!("expired, self-signed or for another host: sends go through anyway. this machine only.").into_owned()),
+                h_flex().gap_2().children([
+                    (
+                        "certs-general",
+                        None,
+                        if self.general.skip_certs {
+                            t!("as general (accepts)")
+                        } else {
+                            t!("as general (verifies)")
+                        },
+                    ),
+                    ("certs-accept", Some(true), t!("accept invalid")),
+                    ("certs-verify", Some(false), t!("verify")),
+                ]
+                .map(|(id, value, label)| {
+                    choice(id, label.into_owned(), self.skip_certs == value, cx).on_click(
+                        cx.listener(move |this, _, _, cx| this.set_skip_certs(value, cx)),
+                    )
+                })),
+                Some(t!("expired, self-signed or for another host: accepting lets sends go through anyway. this machine only.").into_owned()),
                 cx,
             ))
             .into_any_element()
@@ -281,12 +316,47 @@ impl SettingsScreen {
                     .label(t!("move…").into_owned())
                     .on_click(cx.listener(|this, _, window, cx| this.move_all(window, cx))),
             );
+        let g = &self.general;
         v_flex()
             .gap_4()
             .child(field(
                 t!("workspaces folder").into_owned(),
                 base_row,
                 Some(t!("one folder each, named after the workspace · move takes them all · new imports land here too").into_owned()),
+                cx,
+            ))
+            .child(
+                div()
+                    .pt_2()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(t!("every workspace · this machine only · a workspace's own setting wins").into_owned()),
+            )
+            .child(field(
+                "user-agent",
+                Input::new(&g.user_agent).small(),
+                Some(t!("sent when the request, its folders and its workspace set none · empty sends Yuki.").into_owned()),
+                cx,
+            ))
+            .child(field(
+                "dns",
+                Textarea::new(&g.dns).small(),
+                Some(t!("one host per line: 127.0.0.1 api.local · # disables. a workspace's line for the same host wins.").into_owned()),
+                cx,
+            ))
+            .child(field(
+                t!("shell env").into_owned(),
+                Input::new(&g.env).small(),
+                Some(t!("variables from your shell every workspace can use as {{ NAME }}, on top of its own list.").into_owned()),
+                cx,
+            ))
+            .child(field(
+                t!("certificates").into_owned(),
+                Checkbox::new("global-skip-certs")
+                    .checked(g.skip_certs)
+                    .label(t!("accept invalid certificates").into_owned())
+                    .on_click(cx.listener(|this, on: &bool, _, cx| this.set_global_skip(*on, cx))),
+                Some(t!("in every workspace left as general.").into_owned()),
                 cx,
             ))
             .into_any_element()
@@ -349,23 +419,11 @@ impl SettingsScreen {
                 .child(label)
                 .on_click(cx.listener(move |this, _, _, cx| this.set_language(lang, cx)))
         });
-        let choice = |id: &'static str, label: String, selected: bool| {
-            div()
-                .id(id)
-                .px_2()
-                .py_0p5()
-                .rounded_sm()
-                .cursor_pointer()
-                .text_color(if selected { fg } else { muted })
-                .when(selected, |s| s.bg(active_bg))
-                .hover(move |s| s.bg(hover_bg))
-                .child(label)
-        };
         // Response below (stacked) or beside the request editor; ⌘⌥L flips it.
         let beside = cx.global::<Prefs>().response_beside;
         let layouts = [(false, t!("below")), (true, t!("beside"))].map(|(on, label)| {
             let id = if on { "layout-beside" } else { "layout-below" };
-            choice(id, label.into_owned(), beside == on).on_click(cx.listener(
+            choice(id, label.into_owned(), beside == on, cx).on_click(cx.listener(
                 move |this, _, _, cx| {
                     let prefs = Prefs::set_response_beside(on, cx);
                     this.save_prefs(prefs, cx);

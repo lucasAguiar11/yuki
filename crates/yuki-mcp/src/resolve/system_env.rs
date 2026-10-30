@@ -13,10 +13,11 @@ pub fn snapshot() -> &'static HashMap<String, String> {
     SNAP.get_or_init(|| capture_shell_env().unwrap_or_else(|| std::env::vars().collect()))
 }
 
-/// Snapshot values for the workspace's allowlisted names. An empty allowlist
-/// short-circuits so the shell capture never runs unless the user opted in.
+/// Snapshot values for the workspace's allowlisted names (its own plus the
+/// general ones). An empty allowlist short-circuits so the shell capture never
+/// runs unless the user opted in.
 pub(super) fn allowlisted_vars(workspace_id: &str, app_data_dir: &Path) -> HashMap<String, String> {
-    let allow = allowlist(workspace_id, app_data_dir);
+    let allow = effective_allowlist(workspace_id, app_data_dir);
     if allow.is_empty() {
         return HashMap::new();
     }
@@ -27,7 +28,7 @@ pub(super) fn allowlisted_vars(workspace_id: &str, app_data_dir: &Path) -> HashM
         .collect()
 }
 
-const SETTINGS_FILE: &str = "workspace-settings.yaml";
+pub(super) const SETTINGS_FILE: &str = "workspace-settings.yaml";
 
 /// Lenient read of one field of the workspace's entry in
 /// `workspace-settings.yaml` (canonical schema:
@@ -52,10 +53,28 @@ pub fn allowlist(workspace_id: &str, app_data_dir: &Path) -> Vec<String> {
     setting(workspace_id, app_data_dir, "systemEnvAllowlist").unwrap_or_default()
 }
 
-/// Accept invalid (expired, self-signed) TLS certificates for this
-/// workspace's sends. Machine-local on purpose: a pulled repo can't turn it on.
-pub fn skip_cert_check(workspace_id: &str, app_data_dir: &Path) -> bool {
-    setting(workspace_id, app_data_dir, "skipCertificateCheck").unwrap_or(false)
+/// The workspace's names, then the general ones it doesn't list: the two add up.
+pub(super) fn effective_allowlist(workspace_id: &str, app_data_dir: &Path) -> Vec<String> {
+    let mut allow = allowlist(workspace_id, app_data_dir);
+    for name in super::global::settings(app_data_dir).system_env_allowlist {
+        if !allow.contains(&name) {
+            allow.push(name);
+        }
+    }
+    allow
+}
+
+/// What a send uses: the workspace's own choice, else settings → general's.
+pub fn effective_skip_cert_check(workspace_id: &str, app_data_dir: &Path) -> bool {
+    skip_cert_check(workspace_id, app_data_dir)
+        .unwrap_or_else(|| super::global::settings(app_data_dir).skip_certificate_check)
+}
+
+/// This workspace's own choice on accepting invalid (expired, self-signed)
+/// TLS certificates; `None` = as settings → general says. Machine-local on
+/// purpose: a pulled repo can't turn it on.
+pub fn skip_cert_check(workspace_id: &str, app_data_dir: &Path) -> Option<bool> {
+    setting(workspace_id, app_data_dir, "skipCertificateCheck")
 }
 
 pub fn set_allowlist(
@@ -68,30 +87,65 @@ pub fn set_allowlist(
         workspace_id,
         app_data_dir,
         "systemEnvAllowlist",
-        serde_yaml::Value::Sequence(names),
+        Some(serde_yaml::Value::Sequence(names)),
     )
 }
 
 pub fn set_skip_cert_check(
     workspace_id: &str,
     app_data_dir: &Path,
-    skip: bool,
+    skip: Option<bool>,
 ) -> Result<(), yuki_core::YukiError> {
     set_setting(
         workspace_id,
         app_data_dir,
         "skipCertificateCheck",
-        skip.into(),
+        skip.map(Into::into),
     )
 }
 
-/// Sets one field of the workspace's entry. The file holds other machine-local
-/// settings (Voleeo's too), so it is edited as a YAML tree: unknown keys stay.
+/// Sets (`None`: removes) one field of the workspace's entry.
 fn set_setting(
     workspace_id: &str,
     app_data_dir: &Path,
     key: &str,
-    value: serde_yaml::Value,
+    value: Option<serde_yaml::Value>,
+) -> Result<(), yuki_core::YukiError> {
+    use serde_yaml::{Mapping, Value};
+    edit_settings(app_data_dir, |map| {
+        let list = map
+            .entry("workspaces".into())
+            .or_insert_with(|| Value::Sequence(vec![]));
+        if !list.is_sequence() {
+            *list = Value::Sequence(vec![]);
+        }
+        let list = list.as_sequence_mut().expect("just made a sequence");
+        let pos = list
+            .iter()
+            .position(|e| e.get("id").and_then(Value::as_str) == Some(workspace_id));
+        let entry = match pos {
+            Some(ix) => &mut list[ix],
+            None => {
+                let mut m = Mapping::new();
+                m.insert("id".into(), workspace_id.into());
+                list.push(Value::Mapping(m));
+                list.last_mut().expect("just pushed")
+            }
+        };
+        if let Some(m) = entry.as_mapping_mut() {
+            match value {
+                Some(v) => m.insert(key.into(), v),
+                None => m.remove(key),
+            };
+        }
+    })
+}
+
+/// The file holds other machine-local settings (Voleeo's too), so it is
+/// edited as a YAML tree: unknown keys stay.
+pub(super) fn edit_settings(
+    app_data_dir: &Path,
+    edit: impl FnOnce(&mut serde_yaml::Mapping),
 ) -> Result<(), yuki_core::YukiError> {
     use serde_yaml::{Mapping, Value};
     let path = app_data_dir.join(SETTINGS_FILE);
@@ -100,29 +154,7 @@ fn set_setting(
         .and_then(|t| serde_yaml::from_str::<Value>(&t).ok())
         .filter(Value::is_mapping)
         .unwrap_or_else(|| Value::Mapping(Mapping::new()));
-    let map = root.as_mapping_mut().expect("filtered to a mapping");
-    let list = map
-        .entry("workspaces".into())
-        .or_insert_with(|| Value::Sequence(vec![]));
-    if !list.is_sequence() {
-        *list = Value::Sequence(vec![]);
-    }
-    let list = list.as_sequence_mut().expect("just made a sequence");
-    let pos = list
-        .iter()
-        .position(|e| e.get("id").and_then(Value::as_str) == Some(workspace_id));
-    let entry = match pos {
-        Some(ix) => &mut list[ix],
-        None => {
-            let mut m = Mapping::new();
-            m.insert("id".into(), workspace_id.into());
-            list.push(Value::Mapping(m));
-            list.last_mut().expect("just pushed")
-        }
-    };
-    if let Some(m) = entry.as_mapping_mut() {
-        m.insert(key.into(), value);
-    }
+    edit(root.as_mapping_mut().expect("filtered to a mapping"));
     let text =
         serde_yaml::to_string(&root).map_err(|e| yuki_core::YukiError::Storage(e.to_string()))?;
     yuki_storage::write_atomic(path, text)

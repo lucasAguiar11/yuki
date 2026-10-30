@@ -6,6 +6,7 @@
 //! helpers. Unknown function tokens pass through verbatim.
 
 pub mod funcs;
+mod global;
 mod grpc;
 mod http;
 mod responses;
@@ -13,6 +14,9 @@ mod system_env;
 mod text;
 mod vars;
 
+pub use global::{
+    set_settings as set_global_settings, settings as global_settings, GlobalSettings,
+};
 pub use grpc::{apply_to_grpc, grpc_vars, resolve_grpc_for_send};
 pub(crate) use http::auth_header;
 pub use http::{apply_to_connection, apply_to_request};
@@ -21,8 +25,9 @@ pub use responses::{
     sources as response_sources,
 };
 pub use system_env::{
-    allowlist as system_env_allowlist, set_allowlist as set_system_env_allowlist,
-    set_skip_cert_check, skip_cert_check, snapshot as system_env_snapshot,
+    allowlist as system_env_allowlist, effective_skip_cert_check,
+    set_allowlist as set_system_env_allowlist, set_skip_cert_check, skip_cert_check,
+    snapshot as system_env_snapshot,
 };
 pub use text::path_params;
 pub use vars::{

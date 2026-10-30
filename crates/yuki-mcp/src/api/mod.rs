@@ -1881,7 +1881,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn send_defaults_user_agent_and_workspace_overrides_it() {
+    async fn send_user_agent_default_then_general_then_workspace() {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         // Answers each request with the `user-agent:` line it received.
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -1915,6 +1915,12 @@ mod tests {
             .unwrap();
         let send = || b.send_http(ws.id.clone(), req.id.clone(), None, None, None, false);
         assert_eq!(send().await.unwrap().body, "user-agent: yuki");
+        let global = crate::resolve::GlobalSettings {
+            user_agent: "Global/1".into(),
+            ..Default::default()
+        };
+        crate::resolve::set_global_settings(&b.app_data_dir, &global).unwrap();
+        assert_eq!(send().await.unwrap().body, "user-agent: global/1");
         ws.headers.push(yuki_core::RequestParameter {
             id: "ua".into(),
             name: "User-Agent".into(),
@@ -1924,6 +1930,57 @@ mod tests {
         b.workspaces.save(&ws).unwrap();
         let send = || b.send_http(ws.id.clone(), req.id.clone(), None, None, None, false);
         assert_eq!(send().await.unwrap().body, "user-agent: mine/2");
+    }
+
+    #[tokio::test]
+    async fn send_dns_adds_general_hosts_and_workspace_wins_per_host() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut s, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    while let Ok(1..) = s.read(&mut buf).await {
+                        let ok = b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok";
+                        if s.write_all(ok).await.is_err() {
+                            break;
+                        }
+                    }
+                });
+            }
+        });
+        let host = |name: &str, address: &str| yuki_core::DnsOverride {
+            id: name.into(),
+            enabled: true,
+            hostname: name.into(),
+            address: address.into(),
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let b = make_backend(&dir);
+        let mut ws = b.workspaces.create("WS".into(), false).unwrap();
+        // Only 127.0.0.1 answers: a send lands only through the right override.
+        ws.dns_overrides = vec![host("api.test", "127.0.0.1")];
+        b.workspaces.save(&ws).unwrap();
+        let general = crate::resolve::GlobalSettings {
+            dns_overrides: vec![
+                host("api.test", "127.0.0.2"),
+                host("other.test", "127.0.0.1"),
+            ],
+            ..Default::default()
+        };
+        crate::resolve::set_global_settings(&b.app_data_dir, &general).unwrap();
+        for name in ["api.test", "other.test"] {
+            let url = format!("http://{name}:{port}/");
+            let req = b
+                .requests
+                .create_request(ws.id.clone(), None, name.into(), "GET".into(), url)
+                .unwrap();
+            let resp = b
+                .send_http(ws.id.clone(), req.id, None, None, None, false)
+                .await;
+            assert_eq!(resp.map(|r| r.status), Ok(200), "{name}");
+        }
     }
 
     #[tokio::test]

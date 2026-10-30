@@ -92,13 +92,17 @@ impl ApiBackend {
         };
 
         // WorkspaceStore::get reads workspace.yaml from disk — offload it (rule 17).
+        // The workspace's overrides first, then the general ones (first match wins).
         let workspaces = self.workspaces.clone();
         let ws_for_dns = ws_id.clone();
+        let dir = self.app_data_dir.clone();
         let dns_overrides = super::blocking(move || {
-            Ok(workspaces
+            let mut dns = workspaces
                 .get(&ws_for_dns)
                 .map(|w| w.dns_overrides)
-                .unwrap_or_default())
+                .unwrap_or_default();
+            dns.extend(crate::resolve::global_settings(&dir).dns_overrides);
+            Ok(dns)
         })
         .await
         .unwrap_or_default();

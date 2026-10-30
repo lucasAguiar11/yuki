@@ -1,7 +1,8 @@
-//! "Configurações" screen (⌘,): general (workspaces folder), the workspace
-//! (name, DNS overrides, shell env allowlist, user-agent, certificate check), the app's appearance (font
-//! sizes, language) and about (version,
-//! updates). Workspace edits go to disk 400 ms after typing stops; appearance
+//! "Configurações" screen (⌘,): general (workspaces folder, how workspaces
+//! open, and send settings for every workspace — `settings_general.rs`), the
+//! workspace (name, DNS overrides, shell env allowlist, user-agent, certificate
+//! check), the app's appearance (font sizes, language) and about (version,
+//! updates). Typed edits go to disk 400 ms after typing stops; appearance
 //! applies and saves on click.
 
 use std::{path::PathBuf, sync::Arc, time::Duration};
@@ -13,14 +14,19 @@ use gpui_kit::component::{
 };
 use gpui_kit::*;
 use yuki_core::{Workspace, YukiError};
-use yuki_mcp::resolve;
+use yuki_mcp::resolve::{self, GlobalSettings};
 
 use crate::{
     backend::Backend,
     draft,
     prefs::{FamilySelect, Font, Prefs},
+    settings_general::General,
     workspace::Yuki,
 };
+
+/// What a flush writes: the workspace as edited, the allowlist and the
+/// general settings when they changed.
+type Draft = (Workspace, Option<Vec<String>>, Option<GlobalSettings>);
 
 const AUTOSAVE_DELAY: Duration = Duration::from_millis(400);
 
@@ -41,8 +47,8 @@ pub struct SettingsScreen {
     /// As last written.
     pub(crate) ws: Workspace,
     allow: Vec<String>,
-    /// Machine-local: sends accept invalid TLS certificates.
-    pub skip_certs: bool,
+    /// Machine-local: sends accept invalid TLS certificates; `None` = as general.
+    pub skip_certs: Option<bool>,
     /// Where the workspace's files (and its git repo) live, links resolved.
     pub folder: PathBuf,
     pub section: Section,
@@ -51,6 +57,7 @@ pub struct SettingsScreen {
     pub dns: Entity<TextareaState>,
     pub env: Entity<InputState>,
     pub user_agent: Entity<InputState>,
+    pub general: General,
     pub ui_family: Entity<FamilySelect>,
     pub code_family: Entity<FamilySelect>,
     pub focus: FocusHandle,
@@ -65,11 +72,7 @@ impl EventEmitter<WorkspaceSaved> for SettingsScreen {}
 impl Backend {
     /// Name/DNS/user-agent go onto the workspace as stored now (a pull or the
     /// workspace tab may have changed other fields); writes only what differs.
-    fn save_ws_settings(
-        &self,
-        ws: &Workspace,
-        allow: Option<&[String]>,
-    ) -> Result<Workspace, YukiError> {
+    fn save_ws_settings(&self, (ws, allow, global): &Draft) -> Result<Workspace, YukiError> {
         let store = &self.api.workspaces;
         let mut stored = store.get(&ws.id)?;
         let ua = draft::user_agent(&ws.headers);
@@ -87,30 +90,47 @@ impl Backend {
                 .to_string();
             store.save(&stored)?;
         }
+        let dir = &self.api.app_data_dir;
         if let Some(names) = allow {
-            resolve::set_system_env_allowlist(&ws.id, &self.api.app_data_dir, names)?;
+            resolve::set_system_env_allowlist(&ws.id, dir, names)?;
+        }
+        if let Some(g) = global {
+            resolve::set_global_settings(dir, g)?;
         }
         Ok(stored)
     }
 }
 
-fn parse_names(text: &str) -> Vec<String> {
+pub(crate) fn parse_names(text: &str) -> Vec<String> {
     text.split(|c: char| c == ',' || c.is_whitespace())
         .filter(|s| !s.is_empty())
         .map(str::to_string)
         .collect()
 }
 
+/// What the screen opens on, read off the UI thread.
+struct Loaded {
+    ws: Workspace,
+    allow: Vec<String>,
+    skip_certs: Option<bool>,
+    global: GlobalSettings,
+    folder: PathBuf,
+}
+
 impl SettingsScreen {
     fn new(
         backend: Arc<Backend>,
-        ws: Workspace,
-        allow: Vec<String>,
-        skip_certs: bool,
-        folder: PathBuf,
+        loaded: Loaded,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        let Loaded {
+            ws,
+            allow,
+            skip_certs,
+            global,
+            folder,
+        } = loaded;
         let name = cx.new(|cx| InputState::new(window, cx).default_value(ws.name.clone()));
         let dns = cx.new(|cx| {
             TextareaState::new(window, cx)
@@ -118,9 +138,11 @@ impl SettingsScreen {
                 .default_value(draft::hosts_text(&ws.dns_overrides))
         });
         let env = cx.new(|cx| InputState::new(window, cx).default_value(allow.join(", ")));
+        let general = General::new(global, window, cx);
+        let ua_fallback = general.saved.user_agent_or_default().to_string();
         let user_agent = cx.new(|cx| {
             InputState::new(window, cx)
-                .placeholder(yuki_core::DEFAULT_USER_AGENT)
+                .placeholder(ua_fallback)
                 .default_value(draft::user_agent(&ws.headers).to_string())
         });
         let on_change = |this: &mut Self, ev: &InputEvent, cx: &mut Context<Self>| {
@@ -163,6 +185,7 @@ impl SettingsScreen {
             dns,
             env,
             user_agent,
+            general,
             ui_family,
             code_family,
             focus: cx.focus_handle(),
@@ -174,7 +197,7 @@ impl SettingsScreen {
     }
 
     /// Applies to the next send; written right away, like appearance.
-    pub fn set_skip_certs(&mut self, skip: bool, cx: &mut Context<Self>) {
+    pub fn set_skip_certs(&mut self, skip: Option<bool>, cx: &mut Context<Self>) {
         self.skip_certs = skip;
         let (id, dir) = (self.ws.id.clone(), self.backend.api.app_data_dir.clone());
         let task =
@@ -191,14 +214,21 @@ impl SettingsScreen {
         cx.notify();
     }
 
+    /// General "accept invalid certificates": goes out with the next autosave.
+    pub fn set_global_skip(&mut self, skip: bool, cx: &mut Context<Self>) {
+        self.general.skip_certs = skip;
+        self.changed(cx);
+        cx.notify();
+    }
+
     pub fn select(&mut self, section: Section, cx: &mut Context<Self>) {
         self.section = section;
         cx.notify();
     }
 
-    /// The workspace as edited, plus the allowlist when it changed. An empty
-    /// name keeps the old one; untouched DNS/user-agent keep the stored rows as-is.
-    fn draft(&self, cx: &App) -> (Workspace, Option<Vec<String>>) {
+    /// What a flush would write. An empty name keeps the old one; untouched
+    /// DNS/user-agent keep the stored rows as-is.
+    fn draft(&self, cx: &App) -> Draft {
         let mut ws = self.ws.clone();
         let name = self.name.read(cx).value().trim().to_string();
         if !name.is_empty() {
@@ -213,17 +243,22 @@ impl SettingsScreen {
             ws.headers = draft::set_user_agent(&ws.headers, &ua);
         }
         let allow = parse_names(&self.env.read(cx).value());
-        (ws, (allow != self.allow).then_some(allow))
+        (
+            ws,
+            (allow != self.allow).then_some(allow),
+            self.general.draft(cx),
+        )
     }
 
-    fn dirty(&self, ws: &Workspace, allow: &Option<Vec<String>>) -> bool {
+    fn dirty(&self, (ws, allow, global): &Draft) -> bool {
         ws.name != self.ws.name
             || ws.dns_overrides != self.ws.dns_overrides
             || ws.headers != self.ws.headers
             || allow.is_some()
+            || global.is_some()
     }
 
-    fn changed(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn changed(&mut self, cx: &mut Context<Self>) {
         self.autosave = Some(cx.spawn(async move |this, cx| {
             cx.background_executor().timer(AUTOSAVE_DELAY).await;
             _ = this.update(cx, |s, cx| s.flush(cx));
@@ -232,19 +267,19 @@ impl SettingsScreen {
 
     /// Write now if anything changed (one write at a time).
     pub fn flush(&mut self, cx: &mut Context<Self>) {
-        let (ws, allow) = self.draft(cx);
-        if self.saving || !self.dirty(&ws, &allow) {
+        let draft = self.draft(cx);
+        if self.saving || !self.dirty(&draft) {
             return;
         }
         self.autosave = None;
         self.saving = true;
         let backend = self.backend.clone();
-        let task = cx.background_spawn({
-            let allow = allow.clone();
-            async move { backend.save_ws_settings(&ws, allow.as_deref()) }
+        let task = cx.background_spawn(async move {
+            let stored = backend.save_ws_settings(&draft);
+            (stored, draft)
         });
         cx.spawn(async move |this, cx| {
-            let result = task.await;
+            let (result, (_, allow, global)) = task.await;
             _ = this.update(cx, |s, cx| {
                 s.saving = false;
                 match result {
@@ -252,6 +287,9 @@ impl SettingsScreen {
                         s.error = "".into();
                         if let Some(a) = allow {
                             s.allow = a;
+                        }
+                        if let Some(g) = global {
+                            s.general.saved = g;
                         }
                         s.ws = stored.clone();
                         cx.emit(WorkspaceSaved(stored));
@@ -268,10 +306,10 @@ impl SettingsScreen {
 
     /// Synchronous write for quit, where a background save would die with the app.
     pub fn flush_blocking(&self, cx: &App) {
-        let (ws, allow) = self.draft(cx);
-        if self.dirty(&ws, &allow) {
-            if let Err(e) = self.backend.save_ws_settings(&ws, allow.as_deref()) {
-                eprintln!("[yuki] failed to save workspace {}: {e}", ws.id);
+        let draft = self.draft(cx);
+        if self.dirty(&draft) {
+            if let Err(e) = self.backend.save_ws_settings(&draft) {
+                eprintln!("[yuki] failed to save workspace {}: {e}", draft.0.id);
             }
         }
     }
@@ -325,19 +363,22 @@ impl Yuki {
         let task = cx.background_spawn(async move {
             let ws = backend.api.workspaces.get(&id)?;
             let dir = &backend.api.app_data_dir;
-            let allow = resolve::system_env_allowlist(&id, dir);
-            let skip = resolve::skip_cert_check(&id, dir);
-            Ok::<_, YukiError>((ws, allow, skip, backend.ws_dir(&id)))
+            Ok::<_, YukiError>(Loaded {
+                allow: resolve::system_env_allowlist(&id, dir),
+                skip_certs: resolve::skip_cert_check(&id, dir),
+                global: resolve::global_settings(dir),
+                folder: backend.ws_dir(&id),
+                ws,
+            })
         });
         cx.spawn_in(window, async move |this, cx| {
             let loaded = task.await;
             _ = this.update_in(cx, |this, window, cx| {
                 match loaded {
-                    Ok((ws, allow, skip, folder)) => {
+                    Ok(loaded) => {
                         let backend = this.backend.clone();
                         let screen = cx.new(|cx| {
-                            let mut s =
-                                SettingsScreen::new(backend, ws, allow, skip, folder, window, cx);
+                            let mut s = SettingsScreen::new(backend, loaded, window, cx);
                             s.section = section;
                             s
                         });

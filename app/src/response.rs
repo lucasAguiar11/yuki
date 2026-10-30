@@ -300,7 +300,7 @@ fn strip(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> impl IntoEl
                         .text_color(cx.theme().warning)
                         .child(t!("⚠ unverified"))
                         .tooltip(|window, cx| {
-                            Tooltip::new(t!("the TLS certificate wasn't checked: settings → workspace → accept invalid certificates is on").into_owned())
+                            Tooltip::new(t!("the TLS certificate wasn't checked: accepting invalid certificates is on (settings → workspace or general)").into_owned())
                                 .build(window, cx)
                         }),
                 )

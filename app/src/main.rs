@@ -60,6 +60,7 @@ mod secrets;
 mod sent;
 mod session;
 mod settings;
+mod settings_general;
 mod settings_view;
 mod sidebar;
 mod table;

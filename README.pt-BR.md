@@ -38,7 +38,7 @@ cargo build --release -p yuki
 | ⌘⇧E | painel de variáveis |
 | ⌘⌥E | ambientes e variáveis |
 | ⌘⇧G | painel do git |
-| ⌘, | configurações: nome do workspace, DNS overrides, variáveis do shell, tamanho das fontes |
+| ⌘, | configurações: geral (todos os workspaces), workspace, aparência |
 | ⌘B | mostrar/ocultar a barra lateral |
 | ⌘W / ⌃⇥ / ⌃⇧⇥ | fechar / próxima / aba anterior |
 | ⌘S | salvar agora (as edições já salvam sozinhas) |
@@ -46,6 +46,19 @@ cargo build --release -p yuki
 ## Dados
 
 Tudo fica em `~/Library/Application Support/dev.yuki` (troque com `YUKI_DATA_DIR`) como YAML legível: uma pasta por workspace, cada uma um repositório git próprio. Um workspace também pode morar numa pasta sua (um repositório, a pasta de um projeto): ⌘O → **+ abrir pasta…** cria um workspace novo numa pasta vazia ou abre o que já existe nela (um clone, por exemplo); o Yuki só guarda um link para ela. Configurações → workspace mostra onde ele está, e **mover…** leva tudo, `.git` incluso, para outra pasta vazia. Configurações → geral → **pasta dos workspaces** coloca todos numa pasta sua (uma subpasta para cada, com o nome do workspace); imports novos também caem lá. Workspaces do Voleeo podem ser importados (copiados, nunca linkados) pela paleta de comandos.
+
+## Configurações
+
+**Geral** vale para todos os workspaces nesta máquina (nunca vai para o git); **workspace** vale para um. Quando os dois definem algo, eles se combinam assim:
+
+| Configuração | Geral + workspace |
+|---|---|
+| user-agent | o do workspace (o header `User-Agent` dele) vence; vazio usa o do geral; vazio lá envia `Yuki`. Um header no request ou na pasta vence os dois. |
+| certificados | cada workspace escolhe **como o geral**, **aceitar inválidos** ou **verificar**; só **como o geral** segue a opção do geral |
+| dns | as linhas se somam; para o mesmo host, a linha do workspace vence |
+| env do shell | os nomes se somam |
+
+Agentes enviando via MCP seguem as mesmas regras.
 
 ## Variáveis e funções
 

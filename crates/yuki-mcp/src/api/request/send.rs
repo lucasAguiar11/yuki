@@ -472,12 +472,15 @@ impl ApiBackend {
             resolved.auth = stored_auth;
         }
 
-        let dns = self
+        let global = crate::resolve::global_settings(&self.app_data_dir);
+        // The workspace's first: the first override for a host wins.
+        let mut dns = self
             .workspaces
             .get(ws_id)
             .map(|w| w.dns_overrides)
             .unwrap_or_default();
-        let skip_certs = crate::resolve::skip_cert_check(ws_id, &self.app_data_dir);
+        dns.extend(global.dns_overrides);
+        let skip_certs = crate::resolve::effective_skip_cert_check(ws_id, &self.app_data_dir);
         Ok(Prepared {
             req,
             cookies,
@@ -635,6 +638,19 @@ fn resolve_request(
         var_key.as_ref(),
     );
     inherit(req, &folders, workspaces, var_key.as_ref());
+    if !req
+        .headers
+        .iter()
+        .any(|h| h.name.eq_ignore_ascii_case("user-agent"))
+    {
+        let global = resolve::global_settings(app_data_dir);
+        req.headers.push(RequestParameter {
+            id: "default-user-agent".into(),
+            name: "User-Agent".into(),
+            value: global.user_agent_or_default().into(),
+            enabled: true,
+        });
+    }
     // After `inherit`: folder/workspace auth and headers can read a response.
     resolve::prefill_responses(&mut vars, Some(req), &ws_id, responses);
     // Original (resolved, secrets-decrypted) auth, captured before
@@ -659,18 +675,6 @@ fn inherit(
     let (ws_headers, ws_auth) = ws.map(|w| (w.headers, w.auth)).unwrap_or_default();
     let folder = req.folder_id.as_deref();
     req.headers = resolve::merge_inherited_metadata(&req.headers, folder, folders, &ws_headers);
-    if !req
-        .headers
-        .iter()
-        .any(|h| h.name.eq_ignore_ascii_case("user-agent"))
-    {
-        req.headers.push(RequestParameter {
-            id: "default-user-agent".into(),
-            name: "User-Agent".into(),
-            value: yuki_core::DEFAULT_USER_AGENT.into(),
-            enabled: true,
-        });
-    }
     req.auth = resolve::effective_auth(&req.auth, folder, folders, &ws_auth);
     if let Some(k) = key {
         for (secret, encrypted) in req.auth.secret_fields_mut() {

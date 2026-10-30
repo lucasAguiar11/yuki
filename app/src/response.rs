@@ -64,6 +64,10 @@ fn shown_tab(editor: &RequestEditor, resp: &HttpResponse) -> RespTab {
 
 pub fn render(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> AnyElement {
     if !editor.response_open {
+        let beside = cx.global::<crate::prefs::Prefs>().response_beside;
+        if beside {
+            return rail(editor, cx).into_any_element();
+        }
         // Under the editor: the strip alone, status and history still visible.
         return div()
             .border_t_1()
@@ -175,6 +179,43 @@ pub fn render(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> AnyEle
         .into_any_element()
 }
 
+/// Collapsed beside the editor: a column at its right edge with the status
+/// code; a click anywhere on it brings the response back.
+fn rail(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> impl IntoElement {
+    let theme = cx.theme();
+    let fg = theme.foreground;
+    let status = match editor.response.as_ref().filter(|_| !editor.sending) {
+        Some(Ok(r)) => Some((r.status.to_string(), ui::status_color(r.status, cx))),
+        Some(Err(_)) => Some(("✕".into(), theme.red)),
+        None => None,
+    };
+    v_flex()
+        .id("response-rail")
+        .w(px(32.))
+        .h_full()
+        .flex_none()
+        .items_center()
+        .pt_2()
+        .gap_2()
+        .text_xs()
+        .font_family(theme.mono_font_family.clone())
+        .text_color(theme.muted_foreground)
+        .bg(theme.sidebar)
+        .border_l_1()
+        .border_color(theme.border)
+        .cursor_pointer()
+        .hover(move |s| s.text_color(fg))
+        .child("◂")
+        .children(status.map(|(s, c)| {
+            div()
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(c)
+                .child(s)
+        }))
+        .tooltip(|window, cx| Tooltip::new(t!("response ⌘J").into_owned()).build(window, cx))
+        .on_click(cx.listener(|this, _, _, cx| this.toggle_response(cx)))
+}
+
 /// `200 OK · 128 ms · 1.0 KB · 14:03:12   body  headers 20  log   ●●●●`
 fn strip(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> impl IntoElement {
     let toggle = cx.listener(|this, _, _, cx| this.toggle_response(cx));
@@ -195,7 +236,14 @@ fn strip(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> impl IntoEl
                 .id("toggle-response")
                 .cursor_pointer()
                 .hover(move |s| s.text_color(fg))
-                .child(if editor.response_open { "▾" } else { "▸" })
+                // Beside, it folds to the right edge.
+                .child(
+                    if editor.response_open && !cx.global::<crate::prefs::Prefs>().response_beside {
+                        "▾"
+                    } else {
+                        "▸"
+                    },
+                )
                 .tooltip(|window, cx| {
                     Tooltip::new(t!("response ⌘J").into_owned()).build(window, cx)
                 })

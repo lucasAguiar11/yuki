@@ -101,7 +101,14 @@ impl Render for RequestEditor {
                 .unwrap_or_else(|| self.render_editor(cx))
         });
         let body = match (open, beside) {
-            // Collapsed response: the editor takes the room, the strip sits below.
+            // Collapsed response beside: the editor takes the width, the rail
+            // sits at its right edge.
+            _ if !self.response_open && beside => h_flex()
+                .size_full()
+                .children(editor.map(|e| div().flex_1().min_w_0().h_full().child(e)))
+                .child(response)
+                .into_any_element(),
+            // Collapsed response below: the editor takes the room, the strip under it.
             _ if !self.response_open => v_flex()
                 .size_full()
                 .children(editor.map(|e| div().flex_1().min_h_0().child(e)))

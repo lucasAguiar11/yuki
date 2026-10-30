@@ -239,10 +239,13 @@ impl RequestEditor {
                 .child(label)
                 .on_click(cx.listener(move |this, _, _, cx| this.toggle_editor(Some(tab), cx)))
         };
-        // Only when the URL has `:name`s or a query — otherwise it's noise.
-        let count = self.params_count(cx);
-        let params = (count > 0)
-            .then(|| segment("meta-params", format!("params {count}"), ReqTab::Params, cx));
+        // Always there: the URL bar holds no query, so this is where you add one.
+        let params = segment(
+            "meta-params",
+            format!("params {}", self.params_count(cx)),
+            ReqTab::Params,
+            cx,
+        );
         let headers = segment(
             "meta-headers",
             format!("headers {}", self.header_count(cx)),
@@ -283,7 +286,8 @@ impl RequestEditor {
             .border_color(theme.border)
             .child(variation)
             .child(dot())
-            .when_some(params, |s, p| s.child(p).child(dot()))
+            .child(params)
+            .child(dot())
             .child(headers)
             .child(dot())
             .child(body)

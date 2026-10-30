@@ -79,7 +79,6 @@ impl RequestEditor {
             };
             self.params.rows.push(row);
         }
-        self.leave_empty_params_tab(cx);
         cx.notify();
     }
 
@@ -109,12 +108,6 @@ impl RequestEditor {
     /// `:path` params plus enabled, named query rows (the meta line's `params N`).
     pub fn params_count(&self, cx: &App) -> usize {
         self.params.len() + self.query.active_count(cx)
-    }
-
-    fn leave_empty_params_tab(&mut self, cx: &App) {
-        if self.req_tab == ReqTab::Params && self.params_count(cx) == 0 {
-            self.req_tab = ReqTab::Headers;
-        }
     }
 
     fn param_row(&self, name: String, window: &mut Window, cx: &mut Context<Self>) -> Row {

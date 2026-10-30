@@ -10110,6 +10110,7 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
+ "mime_guess",
  "ntlmclient",
  "reqwest",
  "rustls",

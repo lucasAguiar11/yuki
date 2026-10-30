@@ -77,6 +77,12 @@ fn filename_of(path: &str) -> String {
         .to_string()
 }
 
+/// The type a file is sent as when none was picked: from its extension, like
+/// curl -F (servers reject an untyped image upload).
+fn guess_type(path: &str) -> Option<String> {
+    mime_guess::from_path(path).first_raw().map(Into::into)
+}
+
 /// Attach the request body to `builder`, branching on body kind. File reads for
 /// multipart/binary run on a blocking thread so the runtime isn't stalled.
 pub(crate) async fn attach_body(
@@ -164,8 +170,13 @@ pub(crate) async fn attach_body(
                         .map_err(|e| YukiError::Http(e.to_string()))??;
                     let mut part =
                         reqwest::multipart::Part::bytes(data).file_name(filename_of(&f.value));
-                    if let Some(ct) = &f.content_type {
-                        part = part.mime_str(ct).map_err(|_| {
+                    let ct = f
+                        .content_type
+                        .clone()
+                        .filter(|c| !c.trim().is_empty())
+                        .or_else(|| guess_type(&f.value));
+                    if let Some(ct) = ct {
+                        part = part.mime_str(&ct).map_err(|_| {
                             YukiError::Http(format!(
                                 "Invalid content type for \"{}\": {ct}",
                                 f.name
@@ -203,6 +214,7 @@ pub(crate) async fn attach_body(
                 .content_type
                 .clone()
                 .filter(|c| !c.trim().is_empty())
+                .or_else(|| guess_type(&path))
                 .unwrap_or_else(|| "application/octet-stream".into());
             if !user_set_ct {
                 builder = builder.header("content-type", ct.clone());

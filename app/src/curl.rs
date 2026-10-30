@@ -49,14 +49,20 @@ pub fn curl(req: &HttpRequest) -> String {
         "GET" => format!("curl {}", q(&req.url)),
         m => format!("curl -X {m} {}", q(&req.url)),
     }];
+    let is_ct =
+        |h: &&yuki_core::RequestParameter| h.name.trim().eq_ignore_ascii_case("content-type");
+    let multipart = req
+        .body
+        .as_ref()
+        .is_some_and(|b| b.kind == BodyKind::Multipart);
     let headers: Vec<_> = req
         .headers
         .iter()
         .filter(|h| h.enabled && !h.name.trim().is_empty())
+        // Multipart sets its own (with the boundary), like the executor.
+        .filter(|h| !(multipart && is_ct(h)))
         .collect();
-    let user_ct = headers
-        .iter()
-        .any(|h| h.name.trim().eq_ignore_ascii_case("content-type"));
+    let user_ct = headers.iter().any(is_ct);
     for h in headers {
         args.push(format!(
             "-H {}",
@@ -116,8 +122,13 @@ pub fn curl(req: &HttpRequest) -> String {
             })),
             BodyKind::Binary => {
                 if let Some(path) = b.file_path.as_deref().filter(|p| !p.trim().is_empty()) {
-                    let t = b.content_type.as_deref().filter(|c| !c.trim().is_empty());
-                    ct(t.unwrap_or("application/octet-stream"), &mut args);
+                    let t = b.content_type.clone().filter(|c| !c.trim().is_empty());
+                    // Same guess as the executor; curl itself wouldn't make one.
+                    let t = t.or_else(|| mime_guess::from_path(path).first_raw().map(Into::into));
+                    ct(
+                        t.as_deref().unwrap_or("application/octet-stream"),
+                        &mut args,
+                    );
                     args.push(format!("--data-binary {}", q(&format!("@{path}"))));
                 }
             }
@@ -201,7 +212,7 @@ mod tests {
     }
 
     #[test]
-    fn user_content_type_wins_and_multipart_text_is_literal() {
+    fn multipart_drops_user_content_type_and_text_is_literal() {
         let r = req(serde_json::json!({
             "method": "POST",
             "headers": [{"id": "1", "name": "content-type", "value": "x/y", "enabled": true}],
@@ -210,9 +221,10 @@ mod tests {
                 {"id": "b", "name": "doc", "value": "/tmp/a.pdf", "enabled": true, "isFile": true}
             ]}
         }));
+        // The boundary-less user header would break the parts, as on send.
         assert_eq!(
             curl(&r),
-            "curl -X POST 'https://x.dev/a?b=1' \\\n  -H 'content-type: x/y' \\\n  \
+            "curl -X POST 'https://x.dev/a?b=1' \\\n  \
              --form-string 'note=@not-a-file' \\\n  -F 'doc=@/tmp/a.pdf'"
         );
     }

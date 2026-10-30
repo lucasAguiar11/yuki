@@ -389,9 +389,14 @@ mod tests {
         tokio::spawn(async move {
             use tokio::io::{AsyncReadExt, AsyncWriteExt};
             if let Ok((mut stream, _)) = listener.accept().await {
-                let mut buf = vec![0u8; 65536];
-                let n = stream.read(&mut buf).await.unwrap_or(0);
-                buf.truncate(n);
+                // Until the client goes quiet: a multipart body can span reads.
+                let (mut buf, mut chunk) = (Vec::new(), [0u8; 8192]);
+                let idle = std::time::Duration::from_millis(100);
+                while let Ok(Ok(n @ 1..)) =
+                    tokio::time::timeout(idle, stream.read(&mut chunk)).await
+                {
+                    buf.extend_from_slice(&chunk[..n]);
+                }
                 let _ = stream.write_all(&ok_response("ok")).await;
                 let _ = tx.send(buf);
             }
@@ -478,30 +483,74 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn send_binary_body_without_type_guesses_from_extension() {
+        let file = temp_file("logo.png", b"PNG");
+        let (port, rx) = spawn_capturing_server().await;
+        let mut req = bare_request(&format!("http://127.0.0.1:{port}/"), "PUT");
+        req.body = Some(RequestBody {
+            kind: BodyKind::Binary,
+            file_path: Some(file.to_string_lossy().into_owned()),
+            ..Default::default()
+        });
+        let ex = HttpExecutor::new().unwrap();
+        ex.send(&req, Vec::new(), Vec::new()).await.unwrap();
+        let got = String::from_utf8_lossy(&rx.await.unwrap()).to_lowercase();
+        let _ = std::fs::remove_file(&file);
+        assert!(got.contains("content-type: image/png"), "{got}");
+    }
+
+    #[tokio::test]
     async fn send_multipart_with_text_and_file() {
-        let file = temp_file("part.txt", b"file-contents");
+        let file = temp_file("part.png", b"file-contents");
+        let csv = temp_file("typed.zzz", b"a,b");
         let (port, rx) = spawn_capturing_server().await;
         let ex = HttpExecutor::new().unwrap();
         let mut req = bare_request(&format!("http://127.0.0.1:{port}/"), "POST");
+        // An inherited/imported Content-Type must not ride along: the
+        // boundary-less one would come first.
+        req.headers.push(yuki_core::RequestParameter {
+            id: "ct".into(),
+            name: "Content-Type".into(),
+            value: "multipart/form-data".into(),
+            enabled: true,
+        });
+        let mut typed = bfield("typed", &csv.to_string_lossy(), true);
+        typed.content_type = Some("text/csv".into());
         req.body = Some(RequestBody {
             kind: BodyKind::Multipart,
             fields: Some(vec![
                 bfield("field", "text-value", false),
                 bfield("upload", &file.to_string_lossy(), true),
+                typed,
             ]),
             ..Default::default()
         });
         ex.send(&req, Vec::new(), Vec::new()).await.unwrap();
         let got = String::from_utf8_lossy(&rx.await.unwrap()).to_string();
-        let _ = std::fs::remove_file(&file);
+        let _ = (std::fs::remove_file(&file), std::fs::remove_file(&csv));
 
-        assert!(got
-            .to_lowercase()
-            .contains("multipart/form-data; boundary="));
+        let lower = got.to_lowercase();
+        let (head, body) = lower.split_once("\r\n\r\n").unwrap();
+        let cts: Vec<_> = head
+            .lines()
+            .filter(|l| l.starts_with("content-type:"))
+            .collect();
+        assert_eq!(cts.len(), 1, "{head}");
+        assert!(cts[0].contains("multipart/form-data; boundary="));
         assert!(got.contains("name=\"field\""));
         assert!(got.contains("text-value"));
         assert!(got.contains("name=\"upload\""));
         assert!(got.contains("file-contents"));
+        // A file part without a type gets one from its extension, like curl -F;
+        // a picked type wins over the guess.
+        assert!(
+            body.contains("part.png\"\r\ncontent-type: image/png"),
+            "{body}"
+        );
+        assert!(
+            body.contains("typed.zzz\"\r\ncontent-type: text/csv"),
+            "{body}"
+        );
     }
 
     #[tokio::test]

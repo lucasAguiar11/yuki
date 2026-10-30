@@ -179,8 +179,23 @@ impl HttpExecutor {
 
         // Attach request headers — validate eagerly so we surface a specific
         // error instead of reqwest's opaque "builder error".
+        let multipart = request
+            .body
+            .as_ref()
+            .is_some_and(|b| b.kind == yuki_core::BodyKind::Multipart);
         for h in &request.headers {
             if !h.enabled || h.name.trim().is_empty() {
+                continue;
+            }
+            // reqwest adds multipart's own (with the boundary); a second one
+            // would come first and the server couldn't split the parts.
+            if multipart && h.name.trim().eq_ignore_ascii_case("content-type") {
+                push_event(
+                    &mut events,
+                    started,
+                    "send",
+                    format!("Content-Type: {} skipped (multipart sets its own)", h.value),
+                );
                 continue;
             }
             let name = reqwest::header::HeaderName::from_bytes(h.name.trim().as_bytes())

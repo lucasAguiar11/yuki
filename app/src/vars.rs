@@ -50,7 +50,8 @@ pub fn origin(expr: &str, vars: &Vars) -> Option<Origin> {
     if response_args(expr).is_some() {
         return response_ref(expr).map(|(id, _)| Origin::Request(id));
     }
-    if !is_identifier(expr) {
+    // Imported names like `api-gateway` aren't identifiers but still resolve.
+    if !is_identifier(expr) && !vars.contains_key(expr) {
         return None;
     }
     let var = expr.to_string();
@@ -118,14 +119,14 @@ pub fn kind(expr: &str, vars: &Vars) -> Kind {
     };
     if funcs::lookup(expr).is_some() || response_args(expr).is_some() {
         Kind::Function
-    } else if !is_identifier(expr) {
-        Kind::Missing
     } else {
         match vars.get(expr) {
             Some(v) if pending(v) => Kind::Function,
             Some(_) => Kind::Defined,
             None => Kind::Missing,
         }
+        // Not only identifiers: the engine also sends imported names like
+        // `api-gateway` when the env defines them.
     }
 }
 
@@ -299,7 +300,8 @@ mod tests {
             value: r#"{{ $response.body(requestId="r", selector="$.t") }}"#.into(),
             ..var.clone()
         };
-        vars.insert("A".into(), var);
+        vars.insert("A".into(), var.clone());
+        vars.insert("api-gateway".into(), var);
         vars.insert("TOKEN".into(), pending);
         assert_eq!(kind("A", &vars), Kind::Defined);
         assert_eq!(kind("B", &vars), Kind::Missing);
@@ -310,6 +312,8 @@ mod tests {
         assert_eq!(used(["{{ A }}{{B}}", "{{ A }}"]), ["A", "B"]);
     }
 
+        assert_eq!(kind("api-gateway", &vars), Kind::Defined);
+        assert_eq!(kind("api-portal", &vars), Kind::Missing);
     #[test]
     fn origin_follows_the_winning_layer() {
         let var = |source| Var {

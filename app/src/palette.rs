@@ -1,7 +1,7 @@
 use std::cell::Cell;
 
 use gpui_kit::component::command::{Command, CommandItem, CommandState};
-use gpui_kit::component::{ActiveTheme as _, Icon, IndexPath};
+use gpui_kit::component::{h_flex, ActiveTheme as _, Icon, IndexPath};
 use gpui_kit::*;
 
 use crate::{moving::Dest, workspace::Yuki, *};
@@ -157,15 +157,41 @@ impl Yuki {
             Kind::Requests => self
                 .data
                 .as_ref()
-                .map(|d| crate::tree::rows(&d.folders, &d.requests, &Default::default()))
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|r| r.method.is_some())
-                .map(|r| {
-                    let label = format!("{}  {}", r.method.as_deref().unwrap_or(""), r.name);
-                    (CommandItem::new().label(label), Target::Request(r.id))
+                .map(|d| {
+                    crate::tree::rows(&d.folders, &d.requests, &Default::default())
+                        .into_iter()
+                        .filter(|r| r.method.is_some())
+                        .map(|r| {
+                            let label =
+                                format!("{}  {}", r.method.as_deref().unwrap_or(""), r.name);
+                            // The URL is searchable too: names often don't say the path.
+                            let url = d.requests.iter().find(|q| q.id == r.id.as_ref());
+                            let path =
+                                SharedString::from(url.map_or("", |q| route(&q.url)).to_owned());
+                            let item = CommandItem::new()
+                                .label(label.clone())
+                                .keywords(url.map(|q| q.url.clone()))
+                                .child(move |_, cx| {
+                                    let theme = cx.theme();
+                                    h_flex()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .gap_3()
+                                        .child(div().flex_none().child(label.clone()))
+                                        .child(
+                                            div()
+                                                .min_w_0()
+                                                .truncate()
+                                                .font_family(theme.mono_font_family.clone())
+                                                .text_color(theme.muted_foreground)
+                                                .child(path.clone()),
+                                        )
+                                });
+                            (item, Target::Request(r.id))
+                        })
+                        .collect()
                 })
-                .collect(),
+                .unwrap_or_default(),
             Kind::Commands => {
                 let action = |label: &str, a: Box<dyn Action>| {
                     (
@@ -286,5 +312,31 @@ fn list_height(rows: usize) -> f32 {
         44.
     } else {
         (rows as f32 * ROW_H + 8.).min(420.)
+    }
+}
+
+/// The route of a URL: what follows the host or a leading `{{ BASE }}`.
+fn route(url: &str) -> &str {
+    let rest = match url.find("://") {
+        Some(i) => &url[i + 3..],
+        None if url.starts_with("{{") => return url.find("}}").map_or(url, |i| &url[i + 2..]),
+        None => return url,
+    };
+    rest.find('/').map_or("", |i| &rest[i..])
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn route() {
+        for (url, want) in [
+            ("https://api.x.com/v1/users", "/v1/users"),
+            ("http://{{ HOST }}/a/:id", "/a/:id"),
+            ("https://api.x.com", ""),
+            ("{{ BASE }}/api/merchant", "/api/merchant"),
+            ("/merchant-group", "/merchant-group"),
+        ] {
+            assert_eq!(super::route(url), want, "{url}");
+        }
     }
 }

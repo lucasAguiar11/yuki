@@ -1,6 +1,7 @@
 // Usage (screen coordinates = window origin from `wid` + window-relative point):
 //   mouse click <x> <y>
 //   mouse rclick <x> <y>                     (right click: context menus)
+//   mouse cmdclick <x> <y>                   (⌘-click: chip → origin)
 //   mouse move  <x> <y>                      (hover; gpui needs a real move first)
 //   mouse drag  <x0> <y> <x1> <steps> [<windowNumber> <outPrefix>]
 //                screenshots after each step when windowNumber/outPrefix are given
@@ -9,9 +10,16 @@ import CoreGraphics
 import Foundation
 
 let a = CommandLine.arguments
-func post(_ type: CGEventType, _ x: Double, _ y: Double, _ button: CGMouseButton = .left) {
-    CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: CGPoint(x: x, y: y), mouseButton: button)!
-        .post(tap: .cghidEventTap)
+func post(_ type: CGEventType, _ x: Double, _ y: Double, _ button: CGMouseButton = .left, _ flags: CGEventFlags = []) {
+    let e = CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: CGPoint(x: x, y: y), mouseButton: button)!
+    e.flags = flags
+    e.post(tap: .cghidEventTap)
+}
+func cmd(_ down: Bool) {
+    let e = CGEvent(keyboardEventSource: nil, virtualKey: 0x37, keyDown: down)!
+    e.type = .flagsChanged
+    e.flags = down ? .maskCommand : []
+    e.post(tap: .cghidEventTap)
 }
 
 switch a[1] {
@@ -24,6 +32,12 @@ case "rclick":
     let (x, y) = (Double(a[2])!, Double(a[3])!)
     post(.mouseMoved, x, y); usleep(80_000)
     for t in [CGEventType.rightMouseDown, .rightMouseUp] { post(t, x, y, .right); usleep(80_000) }
+case "cmdclick":
+    let (x, y) = (Double(a[2])!, Double(a[3])!)
+    post(.mouseMoved, x, y); usleep(80_000)
+    cmd(true); usleep(150_000)
+    for t in [CGEventType.mouseMoved, .leftMouseDown, .leftMouseUp] { post(t, x, y, .left, .maskCommand); usleep(80_000) }
+    cmd(false)
 case "dragto":
     let (x0, y0, x1, y1) = (Double(a[2])!, Double(a[3])!, Double(a[4])!, Double(a[5])!)
     post(.mouseMoved, x0, y0); usleep(200_000)

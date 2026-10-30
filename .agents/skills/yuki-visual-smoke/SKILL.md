@@ -37,9 +37,11 @@ osascript -e 'tell application "System Events" to keystroke "p" using {command d
 /tmp/yk-mouse move  $((X+390)) $((Y+89))       # hover (tooltips need ~1 s)
 /tmp/yk-mouse drag  $((X+240)) $((Y+400)) $((X+520)) 8 $W /tmp/dr/f   # frames f1..f8.png
 /tmp/yk-mouse rclick $((X+80)) $((Y+80))       # context menu
+/tmp/yk-mouse cmdclick $((X+566)) $((Y+89))    # ⌘-click (chip → origin); no global ⌘ held
 /tmp/yk-mouse dragto $((X+90)) $((Y+200)) $((X+60)) $((Y+176))   # drag & drop (sidebar rows)
 ```
 
+- The user's own Yuki often overlaps yours and the terminal steals focus back: guard every burst with `[ "$(osascript -e 'tell application "System Events" to get unix id of first process whose frontmost is true')" = "$P" ] && …` so a click/key never lands in their window.
 - A click on an inactive window only activates it — set frontmost first, **in the same command** as the keystrokes: focus drifts back to the terminal between tool calls and the keys silently go nowhere.
 - Option combos: `keystroke "e" using {command down, option down}` types a dead key and never matches `cmd-alt-e` — use `key code 14 using {…}`.
 - Elements move when font size or layout changes (e.g. after a `+` that grows text): re-capture before clicking the same spot again.

@@ -30,6 +30,10 @@ pub struct Prefs {
     /// Response beside the request editor instead of below it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub response_beside: bool,
+    /// ⌘O and the welcome list open a workspace in a new window (⌘⇧O and
+    /// ⌘-click then switch this one).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub open_in_new_window: bool,
     /// The folder every workspace lives in, one subfolder each. `None` =
     /// wherever each one is (the data dir by default).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -114,6 +118,7 @@ impl Prefs {
         *prefs = Prefs {
             language: prefs.language.take(),
             response_beside: prefs.response_beside,
+            open_in_new_window: prefs.open_in_new_window,
             workspaces_dir: prefs.workspaces_dir.take(),
             ..Prefs::default()
         };
@@ -191,6 +196,21 @@ impl Prefs {
     pub fn set_response_beside(on: bool, cx: &mut App) -> Prefs {
         let prefs = cx.global_mut::<Prefs>();
         prefs.response_beside = on;
+        let prefs = prefs.clone();
+        cx.refresh_windows();
+        prefs
+    }
+
+    /// Whether picking a workspace opens a new window; `alt` = the ⌘⇧O/⌘-click
+    /// way, which does the opposite of the setting.
+    pub fn new_window(alt: bool, cx: &App) -> bool {
+        cx.global::<Prefs>().open_in_new_window != alt
+    }
+
+    /// The caller saves.
+    pub fn set_open_in_new_window(on: bool, cx: &mut App) -> Prefs {
+        let prefs = cx.global_mut::<Prefs>();
+        prefs.open_in_new_window = on;
         let prefs = prefs.clone();
         cx.refresh_windows();
         prefs

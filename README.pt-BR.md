@@ -58,7 +58,7 @@ Tudo fica em `~/Library/Application Support/dev.yuki` (troque com `YUKI_DATA_DIR
 | dns | as linhas se somam; para o mesmo host, a linha do workspace vence |
 | env do shell | os nomes se somam |
 
-Agentes enviando via MCP seguem as mesmas regras.
+Geral também define como os workspaces abrem: **nesta janela** ou **numa nova janela** (⌘O e a lista da tela inicial; ⌘⇧O e ⌘-clique fazem o outro). Agentes enviando via MCP seguem as mesmas regras.
 
 ## Variáveis e funções
 

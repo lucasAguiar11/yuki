@@ -58,7 +58,7 @@ Everything lives in `~/Library/Application Support/dev.yuki` (override with `YUK
 | dns | the lines add up; for the same host, the workspace's line wins |
 | shell env | the names add up |
 
-Agents sending over MCP get the same rules.
+General also sets how workspaces open: **in this window** or **in a new window** (⌘O and the welcome list; ⌘⇧O and ⌘-click do the other one). Agents sending over MCP get the same rules.
 
 ## Variables and functions
 

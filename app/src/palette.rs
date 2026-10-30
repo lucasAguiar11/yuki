@@ -12,9 +12,9 @@ pub enum Kind {
     Requests,
     /// ⌘⇧P — every app action.
     Commands,
-    /// ⌘O — switch workspace.
+    /// ⌘O — pick a workspace (this window or a new one, per settings → general).
     Workspaces,
-    /// ⌘⇧O — a workspace in a new window.
+    /// ⌘⇧O — the same pick, the other way.
     NewWindow,
     /// Pick the destination folder of this item.
     Move(SharedString),
@@ -32,6 +32,23 @@ pub enum Target {
         item: SharedString,
         folder: Option<String>,
     },
+}
+
+/// `alt` = ⌘⇧O: the opposite of settings → general's choice.
+fn target(id: String, alt: bool, cx: &App) -> Target {
+    if crate::prefs::Prefs::new_window(alt, cx) {
+        Target::Window(id)
+    } else {
+        Target::Workspace(id)
+    }
+}
+
+fn workspace_title(alt: bool, cx: &App) -> String {
+    if crate::prefs::Prefs::new_window(alt, cx) {
+        t!("Open workspace in new window…").into_owned()
+    } else {
+        t!("Switch workspace…").into_owned()
+    }
 }
 
 /// Row pitch of the command list (text line + row padding).
@@ -81,8 +98,8 @@ impl Palette {
         let placeholder = match self.kind {
             Kind::Requests => t!("Go to request…"),
             Kind::Commands => t!("Run command…"),
-            Kind::Workspaces => t!("Switch workspace…"),
-            Kind::NewWindow => t!("Open workspace in new window…"),
+            Kind::Workspaces => workspace_title(false, cx).into(),
+            Kind::NewWindow => workspace_title(true, cx).into(),
             Kind::Move(_) => t!("Move to…"),
         };
         let theme = cx.theme();
@@ -180,11 +197,8 @@ impl Yuki {
                     action(&t!("About Yuki"), Box::new(OpenAbout)),
                     action(&t!("Connect an AI agent (MCP)…"), Box::new(OpenMcp)),
                     action(&t!("Go to request…"), Box::new(OpenRequests)),
-                    action(&t!("Switch workspace…"), Box::new(OpenWorkspaces)),
-                    action(
-                        &t!("Open workspace in new window…"),
-                        Box::new(OpenWorkspaceInWindow),
-                    ),
+                    action(&workspace_title(false, cx), Box::new(OpenWorkspaces)),
+                    action(&workspace_title(true, cx), Box::new(OpenWorkspaceInWindow)),
                     action(&t!("Report a bug…"), Box::new(ReportBug)),
                     action(&t!("Open folder as workspace…"), Box::new(OpenFolder)),
                     action(&t!("Import collection…"), Box::new(ImportCollection)),
@@ -213,7 +227,7 @@ impl Yuki {
                             Icon::empty()
                         };
                         let item = CommandItem::new().label(w.name.clone()).icon(icon);
-                        (item, Target::Workspace(w.id.clone()))
+                        (item, target(w.id.clone(), false, cx))
                     })
                     .chain([(open, Target::Action), (import, Target::Action)])
                     .collect()
@@ -226,7 +240,7 @@ impl Yuki {
                     .filter(|w| current != Some(w.id.as_str()))
                     .map(|w| {
                         let item = CommandItem::new().label(w.name.clone());
-                        (item, Target::Window(w.id.clone()))
+                        (item, target(w.id.clone(), true, cx))
                     })
                     .collect()
             }

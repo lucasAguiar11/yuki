@@ -316,6 +316,22 @@ impl SettingsScreen {
                     .label(t!("move…").into_owned())
                     .on_click(cx.listener(|this, _, window, cx| this.move_all(window, cx))),
             );
+        // Picking a workspace (⌘O, the welcome list): this window or a new one.
+        let new_window = cx.global::<Prefs>().open_in_new_window;
+        let opens =
+            [(false, t!("in this window")), (true, t!("in a new window"))].map(|(on, label)| {
+                let id = if on {
+                    "open-new-window"
+                } else {
+                    "open-this-window"
+                };
+                choice(id, label.into_owned(), new_window == on, cx).on_click(cx.listener(
+                    move |this, _, _, cx| {
+                        let prefs = Prefs::set_open_in_new_window(on, cx);
+                        this.save_prefs(prefs, cx);
+                    },
+                ))
+            });
         let g = &self.general;
         v_flex()
             .gap_4()
@@ -323,6 +339,12 @@ impl SettingsScreen {
                 t!("workspaces folder").into_owned(),
                 base_row,
                 Some(t!("one folder each, named after the workspace · move takes them all · new imports land here too").into_owned()),
+                cx,
+            ))
+            .child(field(
+                t!("open workspaces").into_owned(),
+                h_flex().gap_2().children(opens),
+                Some(t!("⌘O and the welcome list; ⌘⇧O and ⌘-click open the other way.").into_owned()),
                 cx,
             ))
             .child(

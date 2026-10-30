@@ -321,8 +321,9 @@ pub fn status_line(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
         .children(release)
 }
 
-/// Empty center: the logo and the workspaces, one click to switch (⌘-click or
-/// right-click: in a new window).
+/// Empty center: the logo and the workspaces, one click to open (this window
+/// or a new one per settings → general; ⌘-click the other way; right-click:
+/// in a new window).
 pub fn welcome(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
     let theme = cx.theme();
     let (fg, muted, hover_bg, mark, radius) = (
@@ -358,7 +359,7 @@ pub fn welcome(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
                 .child(div().flex_1().truncate().child(ws.name.clone()))
                 .when(!active, |row| {
                     row.on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
-                        if ev.modifiers().platform {
+                        if crate::prefs::Prefs::new_window(ev.modifiers().platform, cx) {
                             let id = pick.id.clone();
                             cx.defer(move |cx| crate::windows::open_new(id, cx));
                         } else {

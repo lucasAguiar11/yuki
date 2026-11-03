@@ -1,8 +1,8 @@
 use std::cell::Cell;
 
 use gpui_kit::component::command::{Command, CommandItem, CommandState};
-use gpui_kit::component::{h_flex, ActiveTheme as _, Icon, IndexPath};
-use gpui_kit::*;
+use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, Icon, IndexPath};
+use gpui_kit::{prelude::FluentBuilder as _, *};
 
 use crate::{moving::Dest, workspace::Yuki, *};
 
@@ -53,6 +53,8 @@ fn workspace_title(alt: bool, cx: &App) -> String {
 
 /// Row pitch of the command list (text line + row padding).
 const ROW_H: f32 = 28.;
+/// Request rows: name, then folder breadcrumbs + route (measured pitch).
+const REQUEST_ROW_H: f32 = 41.;
 
 pub struct Palette {
     pub kind: Kind,
@@ -135,7 +137,14 @@ impl Palette {
                             .items(self.items.iter().cloned())
                             .placeholder(placeholder.into_owned())
                             .bordered(false)
-                            .max_h(px(list_height(self.state.read(cx).matched_count())))
+                            .max_h(px(list_height(
+                                self.state.read(cx).matched_count(),
+                                if self.kind == Kind::Requests {
+                                    REQUEST_ROW_H
+                                } else {
+                                    ROW_H
+                                },
+                            )))
                             .on_confirm(move |ix: IndexPath, window, cx| {
                                 _ = on_confirm.update(cx, |this, cx| {
                                     this.palette_confirm(ix.row, window, cx)
@@ -168,23 +177,51 @@ impl Yuki {
                             let url = d.requests.iter().find(|q| q.id == r.id.as_ref());
                             let path =
                                 SharedString::from(url.map_or("", |q| route(&q.url)).to_owned());
+                            // Breadcrumbs like the title bar's; a folder name finds its requests.
+                            let folders = crate::tree::folder_path(
+                                &d.folders,
+                                url.and_then(|q| q.folder_id.as_deref()),
+                            );
+                            let crumbs = SharedString::from(folders.join(" / "));
+                            let (method, name) = (r.method.clone().unwrap_or_default(), r.name);
                             let item = CommandItem::new()
-                                .label(label.clone())
-                                .keywords(url.map(|q| q.url.clone()))
+                                .label(label)
+                                .keywords(url.map(|q| q.url.clone()).into_iter().chain(folders))
                                 .child(move |_, cx| {
                                     let theme = cx.theme();
-                                    h_flex()
+                                    v_flex()
                                         .flex_1()
                                         .min_w_0()
-                                        .gap_3()
-                                        .child(div().flex_none().child(label.clone()))
                                         .child(
-                                            div()
+                                            h_flex()
+                                                .gap_2()
+                                                .child(div().flex_none().child(method.clone()))
+                                                .child(
+                                                    div().min_w_0().truncate().child(name.clone()),
+                                                ),
+                                        )
+                                        .child(
+                                            h_flex()
+                                                .h_4()
                                                 .min_w_0()
-                                                .truncate()
-                                                .font_family(theme.mono_font_family.clone())
+                                                .gap_3()
+                                                .text_xs()
                                                 .text_color(theme.muted_foreground)
-                                                .child(path.clone()),
+                                                .when(!crumbs.is_empty(), |s| {
+                                                    s.child(
+                                                        div()
+                                                            .min_w_0()
+                                                            .truncate()
+                                                            .child(crumbs.clone()),
+                                                    )
+                                                })
+                                                .child(
+                                                    div()
+                                                        .min_w_0()
+                                                        .truncate()
+                                                        .font_family(theme.mono_font_family.clone())
+                                                        .child(path.clone()),
+                                                ),
                                         )
                                 });
                             (item, Target::Request(r.id))
@@ -307,11 +344,11 @@ impl Yuki {
 
 /// Exactly the visible rows (plus list padding), capped; room for the
 /// "no results" line when nothing matches.
-fn list_height(rows: usize) -> f32 {
+fn list_height(rows: usize, row_h: f32) -> f32 {
     if rows == 0 {
         44.
     } else {
-        (rows as f32 * ROW_H + 8.).min(420.)
+        (rows as f32 * row_h + 8.).min(420.)
     }
 }
 

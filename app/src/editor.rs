@@ -73,6 +73,9 @@ pub struct RequestEditor {
     /// `saved` with its active variation laid over: what the form shows.
     pub shown: HttpRequest,
     pub dirty: bool,
+    /// Opened by a single sidebar click: the next one replaces it. An edit,
+    /// a send or a double-click keeps it (`workspace::preview_request`).
+    pub preview: bool,
     pub method: Entity<MethodSelect>,
     pub url: Entity<InputState>,
     /// One row per `:name` in the URL (`params.rs`).
@@ -264,6 +267,7 @@ impl RequestEditor {
             saved: req,
             shown,
             dirty: false,
+            preview: false,
             method,
             url,
             params: PathParams::default(),
@@ -379,6 +383,7 @@ impl RequestEditor {
         let dirty = self.draft(cx) != self.saved || self.notes_text(cx) != self.notes_saved;
         if dirty != self.dirty {
             self.dirty = dirty;
+            self.preview &= !dirty;
             cx.emit(EditorChanged);
             cx.notify();
         }
@@ -465,6 +470,7 @@ impl RequestEditor {
         }
         let req = self.draft(cx);
         self.sending = true;
+        self.preview = false;
         self.sent_at = Some(Instant::now());
         cx.notify();
         // Re-render the elapsed counter until the send settles.

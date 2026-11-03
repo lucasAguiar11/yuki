@@ -88,6 +88,7 @@ impl RequestEditor {
         let backend = self.backend.clone();
         self.autosave = None;
         self.saving = true;
+        self.preview = false;
         let task = cx.background_spawn({
             let req = req.clone();
             async move {
@@ -122,10 +123,12 @@ impl RequestEditor {
     ) {
         let (tab, open, env) = (self.req_tab, self.editor_open, self.env_id.clone());
         let response_open = self.response_open;
+        let preview = self.preview;
         *self = RequestEditor::new(self.backend.clone(), req, env, window, cx);
         self.req_tab = tab;
         self.editor_open = open;
         self.response_open = response_open;
+        self.preview = preview;
         cx.emit(EditorChanged);
         cx.notify();
     }

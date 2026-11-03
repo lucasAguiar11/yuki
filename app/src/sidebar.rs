@@ -165,17 +165,22 @@ pub fn render(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
                 .on_drop(cx.listener(move |this, d: &Dragged, window, cx| {
                     this.move_item(d.id.clone(), dest.clone(), window, cx)
                 }))
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    if is_folder {
-                        // Opening shows what's inside too; only the chevron collapses.
-                        if this.collapsed.remove(id.as_ref()) {
-                            this.refresh_rows();
+                .on_click(cx.listener(
+                    move |this, ev: &ClickEvent, window, cx| {
+                        if is_folder {
+                            // Opening shows what's inside too; only the chevron collapses.
+                            if this.collapsed.remove(id.as_ref()) {
+                                this.refresh_rows();
+                            }
+                            this.open_scope(Some(id.to_string()), None, window, cx);
+                        } else {
+                            this.preview_request(&id, window, cx);
+                            if ev.click_count() > 1 {
+                                this.pin_tab(this.active, cx);
+                            }
                         }
-                        this.open_scope(Some(id.to_string()), None, window, cx);
-                    } else {
-                        this.open_request(&id, window, cx);
-                    }
-                }))
+                    },
+                ))
             })
             .context_menu(move |m, _, _| menu(m, &menu_this, Some(&menu_id), is_folder))
     });

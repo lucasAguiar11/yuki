@@ -95,7 +95,11 @@ pub fn render(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
                     .text_color(ui::method_color(&e.saved.method, cx))
                     .child(ui::method_short(&e.saved.method).to_string()),
             )
-            .child(e.saved.name.clone())
+            .child(
+                div()
+                    .when(e.preview, |s| s.italic())
+                    .child(e.saved.name.clone()),
+            )
             .child(close)
             .on_drag(DraggedTab(ix), {
                 let name = e.saved.name.clone();
@@ -119,7 +123,12 @@ pub fn render(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
                 }
             })
             .on_drop(cx.listener(move |this, d: &DraggedTab, _, cx| this.move_tab(d.0, ix, cx)))
-            .on_click(cx.listener(move |this, _, window, cx| this.activate_tab(ix, window, cx)))
+            .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
+                if ev.click_count() > 1 {
+                    this.pin_tab(ix, cx);
+                }
+                this.activate_tab(ix, window, cx)
+            }))
             .context_menu({
                 let this = this.clone();
                 move |m, _, _| menu(m, &this, ix, last)
@@ -203,6 +212,36 @@ pub fn render(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
 }
 
 impl Yuki {
+    /// Sidebar click: a request not open yet takes the preview tab's place
+    /// (VS Code style), so browsing the tree doesn't pile up tabs. A second
+    /// click on it (double-click) keeps it.
+    pub fn preview_request(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(ix) = self.tabs.iter().position(|t| t.read(cx).saved.id == id) {
+            return self.activate_tab(ix, window, cx);
+        }
+        if self.request(id).is_none() {
+            return;
+        }
+        // Clean by construction: an edit or a send clears `preview`.
+        let slot = self.tabs.iter().position(|t| t.read(cx).preview);
+        if let Some(ix) = slot {
+            self.tabs.remove(ix);
+        }
+        self.open_request(id, window, cx);
+        let Some(tab) = self.tabs.pop() else { return };
+        tab.update(cx, |e, _| e.preview = true);
+        let ix = slot.unwrap_or(self.tabs.len());
+        self.tabs.insert(ix, tab);
+        self.active = ix;
+    }
+
+    pub fn pin_tab(&mut self, ix: usize, cx: &mut Context<Self>) {
+        if let Some(t) = self.tabs.get(ix) {
+            t.update(cx, |e, _| e.preview = false);
+            cx.notify();
+        }
+    }
+
     /// Drag & drop: `from` takes `to`'s place; the active tab stays active.
     fn move_tab(&mut self, from: usize, to: usize, cx: &mut Context<Self>) {
         if from == to || from >= self.tabs.len() || to >= self.tabs.len() {

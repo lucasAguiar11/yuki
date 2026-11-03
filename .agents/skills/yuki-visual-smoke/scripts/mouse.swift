@@ -1,6 +1,7 @@
 // Usage (screen coordinates = window origin from `wid` + window-relative point):
 //   mouse click <x> <y>
 //   mouse rclick <x> <y>                     (right click: context menus)
+//   mouse dblclick <x> <y>                   (double click: clickState 1 then 2)
 //   mouse cmdclick <x> <y>                   (⌘-click: chip → origin)
 //   mouse move  <x> <y>                      (hover; gpui needs a real move first)
 //   mouse drag  <x0> <y> <x1> <steps> [<windowNumber> <outPrefix>]
@@ -32,6 +33,16 @@ case "rclick":
     let (x, y) = (Double(a[2])!, Double(a[3])!)
     post(.mouseMoved, x, y); usleep(80_000)
     for t in [CGEventType.rightMouseDown, .rightMouseUp] { post(t, x, y, .right); usleep(80_000) }
+case "dblclick":
+    let (x, y) = (Double(a[2])!, Double(a[3])!)
+    post(.mouseMoved, x, y); usleep(80_000)
+    for n in [1, 2] {
+        for t in [CGEventType.leftMouseDown, .leftMouseUp] {
+            let e = CGEvent(mouseEventSource: nil, mouseType: t, mouseCursorPosition: CGPoint(x: x, y: y), mouseButton: .left)!
+            e.setIntegerValueField(.mouseEventClickState, value: Int64(n))
+            e.post(tap: .cghidEventTap); usleep(40_000)
+        }
+    }
 case "cmdclick":
     let (x, y) = (Double(a[2])!, Double(a[3])!)
     post(.mouseMoved, x, y); usleep(80_000)

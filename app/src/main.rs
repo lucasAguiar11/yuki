@@ -70,6 +70,7 @@ mod transfer_ui;
 mod tree;
 mod ui;
 mod update;
+mod var_rename;
 mod var_view;
 mod variation;
 mod vars;

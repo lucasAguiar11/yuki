@@ -6,6 +6,8 @@
 "%{request} · notes": "%{request} · notas"
 "%{label} copied": "%{label} copiado"
 "%{name} copy": "%{name} cópia"
+"%{name} already exists": "%{name} já existe"
+"%{name} isn't a valid variable name": "%{name} não é um nome de variável válido"
 "%{n} changes": "%{n} alterações"
 "%{n} deleted": "%{n} excluídas"
 "%{n} h ago": "há %{n} h"

@@ -3,13 +3,21 @@
 
 use std::collections::BTreeMap;
 
-use gpui_kit::component::{h_flex, tooltip::Tooltip, v_flex, ActiveTheme as _, IconName};
+use gpui_kit::component::{
+    h_flex,
+    input::Input,
+    menu::{ContextMenuExt as _, PopupMenu},
+    tooltip::Tooltip,
+    v_flex, ActiveTheme as _, IconName, Sizable as _,
+};
 use gpui_kit::{prelude::FluentBuilder as _, *};
 
 use crate::{
+    sidebar::item,
     var_view::MASK,
     vars::{Source, Var},
     workspace::Yuki,
+    CancelRename,
 };
 
 pub fn render(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
@@ -75,18 +83,22 @@ pub fn render(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
             .children(missing.iter().map(|name| {
                 let key = name.clone();
                 let fg = theme.foreground;
-                row(name, t!("no value").into_owned(), true, red, muted).child(
-                    div()
-                        .id(SharedString::from(format!("create-{name}")))
-                        .flex_none()
-                        .cursor_pointer()
-                        .text_color(muted)
-                        .hover(move |s| s.text_color(fg))
-                        .child(t!("+ create"))
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            this.open_envs(Some(key.clone()), false, window, cx)
-                        })),
-                )
+                let edit = editing(yuki, name, cx);
+                let menu = rename_menu(name, cx);
+                row(name, t!("no value").into_owned(), true, red, muted, edit)
+                    .child(
+                        div()
+                            .id(SharedString::from(format!("create-{name}")))
+                            .flex_none()
+                            .cursor_pointer()
+                            .text_color(muted)
+                            .hover(move |s| s.text_color(fg))
+                            .child(t!("+ create"))
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.open_envs(Some(key.clone()), false, window, cx)
+                            })),
+                    )
+                    .context_menu(move |m, _, _| menu(m))
             }));
     }
     for (source, vars) in groups {
@@ -98,7 +110,18 @@ pub fn render(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
                 var.value.clone()
             };
             let is_used = used.contains(name);
-            list = list.child(copy_row(name, shown, var.value.clone(), is_used, cx));
+            let edit = editing(yuki, name, cx);
+            // Shell variables are named by the system, not the workspace.
+            let renamable = *source != Source::System;
+            list = list.child(copy_row(
+                name,
+                shown,
+                var.value.clone(),
+                is_used,
+                edit,
+                renamable,
+                cx,
+            ));
         }
     }
     shell.child(
@@ -126,15 +149,26 @@ fn group_header(label: &str, count: usize, color: Hsla, cx: &App) -> impl IntoEl
 }
 
 /// `● NAME   value  ⧉` — the dot marks variables the request uses; the copy
-/// icon shows on hover (the caller wires the click).
+/// icon shows on hover (the caller wires the click). `edit` replaces the name
+/// while it's being renamed.
 fn row(
     name: &str,
     value: String,
     used: bool,
     name_color: Hsla,
     value_color: Hsla,
+    edit: Option<AnyElement>,
 ) -> Stateful<Div> {
     let group = SharedString::from(format!("var-{name}"));
+    let name = edit.unwrap_or_else(|| {
+        div()
+            .w(px(120.))
+            .flex_none()
+            .truncate()
+            .text_color(name_color)
+            .child(name.to_string())
+            .into_any_element()
+    });
     h_flex()
         .id(group.clone())
         .group(group.clone())
@@ -148,14 +182,7 @@ fn row(
                 .rounded_full()
                 .when(used, |d| d.bg(name_color)),
         )
-        .child(
-            div()
-                .w(px(120.))
-                .flex_none()
-                .truncate()
-                .text_color(name_color)
-                .child(name.to_string()),
-        )
+        .child(name)
         .child(
             div()
                 .flex_1()
@@ -166,6 +193,35 @@ fn row(
         )
 }
 
+/// The inline name box while `name` is being renamed; esc cancels.
+fn editing(yuki: &Yuki, name: &str, cx: &Context<Yuki>) -> Option<AnyElement> {
+    let r = yuki.var_renaming.as_ref().filter(|r| r.name == name)?;
+    Some(
+        div()
+            .w(px(160.))
+            .flex_none()
+            .key_context("Rename")
+            .on_action(
+                cx.listener(|this, _: &CancelRename, window, cx| {
+                    this.cancel_var_rename(window, cx)
+                }),
+            )
+            .child(Input::new(&r.input).xsmall())
+            .into_any_element(),
+    )
+}
+
+/// Right-click → rename the variable across the workspace (`var_rename`).
+fn rename_menu(name: &str, cx: &Context<Yuki>) -> impl Fn(PopupMenu) -> PopupMenu + 'static {
+    let (this, name) = (cx.entity().downgrade(), name.to_string());
+    move |m| {
+        let name = name.clone();
+        m.item(item(&this, "rename", move |y, w, cx| {
+            y.start_var_rename(name.clone(), w, cx)
+        }))
+    }
+}
+
 /// A defined variable: hover highlights, click copies the real value (even
 /// when masked — copying is an explicit act).
 fn copy_row(
@@ -173,8 +229,10 @@ fn copy_row(
     shown: String,
     real: String,
     used: bool,
+    edit: Option<AnyElement>,
+    renamable: bool,
     cx: &mut Context<Yuki>,
-) -> impl IntoElement {
+) -> AnyElement {
     let theme = cx.theme();
     let name_color = if used {
         theme.foreground
@@ -187,21 +245,31 @@ fn copy_row(
         t!("click to copy the value")
     ));
     let label = name.to_string();
-    row(name, shown, used, name_color, theme.muted_foreground)
+    let editing = edit.is_some();
+    let row = row(name, shown, used, name_color, theme.muted_foreground, edit)
         .cursor_pointer()
         .hover(|s| s.bg(theme.list_hover))
         .child(
             div()
+                .id("copy")
                 .flex_none()
                 .text_color(theme.muted_foreground)
                 .invisible()
                 .group_hover(group, |s| s.visible())
-                .child(IconName::Copy),
+                .child(IconName::Copy)
+                .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx)),
         )
-        .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
-        .on_click(cx.listener(move |this, _, _, cx| {
-            cx.write_to_clipboard(ClipboardItem::new_string(real.clone()));
-            this.status = t!("%{label} copied", label = label).into_owned().into();
-            cx.notify();
-        }))
+        // The name box takes the clicks while it's open.
+        .when(!editing, |r| {
+            r.on_click(cx.listener(move |this, _, _, cx| {
+                cx.write_to_clipboard(ClipboardItem::new_string(real.clone()));
+                this.status = t!("%{label} copied", label = label).into_owned().into();
+                cx.notify();
+            }))
+        });
+    if !renamable {
+        return row.into_any_element();
+    }
+    let menu = rename_menu(name, cx);
+    row.context_menu(move |m, _, _| menu(m)).into_any_element()
 }

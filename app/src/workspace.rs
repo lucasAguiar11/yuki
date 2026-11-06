@@ -19,7 +19,9 @@ use crate::{
     scope_view::ScopeView,
     session::Session,
     settings::SettingsScreen,
-    sidebar, tabs, tree, vars_panel, *,
+    sidebar, tabs, tree,
+    var_rename::VarRename,
+    vars_panel, *,
 };
 
 pub(crate) type EnvSelect = SelectState<SearchableVec<SharedString>>;
@@ -60,6 +62,8 @@ pub struct Yuki {
     pub(crate) palette: Option<Palette>,
     /// Sidebar row being renamed inline.
     pub renaming: Option<Rename>,
+    /// Vars-panel variable being renamed inline.
+    pub var_renaming: Option<VarRename>,
     pub status: SharedString,
     /// Agents connected over MCP; `None` once the server is down.
     pub mcp: Option<usize>,
@@ -111,6 +115,7 @@ impl Yuki {
             transfer: None,
             palette: None,
             renaming: None,
+            var_renaming: None,
             status: "".into(),
             mcp: Some(*mcp.clients.borrow()),
             clip_curl: None,

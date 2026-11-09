@@ -2,6 +2,7 @@ mod auth;
 pub use auth::sign_dynamic_auth_url;
 mod auth_retry;
 mod body;
+mod client_cert;
 mod cookie_provider;
 mod dns;
 mod executor;
@@ -146,11 +147,7 @@ impl HttpExecutor {
         if let Some(c) = clients.get(&key) {
             return Ok(c.clone());
         }
-        let identity = reqwest::Identity::from_pem(&key.1).map_err(|e| {
-            let root = std::iter::successors(Some(&e as &dyn std::error::Error), |s| s.source());
-            YukiError::Http(format!("client certificate: {}", root.last().unwrap_or(&e)))
-        })?;
-        let client = build_client(skip, Some(identity))?;
+        let client = build_client(skip, Some(client_cert::identity(&key.1)?))?;
         clients.insert(key, client.clone());
         Ok(client)
     }
@@ -159,9 +156,11 @@ impl HttpExecutor {
 /// One `reqwest::Client` with a redirect policy that logs hops via
 /// task-locals (set in `send`) and a cookie provider that captures cookies on
 /// intermediate redirects before following.
+/// `identity`: the client certificate and whether it needs macOS's TLS
+/// instead of rustls (see `client_cert`).
 fn build_client(
     skip_cert_check: bool,
-    identity: Option<reqwest::Identity>,
+    identity: Option<(reqwest::Identity, bool)>,
 ) -> Result<reqwest::Client, YukiError> {
     let builder = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::custom(|attempt| {
@@ -208,11 +207,11 @@ fn build_client(
         .cookie_provider(Arc::new(cookie_provider::TaskLocalCookieJar))
         .dns_resolver(Arc::new(dns::TaskLocalResolver))
         .pool_idle_timeout(POOL_IDLE_TIMEOUT)
-        .use_rustls_tls()
         .tls_danger_accept_invalid_certs(skip_cert_check);
     match identity {
-        Some(id) => builder.identity(id),
-        None => builder,
+        Some((id, true)) => builder.tls_backend_native().identity(id),
+        Some((id, false)) => builder.tls_backend_rustls().identity(id),
+        None => builder.tls_backend_rustls(),
     }
     .build()
     .map_err(|e| YukiError::Http(e.to_string()))

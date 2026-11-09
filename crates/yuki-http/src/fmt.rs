@@ -87,7 +87,11 @@ pub(crate) fn http_error_message(e: reqwest::Error) -> String {
         return "Request timed out".into();
     }
 
-    e.to_string()
+    // Same for a TLS failure mid-request (e.g. a handshake the server aborts).
+    match causes(&e).last() {
+        Some(root) => format!("{e}: {root}"),
+        None => e.to_string(),
+    }
 }
 
 #[cfg(test)]

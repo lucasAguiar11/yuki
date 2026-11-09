@@ -20,7 +20,7 @@ use crate::{
     response,
     session::Session,
     table::Which,
-    ui, var_view, Send, ToggleEditor, ToggleVars,
+    ui, var_view, Send, ToggleEditor,
 };
 
 impl CompleteHost for RequestEditor {
@@ -278,7 +278,6 @@ impl RequestEditor {
             segment("meta-diff", "diff".into(), ReqTab::Diff, cx)
                 .on_click(cx.listener(|this, _, _, cx| this.load_diff(cx)))
         });
-        let vars_segment = self.render_vars_segment(cx);
         let variation = self.render_variation(cx);
         let theme = cx.theme();
         let dot = || div().text_color(theme.muted_foreground).child("·");
@@ -304,8 +303,6 @@ impl RequestEditor {
             .child(notes)
             .child(dot())
             .child(settings)
-            .child(dot())
-            .child(vars_segment)
             .when_some(diff, |s, d| s.child(dot()).child(d))
             .child(div().flex_1())
             .child(
@@ -344,28 +341,5 @@ impl RequestEditor {
     pub(crate) fn chips(&self, input: Input) -> Input {
         let refs = self.refs.clone();
         var_view::chips(input, self.vars.clone(), refs, self.params.entries())
-    }
-
-    /// `vars 4` — or `vars 4 · 1 missing` in red; opens the variables panel.
-    fn render_vars_segment(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = cx.theme();
-        let used = self.used_vars(cx).len();
-        let missing = self.missing_vars(cx).len();
-        h_flex()
-            .id("meta-vars")
-            .px_1p5()
-            .gap_1()
-            .rounded(theme.radius)
-            .cursor_pointer()
-            .hover(|s| s.text_color(theme.foreground))
-            .child(format!("vars {used}"))
-            .when(missing > 0, |s| {
-                s.child(
-                    div()
-                        .text_color(theme.red)
-                        .child(t!("· %{n} missing", n = missing).into_owned()),
-                )
-            })
-            .on_click(|_, window, cx| window.dispatch_action(Box::new(ToggleVars), cx))
     }
 }

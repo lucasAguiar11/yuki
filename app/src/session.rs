@@ -57,6 +57,8 @@ pub struct WsSession {
     pub tabs: Vec<String>,
     pub active: Option<String>,
     pub collapsed: HashSet<String>,
+    /// Sidebar focus (a folder id).
+    pub focus: Option<String>,
     pub env: Option<String>,
 }
 
@@ -118,6 +120,7 @@ impl Yuki {
             tabs: self.tabs.iter().map(id).collect(),
             active: self.tabs.get(self.active).map(id),
             collapsed: self.collapsed.clone(),
+            focus: self.focus_folder.clone(),
             env: self.env_id(cx),
         }
     }

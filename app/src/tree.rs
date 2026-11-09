@@ -14,14 +14,16 @@ pub struct Row {
 }
 
 /// Depth-first rows (folders before requests, then `order`, then name),
-/// skipping children of collapsed folders.
+/// skipping children of collapsed folders. `root`: start inside that folder
+/// (sidebar focus) instead of at the workspace root.
 pub fn rows(
     folders: &[ApiFolder],
     requests: &[HttpRequest],
     collapsed: &HashSet<String>,
+    root: Option<&str>,
 ) -> Vec<Row> {
     let mut out = Vec::new();
-    walk(None, 0, folders, requests, collapsed, &mut out);
+    walk(root, 0, folders, requests, collapsed, &mut out);
     out
 }
 

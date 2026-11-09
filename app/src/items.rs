@@ -144,6 +144,7 @@ impl Yuki {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let parent = self.within_focus(parent);
         if let Some(p) = &parent {
             self.collapsed.remove(p);
         }

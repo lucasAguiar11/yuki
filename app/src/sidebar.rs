@@ -20,6 +20,8 @@ const ROW_H: f32 = 24.;
 const INDENT: f32 = 14.;
 
 pub fn render(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
+    // Needs `&mut cx`: before `theme` borrows it.
+    let focus_bar = yuki.render_focus_bar(cx);
     let theme = cx.theme();
     let active_id = match yuki.scope.as_ref().filter(|_| yuki.scope_active) {
         Some((view, _)) => view.read(cx).folder.clone(),
@@ -275,6 +277,7 @@ pub fn render(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
                     )
                 }),
         )
+        .children(focus_bar)
         .child(
             v_flex()
                 .id("tree")
@@ -298,7 +301,8 @@ pub fn render(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
                         })
                         .drag_over::<Dragged>(move |s, _, _, _| s.bg(drop_bg))
                         .on_drop(cx.listener(|this, d: &Dragged, window, cx| {
-                            this.move_item(d.id.clone(), Dest::Into(None), window, cx)
+                            let root = this.focus_folder.clone();
+                            this.move_item(d.id.clone(), Dest::Into(root), window, cx)
                         }))
                         .context_menu(move |m, _, _| menu(m, &this, None, true)),
                 ),
@@ -323,6 +327,12 @@ impl Yuki {
         let saved = &tab.read(cx).saved;
         let (id, mut folder) = (saved.id.clone(), saved.folder_id.clone());
         if let Some(d) = &self.data {
+            // Outside the focused folder: the whole tree again.
+            if (self.focus_folder.as_deref())
+                .is_some_and(|f| !tree::within(&d.folders, folder.as_deref(), f))
+            {
+                self.focus_folder = None;
+            }
             // Bounded by the folder count so a parent cycle can't hang the UI.
             for _ in 0..d.folders.len() {
                 let Some(f) = folder.take() else { break };
@@ -383,7 +393,13 @@ fn menu(
     }
     let Some(id) = id.cloned() else { return m };
     if folder {
-        m = m.separator();
+        let f = id.clone();
+        m = m
+            .separator()
+            .item(item(this, "focus on this folder", move |y, _, cx| {
+                y.set_focus_folder(Some(f.to_string()), cx)
+            }))
+            .separator();
     }
     let (a, b, c, d, e) = (id.clone(), id.clone(), id.clone(), id.clone(), id);
     m.item(item(this, "rename", move |y, w, cx| {

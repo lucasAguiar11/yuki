@@ -167,7 +167,7 @@ impl Yuki {
                 .data
                 .as_ref()
                 .map(|d| {
-                    crate::tree::rows(&d.folders, &d.requests, &Default::default())
+                    crate::tree::rows(&d.folders, &d.requests, &Default::default(), None)
                         .into_iter()
                         .filter(|r| r.method.is_some())
                         .map(|r| {

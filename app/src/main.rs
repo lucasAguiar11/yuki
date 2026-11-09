@@ -27,6 +27,7 @@ mod env_screen;
 mod env_view;
 mod envs;
 mod export_view;
+mod focus_folder;
 mod git;
 mod git_changes;
 mod git_ops;

@@ -33,6 +33,8 @@ pub struct Yuki {
     pub ws: Option<Workspace>,
     pub data: Option<WorkspaceData>,
     pub collapsed: HashSet<String>,
+    /// Sidebar focus: the folder shown as the tree's root (`focus_folder.rs`).
+    pub focus_folder: Option<String>,
     pub rows: Vec<tree::Row>,
     pub tree_scroll: ScrollHandle,
     pub tabs: Vec<Entity<RequestEditor>>,
@@ -94,6 +96,7 @@ impl Yuki {
             ws: None,
             data: None,
             collapsed: HashSet::new(),
+            focus_folder: None,
             rows: vec![],
             tree_scroll: ScrollHandle::new(),
             tabs: vec![],
@@ -215,6 +218,7 @@ impl Yuki {
                         .cloned()
                         .unwrap_or_default();
                     this.collapsed = saved.collapsed;
+                    this.focus_folder = saved.focus;
                     this.set_envs(&data.environments, saved.env, window, cx);
                     this.status = "".into();
                     this.data = Some(data);
@@ -239,10 +243,16 @@ impl Yuki {
     }
 
     pub fn refresh_rows(&mut self) {
-        self.rows = match &self.data {
-            Some(d) => tree::rows(&d.folders, &d.requests, &self.collapsed),
-            None => vec![],
+        let Some(d) = &self.data else {
+            self.rows = vec![];
+            return;
         };
+        // A focused folder deleted (here, by a pull, by an agent) ends the focus.
+        if (self.focus_folder.as_ref()).is_some_and(|f| !d.folders.iter().any(|x| &x.id == f)) {
+            self.focus_folder = None;
+        }
+        let root = self.focus_folder.as_deref();
+        self.rows = tree::rows(&d.folders, &d.requests, &self.collapsed, root);
     }
 
     pub fn open_request(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {

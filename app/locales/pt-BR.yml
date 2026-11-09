@@ -186,6 +186,8 @@
 "license": "licença"
 "loading…": "carregando…"
 "locate current request": "localizar o request atual"
+"focus on this folder": "focar nesta pasta"
+"leave focus": "sair do foco"
 "markdown notes: what it's for, quirks, example values…": "notas em markdown: pra que serve, pegadinhas, valores de exemplo…"
 "merge done · %{id}": "merge concluído · %{id}"
 "mine": "meu"

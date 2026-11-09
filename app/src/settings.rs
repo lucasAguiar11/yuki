@@ -18,15 +18,21 @@ use yuki_mcp::resolve::{self, GlobalSettings};
 
 use crate::{
     backend::Backend,
+    client_cert::CertRow,
     draft,
     prefs::{FamilySelect, Font, Prefs},
     settings_general::General,
     workspace::Yuki,
 };
 
-/// What a flush writes: the workspace as edited, the allowlist and the
-/// general settings when they changed.
-type Draft = (Workspace, Option<Vec<String>>, Option<GlobalSettings>);
+/// What a flush writes: the workspace as edited, then the allowlist, the
+/// general settings and the client certificates when they changed.
+type Draft = (
+    Workspace,
+    Option<Vec<String>>,
+    Option<GlobalSettings>,
+    Option<Vec<resolve::ClientCert>>,
+);
 
 const AUTOSAVE_DELAY: Duration = Duration::from_millis(400);
 
@@ -50,7 +56,8 @@ pub struct SettingsScreen {
     /// Machine-local: sends accept invalid TLS certificates; `None` = as general.
     pub skip_certs: Option<bool>,
     /// Machine-local: PEM files presented on mTLS (`client_cert.rs`).
-    pub client_cert: Option<resolve::ClientCert>,
+    pub client_certs: Vec<CertRow>,
+    certs_saved: Vec<resolve::ClientCert>,
     /// Where the workspace's files (and its git repo) live, links resolved.
     pub folder: PathBuf,
     pub section: Section,
@@ -74,7 +81,7 @@ impl EventEmitter<WorkspaceSaved> for SettingsScreen {}
 impl Backend {
     /// Name/DNS/user-agent go onto the workspace as stored now (a pull or the
     /// workspace tab may have changed other fields); writes only what differs.
-    fn save_ws_settings(&self, (ws, allow, global): &Draft) -> Result<Workspace, YukiError> {
+    fn save_ws_settings(&self, (ws, allow, global, certs): &Draft) -> Result<Workspace, YukiError> {
         let store = &self.api.workspaces;
         let mut stored = store.get(&ws.id)?;
         let ua = draft::user_agent(&ws.headers);
@@ -99,6 +106,9 @@ impl Backend {
         if let Some(g) = global {
             resolve::set_global_settings(dir, g)?;
         }
+        if let Some(certs) = certs {
+            resolve::set_client_certs(&ws.id, dir, certs)?;
+        }
         Ok(stored)
     }
 }
@@ -115,7 +125,7 @@ struct Loaded {
     ws: Workspace,
     allow: Vec<String>,
     skip_certs: Option<bool>,
-    client_cert: Option<resolve::ClientCert>,
+    client_certs: Vec<resolve::ClientCert>,
     global: GlobalSettings,
     folder: PathBuf,
 }
@@ -131,7 +141,7 @@ impl SettingsScreen {
             ws,
             allow,
             skip_certs,
-            client_cert,
+            client_certs,
             global,
             folder,
         } = loaded;
@@ -177,12 +187,18 @@ impl SettingsScreen {
             cx.subscribe(&ui_family, on_family(Font::Ui)),
             cx.subscribe(&code_family, on_family(Font::Code)),
         ];
+        let certs_saved = client_certs.clone();
+        let client_certs = client_certs
+            .into_iter()
+            .map(|c| CertRow::new(c, window, cx))
+            .collect();
         Self {
             backend,
             ws,
             allow,
             skip_certs,
-            client_cert,
+            client_certs,
+            certs_saved,
             folder,
             section: Section::Workspace,
             mcp_client: Default::default(),
@@ -204,20 +220,9 @@ impl SettingsScreen {
     /// Applies to the next send; written right away, like appearance.
     pub fn set_skip_certs(&mut self, skip: Option<bool>, cx: &mut Context<Self>) {
         self.skip_certs = skip;
-        self.write_local(
-            move |id, dir| resolve::set_skip_cert_check(id, dir, skip),
-            cx,
-        );
-    }
-
-    /// Writes a machine-local workspace setting off the UI thread.
-    pub(crate) fn write_local(
-        &mut self,
-        write: impl FnOnce(&str, &std::path::Path) -> Result<(), YukiError> + Send + 'static,
-        cx: &mut Context<Self>,
-    ) {
         let (id, dir) = (self.ws.id.clone(), self.backend.api.app_data_dir.clone());
-        let task = cx.background_spawn(async move { write(&id, &dir) });
+        let task =
+            cx.background_spawn(async move { resolve::set_skip_cert_check(&id, &dir, skip) });
         cx.spawn(async move |this, cx| {
             if let Err(e) = task.await {
                 _ = this.update(cx, |s, cx| {
@@ -259,19 +264,22 @@ impl SettingsScreen {
             ws.headers = draft::set_user_agent(&ws.headers, &ua);
         }
         let allow = parse_names(&self.env.read(cx).value());
+        let certs: Vec<_> = self.client_certs.iter().map(|r| r.draft(cx)).collect();
         (
             ws,
             (allow != self.allow).then_some(allow),
             self.general.draft(cx),
+            (certs != self.certs_saved).then_some(certs),
         )
     }
 
-    fn dirty(&self, (ws, allow, global): &Draft) -> bool {
+    fn dirty(&self, (ws, allow, global, certs): &Draft) -> bool {
         ws.name != self.ws.name
             || ws.dns_overrides != self.ws.dns_overrides
             || ws.headers != self.ws.headers
             || allow.is_some()
             || global.is_some()
+            || certs.is_some()
     }
 
     pub(crate) fn changed(&mut self, cx: &mut Context<Self>) {
@@ -295,7 +303,7 @@ impl SettingsScreen {
             (stored, draft)
         });
         cx.spawn(async move |this, cx| {
-            let (result, (_, allow, global)) = task.await;
+            let (result, (_, allow, global, certs)) = task.await;
             _ = this.update(cx, |s, cx| {
                 s.saving = false;
                 match result {
@@ -306,6 +314,9 @@ impl SettingsScreen {
                         }
                         if let Some(g) = global {
                             s.general.saved = g;
+                        }
+                        if let Some(c) = certs {
+                            s.certs_saved = c;
                         }
                         s.ws = stored.clone();
                         cx.emit(WorkspaceSaved(stored));
@@ -382,7 +393,7 @@ impl Yuki {
             Ok::<_, YukiError>(Loaded {
                 allow: resolve::system_env_allowlist(&id, dir),
                 skip_certs: resolve::skip_cert_check(&id, dir),
-                client_cert: resolve::client_cert(&id, dir),
+                client_certs: resolve::client_certs(&id, dir),
                 global: resolve::global_settings(dir),
                 folder: backend.ws_dir(&id),
                 ws,

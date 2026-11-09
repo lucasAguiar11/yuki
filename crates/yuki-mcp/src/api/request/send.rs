@@ -5,7 +5,6 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::path::Path;
 use std::pin::Pin;
-use std::sync::Arc;
 use yuki_core::{
     AuthConfig, BodyField, BodyKind, Environment, EnvironmentKind, HttpRequest, HttpResponse,
     RequestBody, RequestParameter, StoredCookie, YukiError,
@@ -220,9 +219,8 @@ pub(super) struct Prepared {
     pub edited: HttpRequest,
     pub dns: Vec<yuki_core::DnsOverride>,
     pub skip_certs: bool,
-    /// PEM presented when the server asks for a client certificate, with the
-    /// certificate file's name for the timeline.
-    pub client_cert: Option<(Arc<Vec<u8>>, String)>,
+    /// Presented when the server asks for a client certificate.
+    pub client_cert: Option<resolve::ClientPem>,
 }
 
 impl ApiBackend {
@@ -491,13 +489,7 @@ impl ApiBackend {
             .unwrap_or_default();
         dns.extend(global.dns_overrides);
         let skip_certs = crate::resolve::effective_skip_cert_check(ws_id, &self.app_data_dir);
-        let client_cert = match crate::resolve::client_cert(ws_id, &self.app_data_dir) {
-            Some(c) => {
-                let name = c.cert.file_name().unwrap_or_default().to_string_lossy();
-                Some((Arc::new(c.pem()?), name.into_owned()))
-            }
-            None => None,
-        };
+        let client_cert = crate::resolve::client_cert_for(ws_id, &self.app_data_dir, &req.url)?;
         Ok(Prepared {
             req,
             cookies,

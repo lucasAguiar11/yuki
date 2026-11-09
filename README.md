@@ -60,7 +60,7 @@ Everything lives in `~/Library/Application Support/dev.yuki` (override with `YUK
 
 General also sets how workspaces open: **in this window** or **in a new window** (⌘O and the welcome list; ⌘⇧O and ⌘-click do the other one). Agents sending over MCP get the same rules.
 
-**Client certificate (mTLS).** Settings → workspace → **client certificate** picks the PEM certificate and its key (or one file holding both). HTTPS sends from that workspace present it when the server asks for one; the request's **log** tab names it. Machine-local, never committed. NTLM, WebSocket and gRPC don't use it yet.
+**Client certificates (mTLS).** Settings → workspace → **client certificates**: **+ add certificate** picks a PEM certificate; **choose** in the row's **key** column picks its key (leave it as is if the file holds both), and the row's **host** says which server it's for (`dce.fazenda.pr.gov.br`). A send uses the row for its host, else the one left without a host; it presents it when the server asks for one, and the request's **log** tab names it. Keys in PKCS#8 (`BEGIN PRIVATE KEY`) also work with servers that ask mid-connection (IIS, government APIs). Machine-local, never committed. NTLM, WebSocket and gRPC don't use them yet.
 
 ## Variables and functions
 

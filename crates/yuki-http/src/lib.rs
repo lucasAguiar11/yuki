@@ -52,6 +52,13 @@ type CancelEntry = (u64, tokio::sync::oneshot::Sender<()>);
 /// (skip certificate check, client certificate PEM).
 type CertKey = (bool, Arc<Vec<u8>>);
 
+/// A URL's host as a send sees it (scheme added when missing), lowercase.
+pub fn url_host(url: &str) -> Option<String> {
+    let url = executor::normalize_url(url).ok()?;
+    let url = reqwest::Url::parse(&url).ok()?;
+    url.host_str().map(str::to_ascii_lowercase)
+}
+
 tokio::task_local! {
     pub(crate) static REQ_START: Instant;
     pub(crate) static REDIRECT_SINK: Arc<Mutex<Vec<RedirectHop>>>;

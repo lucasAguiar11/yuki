@@ -106,8 +106,12 @@ pub fn set_skip_cert_check(
 
 /// PEM files a workspace's sends present when a server asks for a client
 /// certificate (mTLS). Machine-local: paths and keys never go to git.
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Default)]
 pub struct ClientCert {
+    /// Exact host it's for (`api.example.com`); empty = any host without one
+    /// of its own.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub host: String,
     pub cert: std::path::PathBuf,
     /// `None`: the key is in the certificate file.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -127,22 +131,50 @@ impl ClientCert {
         }
         Ok(pem)
     }
+
+    /// The one for `host`: its own first, else the first without a host.
+    pub fn pick<'a>(certs: &'a [ClientCert], host: &str) -> Option<&'a ClientCert> {
+        let own = certs
+            .iter()
+            .find(|c| c.host.trim().eq_ignore_ascii_case(host));
+        own.or_else(|| certs.iter().find(|c| c.host.trim().is_empty()))
+    }
 }
 
-pub fn client_cert(workspace_id: &str, app_data_dir: &Path) -> Option<ClientCert> {
-    setting(workspace_id, app_data_dir, "clientCertificate")
+pub fn client_certs(workspace_id: &str, app_data_dir: &Path) -> Vec<ClientCert> {
+    setting(workspace_id, app_data_dir, "clientCertificates").unwrap_or_default()
 }
 
-pub fn set_client_cert(
+/// Empty removes the key.
+pub fn set_client_certs(
     workspace_id: &str,
     app_data_dir: &Path,
-    cert: Option<&ClientCert>,
+    certs: &[ClientCert],
 ) -> Result<(), yuki_core::YukiError> {
-    let value = cert
-        .map(serde_yaml::to_value)
+    let value = (!certs.is_empty())
+        .then(|| serde_yaml::to_value(certs))
         .transpose()
         .map_err(|e| yuki_core::YukiError::Storage(e.to_string()))?;
-    set_setting(workspace_id, app_data_dir, "clientCertificate", value)
+    set_setting(workspace_id, app_data_dir, "clientCertificates", value)
+}
+
+/// A certificate ready to present: PEM (chain + key) and the certificate
+/// file's name, for the timeline.
+pub type ClientPem = (std::sync::Arc<Vec<u8>>, String);
+
+/// What a send to `url` presents (see `ClientCert::pick`).
+pub fn client_cert_for(
+    workspace_id: &str,
+    app_data_dir: &Path,
+    url: &str,
+) -> Result<Option<ClientPem>, String> {
+    let certs = client_certs(workspace_id, app_data_dir);
+    let host = yuki_http::url_host(url).unwrap_or_default();
+    let Some(c) = ClientCert::pick(&certs, &host) else {
+        return Ok(None);
+    };
+    let name = c.cert.file_name().unwrap_or_default().to_string_lossy();
+    Ok(Some((std::sync::Arc::new(c.pem()?), name.into_owned())))
 }
 
 /// Sets (`None`: removes) one field of the workspace's entry.
@@ -321,22 +353,39 @@ mod tests {
         let split = ClientCert {
             cert: crt.clone(),
             key: Some(key),
+            ..Default::default()
         };
         assert_eq!(split.pem().unwrap(), b"CERT\nKEY");
         let same = ClientCert {
             cert: crt.clone(),
             key: Some(crt.clone()),
+            ..Default::default()
         };
         assert_eq!(same.pem().unwrap(), b"CERT");
         let missing = ClientCert {
             cert: dir.path().join("gone.pem"),
-            key: None,
+            ..Default::default()
         };
         assert!(missing.pem().unwrap_err().contains("gone.pem"));
 
-        set_client_cert("ws1", dir.path(), Some(&split)).unwrap();
-        assert_eq!(client_cert("ws1", dir.path()), Some(split));
-        set_client_cert("ws1", dir.path(), None).unwrap();
-        assert_eq!(client_cert("ws1", dir.path()), None);
+        set_client_certs("ws1", dir.path(), std::slice::from_ref(&split)).unwrap();
+        assert_eq!(client_certs("ws1", dir.path()), [split]);
+        set_client_certs("ws1", dir.path(), &[]).unwrap();
+        assert!(client_certs("ws1", dir.path()).is_empty());
+    }
+
+    #[test]
+    fn client_cert_pick_prefers_the_host_then_the_hostless_one() {
+        let c = |host: &str, cert: &str| ClientCert {
+            host: host.into(),
+            cert: cert.into(),
+            key: None,
+        };
+        let certs = [c("a.gov.br", "a"), c("", "any"), c(" B.gov.br ", "b")];
+        let pick = |host| ClientCert::pick(&certs, host).map(|c| c.cert.to_str().unwrap());
+        assert_eq!(pick("a.gov.br"), Some("a"));
+        assert_eq!(pick("b.gov.br"), Some("b"));
+        assert_eq!(pick("other.com"), Some("any"));
+        assert_eq!(ClientCert::pick(&certs[..1], "other.com"), None);
     }
 }

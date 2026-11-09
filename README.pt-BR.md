@@ -60,7 +60,7 @@ Tudo fica em `~/Library/Application Support/dev.yuki` (troque com `YUKI_DATA_DIR
 
 Geral também define como os workspaces abrem: **nesta janela** ou **numa nova janela** (⌘O e a lista da tela inicial; ⌘⇧O e ⌘-clique fazem o outro). Agentes enviando via MCP seguem as mesmas regras.
 
-**Certificado de cliente (mTLS).** Configurações → workspace → **certificado de cliente** escolhe o certificado PEM e a chave dele (ou um arquivo com os dois). Envios HTTPS desse workspace apresentam o certificado quando o servidor pede; a aba **log** do request mostra qual foi. Fica só nesta máquina, nunca vai para o git. NTLM, WebSocket e gRPC ainda não usam.
+**Certificados de cliente (mTLS).** Configurações → workspace → **certificados de cliente**: **+ adicionar certificado** escolhe um certificado PEM; **escolher** na coluna **chave** da linha escolhe a chave dele (deixe como está se o arquivo tem os dois), e o **host** da linha diz para qual servidor ele vale (`dce.fazenda.pr.gov.br`). Um envio usa a linha do seu host, senão a que ficou sem host; o certificado é apresentado quando o servidor pede, e a aba **log** do request mostra qual foi. Chaves PKCS#8 (`BEGIN PRIVATE KEY`) também funcionam com servidores que pedem no meio da conexão (IIS, APIs de governo). Fica só nesta máquina, nunca vai para o git. NTLM, WebSocket e gRPC ainda não usam.
 
 ## Variáveis e funções
 

@@ -97,6 +97,7 @@ impl ApiBackend {
         let workspaces = self.workspaces.clone();
         let ws_for_dns = ws_id.clone();
         let dir = self.app_data_dir.clone();
+        let url = request.url.clone();
         let tls = super::blocking(move || {
             let mut dns = workspaces
                 .get(&ws_for_dns)
@@ -104,10 +105,9 @@ impl ApiBackend {
                 .unwrap_or_default();
             dns.extend(crate::resolve::global_settings(&dir).dns_overrides);
             let skip = crate::resolve::effective_skip_cert_check(&ws_for_dns, &dir);
-            let pem = crate::resolve::client_cert(&ws_for_dns, &dir)
-                .map(|c| c.pem().map(std::sync::Arc::new))
-                .transpose()
-                .map_err(yuki_core::YukiError::Http)?;
+            let pem = crate::resolve::client_cert_for(&ws_for_dns, &dir, &url)
+                .map_err(yuki_core::YukiError::Http)?
+                .map(|(pem, _)| pem);
             Ok((dns, skip, pem))
         })
         .await;

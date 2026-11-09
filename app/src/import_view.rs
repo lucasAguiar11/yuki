@@ -1,34 +1,42 @@
 //! "Import" screen state: the file's tree with checkboxes, where it lands (a
-//! new workspace or the current one), and the import itself. Render in
-//! `import_render.rs`.
+//! new workspace, or any existing one and a folder in it — the folder list in
+//! `import_dest.rs`), and the import itself. Render in `import_render.rs`.
 
 use std::{collections::HashSet, sync::Arc};
 
 use gpui_kit::component::{
-    input::InputState, searchable_list::SearchableVec, select::SelectState, IndexPath,
+    input::InputState,
+    searchable_list::SearchableVec,
+    select::{SelectEvent, SelectState},
+    IndexPath,
 };
 use gpui_kit::*;
-use yuki_core::{ApiFolder, Workspace};
+use yuki_core::Workspace;
 use yuki_import::{ImportFormat, ImportNode, ImportPreview};
 
 use crate::{
     backend::Backend,
     transfer::{Dest, TransferEvent},
-    tree,
 };
 
+type NameSelect = SelectState<SearchableVec<SharedString>>;
+
 pub struct ImportScreen {
-    backend: Arc<Backend>,
+    pub(crate) backend: Arc<Backend>,
     pub(crate) format: ImportFormat,
     content: Arc<String>,
     pub(crate) preview: ImportPreview,
     /// Selected request ids (preview's positional ids).
     pub(crate) checked: HashSet<String>,
-    pub(crate) current: Option<Workspace>,
-    pub(crate) to_current: bool,
+    pub(crate) workspaces: Vec<Workspace>,
+    /// Into the workspace picked in `ws` rather than a new one.
+    pub(crate) existing: bool,
     pub(crate) name: Entity<InputState>,
-    pub(crate) folder: Entity<SelectState<SearchableVec<SharedString>>>,
-    folder_ids: Vec<Option<String>>,
+    pub(crate) ws: Entity<NameSelect>,
+    pub(crate) folder: Entity<NameSelect>,
+    /// Parallel to `folder`'s rows; always the folders of the picked workspace.
+    pub(crate) folder_ids: Vec<Option<String>>,
+    _ws_picked: Subscription,
     pub focus: FocusHandle,
     pub(crate) error: SharedString,
     pub(crate) busy: bool,
@@ -71,7 +79,8 @@ impl ImportScreen {
         format: ImportFormat,
         content: String,
         preview: ImportPreview,
-        current: Option<(Workspace, Vec<ApiFolder>)>,
+        workspaces: Vec<Workspace>,
+        current: Option<&str>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -79,39 +88,54 @@ impl ImportScreen {
         requests(&preview.tree, &mut all);
         let name =
             cx.new(|cx| InputState::new(window, cx).default_value(preview.suggested_name.clone()));
-        // The current workspace's root, then each folder by its path.
-        let (mut labels, mut folder_ids) = (vec![SharedString::from("/")], vec![None]);
-        if let Some((_, folders)) = &current {
-            for f in folders {
-                labels
-                    .push(format!("/{}", tree::folder_path(folders, Some(&f.id)).join("/")).into());
-                folder_ids.push(Some(f.id.clone()));
-            }
-        }
+        let at = current
+            .and_then(|id| workspaces.iter().position(|w| w.id == id))
+            .unwrap_or(0);
+        let names: Vec<SharedString> = workspaces.iter().map(|w| w.name.clone().into()).collect();
+        // Not searchable: a filtered list would make `selected_index` point
+        // into the matches, not into `workspaces`.
+        let ws = cx.new(|cx| {
+            SelectState::new(
+                SearchableVec::new(names),
+                Some(IndexPath::new(at)),
+                window,
+                cx,
+            )
+        });
         let folder = cx.new(|cx| {
             SelectState::new(
-                SearchableVec::new(labels),
+                SearchableVec::new(vec![SharedString::from("/")]),
                 Some(IndexPath::new(0)),
                 window,
                 cx,
             )
             .searchable(true)
         });
-        Self {
+        let _ws_picked =
+            cx.subscribe_in(&ws, window, |this, _, ev: &SelectEvent<_>, window, cx| {
+                if let SelectEvent::Confirm(Some(_)) = ev {
+                    this.load_folders(window, cx);
+                }
+            });
+        let mut this = Self {
             backend,
             format,
             content: Arc::new(content),
             preview,
             checked: all.into_iter().collect(),
-            current: current.map(|(w, _)| w),
-            to_current: false,
+            workspaces,
+            existing: false,
             name,
+            ws,
             folder,
-            folder_ids,
+            folder_ids: vec![None],
+            _ws_picked,
             focus: cx.focus_handle(),
             error: "".into(),
             busy: false,
-        }
+        };
+        this.load_folders(window, cx);
+        this
     }
 
     /// A folder checks or unchecks every request below it.
@@ -142,8 +166,8 @@ impl ImportScreen {
         if !self.can_import() {
             return;
         }
-        let dest = match (&self.current, self.to_current) {
-            (Some(ws), true) => {
+        let dest = match self.picked_ws(cx).filter(|_| self.existing) {
+            Some(ws) => {
                 let ix = self
                     .folder
                     .read(cx)
@@ -154,7 +178,7 @@ impl ImportScreen {
                     folder: self.folder_ids.get(ix).cloned().flatten(),
                 }
             }
-            _ => {
+            None => {
                 let name = self.name.read(cx).value().trim().to_string();
                 Dest::New(if name.is_empty() {
                     self.preview.suggested_name.clone()

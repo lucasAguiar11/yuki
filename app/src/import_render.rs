@@ -81,41 +81,39 @@ impl Render for ImportScreen {
                 t.list_hover,
             )
         };
-        let chip = |id: &'static str,
-                    label: String,
-                    on: bool,
-                    to_current: bool,
-                    cx: &mut Context<Self>| {
-            div()
-                .id(id)
-                .px_2()
-                .py_0p5()
-                .rounded_sm()
-                .cursor_pointer()
-                .text_color(if on { fg } else { muted })
-                .when(on, |s| s.bg(active_bg))
-                .hover(move |s| s.bg(hover_bg))
-                .child(label)
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.to_current = to_current;
-                    cx.notify();
-                }))
-        };
+        let chip =
+            |id: &'static str, label: String, on: bool, existing: bool, cx: &mut Context<Self>| {
+                div()
+                    .id(id)
+                    .px_2()
+                    .py_0p5()
+                    .rounded_sm()
+                    .cursor_pointer()
+                    .text_color(if on { fg } else { muted })
+                    .when(on, |s| s.bg(active_bg))
+                    .hover(move |s| s.bg(hover_bg))
+                    .child(label)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.existing = existing;
+                        cx.notify();
+                    }))
+            };
         let mut dest = h_flex().gap_2().child(chip(
             "dest-new",
             t!("new workspace").into_owned(),
-            !self.to_current,
+            !self.existing,
             false,
             cx,
         ));
-        if let Some(ws) = &self.current {
-            let label = t!("into %{name}", name = ws.name).into_owned();
-            dest = dest.child(chip("dest-current", label, self.to_current, true, cx));
+        if !self.workspaces.is_empty() {
+            let label = t!("existing workspace").into_owned();
+            dest = dest.child(chip("dest-existing", label, self.existing, true, cx));
         }
-        let target = if self.to_current {
-            div()
-                .w(px(320.))
-                .child(Select::new(&self.folder).small())
+        let target = if self.existing {
+            h_flex()
+                .gap_2()
+                .child(div().w(px(200.)).child(Select::new(&self.ws).small()))
+                .child(div().w(px(320.)).child(Select::new(&self.folder).small()))
                 .into_any_element()
         } else {
             div()

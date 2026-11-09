@@ -45,13 +45,22 @@ impl Yuki {
             let result = read.await;
             _ = this.update_in(cx, |this, window, cx| match result {
                 Ok((format, content, preview)) => {
-                    let current = this
-                        .ws
-                        .clone()
-                        .zip(this.data.as_ref().map(|d| d.folders.clone()));
+                    let (workspaces, current) = (
+                        this.workspaces.clone(),
+                        this.ws.as_ref().map(|w| w.id.clone()),
+                    );
                     let backend = this.backend.clone();
                     let screen = cx.new(|cx| {
-                        ImportScreen::new(backend, format, content, preview, current, window, cx)
+                        ImportScreen::new(
+                            backend,
+                            format,
+                            content,
+                            preview,
+                            workspaces,
+                            current.as_deref(),
+                            window,
+                            cx,
+                        )
                     });
                     let focus = screen.read(cx).focus.clone();
                     let sub = cx.subscribe_in(&screen, window, Self::on_transfer);

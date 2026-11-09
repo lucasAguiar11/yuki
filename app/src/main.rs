@@ -32,6 +32,7 @@ mod git_changes;
 mod git_ops;
 mod git_panel;
 mod history;
+mod import_dest;
 mod import_render;
 mod import_view;
 mod items;

@@ -116,6 +116,10 @@ pub struct RequestSettings {
     /// `None` = `MAX_REDIRECTS`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_redirects: Option<u32>,
+    /// An XML body goes out without the whitespace between tags (fiscal web
+    /// services reject it); the editor keeps it indented.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub compact_xml: bool,
 }
 
 impl RequestSettings {
@@ -142,6 +146,7 @@ impl Default for RequestSettings {
             timeout_ms: None,
             follow_redirects: true,
             max_redirects: None,
+            compact_xml: false,
         }
     }
 }

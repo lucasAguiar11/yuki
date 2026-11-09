@@ -98,6 +98,85 @@ pub(super) fn base64_encode(input: &[u8]) -> String {
     out
 }
 
+/// XML without the whitespace-only text between tags and around the document,
+/// as fiscal web services demand. Text with content, CDATA and comments stay
+/// as written; text that isn't well-formed markup goes as typed.
+pub fn compact_xml(xml: &str) -> String {
+    let Some(toks) = tokens(xml.trim()) else {
+        return xml.to_string();
+    };
+    toks.iter()
+        .filter(|t| !matches!(t, Tok::Text(s) if s.trim().is_empty()))
+        .map(Tok::as_str)
+        .collect()
+}
+
+/// One piece of XML, kept byte for byte (the app's response viewer indents
+/// these; `compact_xml` drops the blank text between them).
+pub enum Tok<'a> {
+    Open(&'a str),
+    Close(&'a str),
+    /// Self-closing tags, `<?…?>`, comments, CDATA, doctype.
+    Lone(&'a str),
+    Text(&'a str),
+}
+
+impl<'a> Tok<'a> {
+    pub fn as_str(&self) -> &'a str {
+        match *self {
+            Tok::Open(s) | Tok::Close(s) | Tok::Lone(s) | Tok::Text(s) => s,
+        }
+    }
+}
+
+/// `None` when a tag, comment or CDATA never closes.
+pub fn tokens(s: &str) -> Option<Vec<Tok<'_>>> {
+    let mut out = vec![];
+    let mut i = 0;
+    while i < s.len() {
+        let rest = &s[i..];
+        if !rest.starts_with('<') {
+            let end = rest.find('<').unwrap_or(rest.len());
+            out.push(Tok::Text(&rest[..end]));
+            i += end;
+            continue;
+        }
+        let close = |pat: &str| rest.find(pat).map(|e| e + pat.len());
+        let len = if rest.starts_with("<!--") {
+            close("-->")?
+        } else if rest.starts_with("<![CDATA[") {
+            close("]]>")?
+        } else if rest.starts_with("<?") {
+            close("?>")?
+        } else {
+            // `>` inside a quoted attribute value doesn't end the tag.
+            let mut quote = None;
+            rest.char_indices().find_map(|(ix, c)| match (quote, c) {
+                (None, '"' | '\'') => {
+                    quote = Some(c);
+                    None
+                }
+                (Some(q), c) if c == q => {
+                    quote = None;
+                    None
+                }
+                (None, '>') => Some(ix + 1),
+                _ => None,
+            })?
+        };
+        let tag = &rest[..len];
+        out.push(if tag.starts_with("</") {
+            Tok::Close(tag)
+        } else if tag.ends_with("/>") || tag.starts_with("<!") || tag.starts_with("<?") {
+            Tok::Lone(tag)
+        } else {
+            Tok::Open(tag)
+        });
+        i += len;
+    }
+    Some(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -137,5 +216,17 @@ mod tests {
         assert_eq!(url_encode(" "), "%20");
         assert_eq!(url_encode("a&b=c"), "a%26b%3Dc");
         assert_eq!(url_encode("/"), "%2F");
+    }
+
+    #[test]
+    fn compact_xml_drops_only_whitespace_between_tags() {
+        let xml = "\n<?xml version=\"1.0\"?>\n<a x=\"1 > 0\">\n  <b>  keep me </b>\n  \
+                   <c><![CDATA[ \n ]]></c>\n  <!-- a  note -->\n  <d/>\n</a>\n";
+        assert_eq!(
+            compact_xml(xml),
+            "<?xml version=\"1.0\"?><a x=\"1 > 0\"><b>  keep me </b>\
+             <c><![CDATA[ \n ]]></c><!-- a  note --><d/></a>"
+        );
+        assert_eq!(compact_xml("not xml"), "not xml");
     }
 }

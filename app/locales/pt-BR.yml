@@ -417,6 +417,8 @@
 "follow": "seguir"
 "max": "máx"
 "off: the 3xx is the response · max %{n} by default": "desligado: o 3xx é a resposta · máx %{n} por padrão"
+"send compacted": "enviar compactado"
+"an XML body goes out without the spaces and line breaks between tags (fiscal web services demand it) · the editor keeps it indented · signed XML must be signed already compacted": "um body XML sai sem os espaços e quebras de linha entre as tags (web services fiscais exigem) · o editor continua indentado · XML assinado precisa ser assinado já compactado"
 "load": "carga"
 "sends ×": "envios ×"
 "in parallel": "em paralelo"

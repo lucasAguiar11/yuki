@@ -2,60 +2,7 @@
 //! byte (no parse/re-serialize: entities and quoting stay as received); only
 //! whitespace between tags changes.
 
-enum Tok<'a> {
-    Open(&'a str),
-    Close(&'a str),
-    /// Self-closing tags, `<?…?>`, comments, CDATA, doctype.
-    Lone(&'a str),
-    Text(&'a str),
-}
-
-fn tokens(s: &str) -> Option<Vec<Tok<'_>>> {
-    let mut out = vec![];
-    let mut i = 0;
-    while i < s.len() {
-        let rest = &s[i..];
-        if !rest.starts_with('<') {
-            let end = rest.find('<').unwrap_or(rest.len());
-            out.push(Tok::Text(&rest[..end]));
-            i += end;
-            continue;
-        }
-        let close = |pat: &str| rest.find(pat).map(|e| e + pat.len());
-        let len = if rest.starts_with("<!--") {
-            close("-->")?
-        } else if rest.starts_with("<![CDATA[") {
-            close("]]>")?
-        } else if rest.starts_with("<?") {
-            close("?>")?
-        } else {
-            // `>` inside a quoted attribute value doesn't end the tag.
-            let mut quote = None;
-            rest.char_indices().find_map(|(ix, c)| match (quote, c) {
-                (None, '"' | '\'') => {
-                    quote = Some(c);
-                    None
-                }
-                (Some(q), c) if c == q => {
-                    quote = None;
-                    None
-                }
-                (None, '>') => Some(ix + 1),
-                _ => None,
-            })?
-        };
-        let tag = &rest[..len];
-        out.push(if tag.starts_with("</") {
-            Tok::Close(tag)
-        } else if tag.ends_with("/>") || tag.starts_with("<!") || tag.starts_with("<?") {
-            Tok::Lone(tag)
-        } else {
-            Tok::Open(tag)
-        });
-        i += len;
-    }
-    Some(out)
-}
+use yuki_mcp::resolve::{xml_tokens as tokens, XmlTok as Tok};
 
 /// `text` with one element per line, two spaces per level; a leaf stays on one
 /// line (`<a>1</a>`). `None` when it isn't balanced XML (shown as received).

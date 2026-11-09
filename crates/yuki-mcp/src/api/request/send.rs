@@ -458,6 +458,12 @@ impl ApiBackend {
         };
 
         self.apply_oauth2(&mut req).await?;
+        // Before the "as sent" copy, so history and the log show what went out.
+        if req.settings.compact_xml {
+            if let Some(b) = req.body.as_mut().filter(|b| b.kind == BodyKind::Xml) {
+                b.text = resolve::compact_xml(&b.text);
+            }
+        }
 
         // `req` is now fully resolved (literal URL/headers/body, no `{{ }}`) —
         // the authoritative "as sent" record. Cloned here, before the executor

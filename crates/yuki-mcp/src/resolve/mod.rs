@@ -29,7 +29,7 @@ pub use system_env::{
     set_allowlist as set_system_env_allowlist, set_client_cert, set_skip_cert_check,
     skip_cert_check, snapshot as system_env_snapshot, ClientCert,
 };
-pub use text::path_params;
+pub use text::{compact_xml, path_params, tokens as xml_tokens, Tok as XmlTok};
 pub use vars::{
     apply_folder_vars, effective_auth, is_identifier, load_env_vars, load_env_vars_from,
     merge_inherited_metadata, resolve_str,

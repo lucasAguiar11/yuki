@@ -23,6 +23,7 @@ use crate::{editor::RequestEditor, settings_view::field, ui};
 pub struct ReqSettings {
     timeout: Entity<InputState>,
     follow: bool,
+    compact_xml: bool,
     max: Entity<InputState>,
     total: Entity<InputState>,
     parallel: Entity<InputState>,
@@ -82,6 +83,7 @@ impl ReqSettings {
         let this = Self {
             timeout,
             follow: s.follow_redirects,
+            compact_xml: s.compact_xml,
             max,
             total,
             parallel,
@@ -97,6 +99,7 @@ impl ReqSettings {
             timeout_ms: parse(&self.timeout, cx).unwrap_or(saved.timeout_ms),
             follow_redirects: self.follow,
             max_redirects: parse(&self.max, cx).unwrap_or(saved.max_redirects),
+            compact_xml: self.compact_xml,
         }
     }
 
@@ -109,7 +112,8 @@ impl ReqSettings {
 pub fn label(s: &RequestSettings) -> String {
     let n = usize::from(s.timeout_ms.is_some())
         + usize::from(!s.follow_redirects)
-        + usize::from(s.max_redirects.is_some());
+        + usize::from(s.max_redirects.is_some())
+        + usize::from(s.compact_xml);
     match n {
         0 => t!("settings —").into_owned(),
         n => t!("settings %{n}", n = n).into_owned(),
@@ -127,6 +131,11 @@ fn ms(v: f64) -> String {
 impl RequestEditor {
     pub(crate) fn set_follow(&mut self, on: bool, cx: &mut Context<Self>) {
         self.settings.follow = on;
+        self.refresh_dirty(cx);
+    }
+
+    pub(crate) fn set_compact_xml(&mut self, on: bool, cx: &mut Context<Self>) {
+        self.settings.compact_xml = on;
         self.refresh_dirty(cx);
     }
 
@@ -203,6 +212,10 @@ impl RequestEditor {
             .checked(self.settings.follow)
             .label(t!("follow").into_owned())
             .on_click(cx.listener(|this, on: &bool, _, cx| this.set_follow(*on, cx)));
+        let compact = Checkbox::new("compact-xml")
+            .checked(self.settings.compact_xml)
+            .label(t!("send compacted").into_owned())
+            .on_click(cx.listener(|this, on: &bool, _, cx| this.set_compact_xml(*on, cx)));
         let run_label = if self.settings.running() {
             t!("■ stop")
         } else {
@@ -265,6 +278,12 @@ impl RequestEditor {
                     )
                     .into_owned(),
                 ),
+                cx,
+            ))
+            .child(field(
+                "xml",
+                compact,
+                Some(t!("an XML body goes out without the spaces and line breaks between tags (fiscal web services demand it) · the editor keeps it indented · signed XML must be signed already compacted").into_owned()),
                 cx,
             ))
             .child(field(

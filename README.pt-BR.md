@@ -60,6 +60,8 @@ Tudo fica em `~/Library/Application Support/dev.yuki` (troque com `YUKI_DATA_DIR
 
 Geral também define como os workspaces abrem: **nesta janela** ou **numa nova janela** (⌘O e a lista da tela inicial; ⌘⇧O e ⌘-clique fazem o outro). Agentes enviando via MCP seguem as mesmas regras.
 
+**Certificado de cliente (mTLS).** Configurações → workspace → **certificado de cliente** escolhe o certificado PEM e a chave dele (ou um arquivo com os dois). Envios HTTPS desse workspace apresentam o certificado quando o servidor pede; a aba **log** do request mostra qual foi. Fica só nesta máquina, nunca vai para o git. NTLM, WebSocket e gRPC ainda não usam.
+
 ## Variáveis e funções
 
 `{{ NOME }}` na URL, params, headers, body ou auth é resolvido no envio a partir do ambiente ativo (e das variáveis da pasta). Funções começam com `$` e geram um valor novo a cada ocorrência: `{{ $fake.fullName() }}`, `firstName`, `lastName`, `email`, `phone`, `cpf`, `cnpj`, `uuid`, `lorem`, `number`, `password`, `date`, `username`, `company`, `street`, `city`, `zipCode`, `jobTitle`, `url` (todas `$fake.*`), além de `{{ $uuid.v4() }}` e `{{ $timestamp.iso() }}` / `unix` / `unixMs` / `date` / `time`. Digite `$` para escolher uma (a lista mostra um exemplo de cada); a aba **log** da resposta mostra os valores enviados.

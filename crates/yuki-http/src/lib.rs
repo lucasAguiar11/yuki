@@ -48,6 +48,9 @@ pub(crate) const POOL_IDLE_TIMEOUT: Duration = Duration::from_secs(90);
 /// completing send remove only its own handle, never a later send's.
 type CancelEntry = (u64, tokio::sync::oneshot::Sender<()>);
 
+/// (skip certificate check, client certificate PEM).
+type CertKey = (bool, Arc<Vec<u8>>);
+
 tokio::task_local! {
     pub(crate) static REQ_START: Instant;
     pub(crate) static REDIRECT_SINK: Arc<Mutex<Vec<RedirectHop>>>;
@@ -70,6 +73,9 @@ tokio::task_local! {
     pub(crate) static SSE_SINK: Option<SseSink>;
     /// Accept expired/self-signed/mismatched certificates (workspace setting).
     pub(crate) static SKIP_CERT_CHECK: bool;
+    /// PEM certificate (chain) + private key presented when a server asks
+    /// (mTLS); workspace setting.
+    pub(crate) static CLIENT_CERT: Option<Arc<Vec<u8>>>;
     /// Redirects this send may follow (`RequestSettings::redirect_limit`);
     /// 0 = the 3xx is the response.
     pub(crate) static REDIRECT_LIMIT: u32;
@@ -81,9 +87,12 @@ tokio::task_local! {
 pub struct HttpExecutor {
     pub(crate) client: reqwest::Client,
     /// Same as `client` minus certificate validation; picked per send under
-    /// `with_cert_check_skipped`. Its own pool, so a verified connection is
-    /// never reused by a skipped send or vice versa.
+    /// `with_tls`. Its own pool, so a verified connection is never reused by a
+    /// skipped send or vice versa.
     pub(crate) insecure_client: reqwest::Client,
+    /// One client per (skip, client certificate PEM), built on first use. A
+    /// connection's TLS identity is fixed, hence a pool per certificate.
+    pub(crate) cert_clients: Arc<Mutex<HashMap<CertKey, reqwest::Client>>>,
     /// Last successful send per `(host, port)` — not bumped on failure, so a
     /// timeout doesn't refresh the connection-reuse heuristic.
     pub(crate) last_seen: Arc<Mutex<HashMap<(String, u16), Instant>>>,
@@ -99,8 +108,9 @@ pub struct HttpExecutor {
 impl HttpExecutor {
     pub fn new() -> Result<Self, YukiError> {
         Ok(Self {
-            client: build_client(false)?,
-            insecure_client: build_client(true)?,
+            client: build_client(false, None)?,
+            insecure_client: build_client(true, None)?,
+            cert_clients: Arc::new(Mutex::new(HashMap::new())),
             last_seen: Arc::new(Mutex::new(HashMap::new())),
             in_flight: Arc::new(Mutex::new(HashMap::new())),
             send_seq: Arc::new(AtomicU64::new(0)),
@@ -108,26 +118,52 @@ impl HttpExecutor {
     }
 
     /// Runs `send` (any send of this executor) with certificate validation off
-    /// when `skip`. NTLM keeps validating: it has its own TLS connector.
-    pub async fn with_cert_check_skipped<F: Future>(skip: bool, send: F) -> F::Output {
-        SKIP_CERT_CHECK.scope(skip, send).await
+    /// when `skip`, presenting `client_cert` (PEM) when a server asks for one.
+    /// NTLM ignores both: it has its own TLS connector.
+    pub async fn with_tls<F: Future>(
+        skip: bool,
+        client_cert: Option<Arc<Vec<u8>>>,
+        send: F,
+    ) -> F::Output {
+        SKIP_CERT_CHECK
+            .scope(skip, CLIENT_CERT.scope(client_cert, send))
+            .await
     }
 
     /// The client for the current send.
-    pub(crate) fn client(&self) -> &reqwest::Client {
-        if SKIP_CERT_CHECK.try_with(|s| *s).unwrap_or(false) {
-            &self.insecure_client
-        } else {
-            &self.client
+    pub(crate) fn client(&self) -> Result<reqwest::Client, YukiError> {
+        let skip = SKIP_CERT_CHECK.try_with(|s| *s).unwrap_or(false);
+        let Some(pem) = CLIENT_CERT.try_with(Clone::clone).ok().flatten() else {
+            return Ok(if skip {
+                &self.insecure_client
+            } else {
+                &self.client
+            }
+            .clone());
+        };
+        let key = (skip, pem);
+        let mut clients = self.cert_clients.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(c) = clients.get(&key) {
+            return Ok(c.clone());
         }
+        let identity = reqwest::Identity::from_pem(&key.1).map_err(|e| {
+            let root = std::iter::successors(Some(&e as &dyn std::error::Error), |s| s.source());
+            YukiError::Http(format!("client certificate: {}", root.last().unwrap_or(&e)))
+        })?;
+        let client = build_client(skip, Some(identity))?;
+        clients.insert(key, client.clone());
+        Ok(client)
     }
 }
 
 /// One `reqwest::Client` with a redirect policy that logs hops via
 /// task-locals (set in `send`) and a cookie provider that captures cookies on
 /// intermediate redirects before following.
-fn build_client(skip_cert_check: bool) -> Result<reqwest::Client, YukiError> {
-    reqwest::Client::builder()
+fn build_client(
+    skip_cert_check: bool,
+    identity: Option<reqwest::Identity>,
+) -> Result<reqwest::Client, YukiError> {
+    let builder = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::custom(|attempt| {
             let limit = REDIRECT_LIMIT
                 .try_with(|l| *l)
@@ -173,9 +209,13 @@ fn build_client(skip_cert_check: bool) -> Result<reqwest::Client, YukiError> {
         .dns_resolver(Arc::new(dns::TaskLocalResolver))
         .pool_idle_timeout(POOL_IDLE_TIMEOUT)
         .use_rustls_tls()
-        .tls_danger_accept_invalid_certs(skip_cert_check)
-        .build()
-        .map_err(|e| YukiError::Http(e.to_string()))
+        .tls_danger_accept_invalid_certs(skip_cert_check);
+    match identity {
+        Some(id) => builder.identity(id),
+        None => builder,
+    }
+    .build()
+    .map_err(|e| YukiError::Http(e.to_string()))
 }
 
 impl HttpExecutor {

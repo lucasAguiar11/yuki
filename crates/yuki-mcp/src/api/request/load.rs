@@ -248,7 +248,8 @@ impl ApiBackend {
                 // The executor cancels an in-flight send with the same id.
                 req.id = format!("{}#{i}", req.id);
                 let send = exec.send(&req, p.cookies.clone(), p.dns.clone());
-                let r = HttpExecutor::with_cert_check_skipped(p.skip_certs, send).await;
+                let pem = p.client_cert.as_ref().map(|(pem, _)| pem.clone());
+                let r = HttpExecutor::with_tls(p.skip_certs, pem, send).await;
                 done.fetch_add(1, Ordering::Relaxed);
                 (i, started.elapsed().as_secs_f64() * 1000.0, r)
             });

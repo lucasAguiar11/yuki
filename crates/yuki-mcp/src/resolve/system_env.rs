@@ -104,6 +104,47 @@ pub fn set_skip_cert_check(
     )
 }
 
+/// PEM files a workspace's sends present when a server asks for a client
+/// certificate (mTLS). Machine-local: paths and keys never go to git.
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
+pub struct ClientCert {
+    pub cert: std::path::PathBuf,
+    /// `None`: the key is in the certificate file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<std::path::PathBuf>,
+}
+
+impl ClientCert {
+    /// Certificate (chain) then key, as the HTTP client takes them.
+    pub fn pem(&self) -> Result<Vec<u8>, String> {
+        let read = |p: &Path| {
+            std::fs::read(p).map_err(|e| format!("client certificate: {}: {e}", p.display()))
+        };
+        let mut pem = read(&self.cert)?;
+        if let Some(key) = self.key.as_deref().filter(|k| *k != self.cert) {
+            pem.push(b'\n');
+            pem.extend(read(key)?);
+        }
+        Ok(pem)
+    }
+}
+
+pub fn client_cert(workspace_id: &str, app_data_dir: &Path) -> Option<ClientCert> {
+    setting(workspace_id, app_data_dir, "clientCertificate")
+}
+
+pub fn set_client_cert(
+    workspace_id: &str,
+    app_data_dir: &Path,
+    cert: Option<&ClientCert>,
+) -> Result<(), yuki_core::YukiError> {
+    let value = cert
+        .map(serde_yaml::to_value)
+        .transpose()
+        .map_err(|e| yuki_core::YukiError::Storage(e.to_string()))?;
+    set_setting(workspace_id, app_data_dir, "clientCertificate", value)
+}
+
 /// Sets (`None`: removes) one field of the workspace's entry.
 fn set_setting(
     workspace_id: &str,
@@ -269,5 +310,33 @@ mod tests {
     fn missing_settings_file_means_empty_allowlist() {
         let dir = tempfile::tempdir().unwrap();
         assert!(allowlist("ws1", dir.path()).is_empty());
+    }
+
+    #[test]
+    fn client_cert_pem_joins_files_and_reads_a_combined_one_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let (crt, key) = (dir.path().join("c.crt"), dir.path().join("c.key"));
+        std::fs::write(&crt, "CERT").unwrap();
+        std::fs::write(&key, "KEY").unwrap();
+        let split = ClientCert {
+            cert: crt.clone(),
+            key: Some(key),
+        };
+        assert_eq!(split.pem().unwrap(), b"CERT\nKEY");
+        let same = ClientCert {
+            cert: crt.clone(),
+            key: Some(crt.clone()),
+        };
+        assert_eq!(same.pem().unwrap(), b"CERT");
+        let missing = ClientCert {
+            cert: dir.path().join("gone.pem"),
+            key: None,
+        };
+        assert!(missing.pem().unwrap_err().contains("gone.pem"));
+
+        set_client_cert("ws1", dir.path(), Some(&split)).unwrap();
+        assert_eq!(client_cert("ws1", dir.path()), Some(split));
+        set_client_cert("ws1", dir.path(), None).unwrap();
+        assert_eq!(client_cert("ws1", dir.path()), None);
     }
 }

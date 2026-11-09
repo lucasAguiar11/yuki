@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::path::Path;
 use std::pin::Pin;
+use std::sync::Arc;
 use yuki_core::{
     AuthConfig, BodyField, BodyKind, Environment, EnvironmentKind, HttpRequest, HttpResponse,
     RequestBody, RequestParameter, StoredCookie, YukiError,
@@ -219,6 +220,9 @@ pub(super) struct Prepared {
     pub edited: HttpRequest,
     pub dns: Vec<yuki_core::DnsOverride>,
     pub skip_certs: bool,
+    /// PEM presented when the server asks for a client certificate, with the
+    /// certificate file's name for the timeline.
+    pub client_cert: Option<(Arc<Vec<u8>>, String)>,
 }
 
 impl ApiBackend {
@@ -481,6 +485,13 @@ impl ApiBackend {
             .unwrap_or_default();
         dns.extend(global.dns_overrides);
         let skip_certs = crate::resolve::effective_skip_cert_check(ws_id, &self.app_data_dir);
+        let client_cert = match crate::resolve::client_cert(ws_id, &self.app_data_dir) {
+            Some(c) => {
+                let name = c.cert.file_name().unwrap_or_default().to_string_lossy();
+                Some((Arc::new(c.pem()?), name.into_owned()))
+            }
+            None => None,
+        };
         Ok(Prepared {
             req,
             cookies,
@@ -489,6 +500,7 @@ impl ApiBackend {
             edited,
             dns,
             skip_certs,
+            client_cert,
         })
     }
 
@@ -509,6 +521,7 @@ impl ApiBackend {
             edited,
             dns: dns_overrides,
             skip_certs,
+            client_cert,
         } = self.prepare(&ws_id, &req_id, env_id, pick, agent).await?;
 
         eprintln!(
@@ -530,28 +543,32 @@ impl ApiBackend {
                     .await
             }
         };
-        let result = yuki_http::HttpExecutor::with_cert_check_skipped(skip_certs, send).await;
+        let pem = client_cert.as_ref().map(|(pem, _)| pem.clone());
+        let result = yuki_http::HttpExecutor::with_tls(skip_certs, pem, send).await;
         let mut resp = match result {
             Ok(r) => r,
             Err(YukiError::Cancelled) => return Err("Request cancelled".into()),
             Err(e) => return Err(redact::redact_error(&e.to_string())),
         };
-        // The response strip flags it; a URL without TLS has nothing to skip.
-        if skip_certs
-            && req
-                .url
-                .trim_start()
-                .to_ascii_lowercase()
-                .starts_with("https")
-        {
-            resp.events.insert(
-                0,
-                yuki_core::TimelineEvent {
-                    at_ms: 0.0,
-                    kind: "tls".into(),
-                    text: "certificate not verified (accept invalid certificates is on)".into(),
-                },
-            );
+        // A URL without TLS has nothing to skip or present.
+        let https = req
+            .url
+            .trim_start()
+            .to_ascii_lowercase()
+            .starts_with("https");
+        // `tls` kind: the response strip flags it as unverified.
+        let event = |kind: &str, text: String| yuki_core::TimelineEvent {
+            at_ms: 0.0,
+            kind: kind.into(),
+            text,
+        };
+        if let Some((_, name)) = client_cert.filter(|_| https) {
+            let text = format!("client certificate {name} (sent if the server asks)");
+            resp.events.insert(0, event("info", text));
+        }
+        if skip_certs && https {
+            let text = "certificate not verified (accept invalid certificates is on)";
+            resp.events.insert(0, event("tls", text.into()));
         }
         eprintln!(
             "[send] response {} in {:.0}ms (total wall {:.0}ms)",

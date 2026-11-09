@@ -49,6 +49,8 @@ pub struct SettingsScreen {
     allow: Vec<String>,
     /// Machine-local: sends accept invalid TLS certificates; `None` = as general.
     pub skip_certs: Option<bool>,
+    /// Machine-local: PEM files presented on mTLS (`client_cert.rs`).
+    pub client_cert: Option<resolve::ClientCert>,
     /// Where the workspace's files (and its git repo) live, links resolved.
     pub folder: PathBuf,
     pub section: Section,
@@ -113,6 +115,7 @@ struct Loaded {
     ws: Workspace,
     allow: Vec<String>,
     skip_certs: Option<bool>,
+    client_cert: Option<resolve::ClientCert>,
     global: GlobalSettings,
     folder: PathBuf,
 }
@@ -128,6 +131,7 @@ impl SettingsScreen {
             ws,
             allow,
             skip_certs,
+            client_cert,
             global,
             folder,
         } = loaded;
@@ -178,6 +182,7 @@ impl SettingsScreen {
             ws,
             allow,
             skip_certs,
+            client_cert,
             folder,
             section: Section::Workspace,
             mcp_client: Default::default(),
@@ -199,9 +204,20 @@ impl SettingsScreen {
     /// Applies to the next send; written right away, like appearance.
     pub fn set_skip_certs(&mut self, skip: Option<bool>, cx: &mut Context<Self>) {
         self.skip_certs = skip;
+        self.write_local(
+            move |id, dir| resolve::set_skip_cert_check(id, dir, skip),
+            cx,
+        );
+    }
+
+    /// Writes a machine-local workspace setting off the UI thread.
+    pub(crate) fn write_local(
+        &mut self,
+        write: impl FnOnce(&str, &std::path::Path) -> Result<(), YukiError> + Send + 'static,
+        cx: &mut Context<Self>,
+    ) {
         let (id, dir) = (self.ws.id.clone(), self.backend.api.app_data_dir.clone());
-        let task =
-            cx.background_spawn(async move { resolve::set_skip_cert_check(&id, &dir, skip) });
+        let task = cx.background_spawn(async move { write(&id, &dir) });
         cx.spawn(async move |this, cx| {
             if let Err(e) = task.await {
                 _ = this.update(cx, |s, cx| {
@@ -366,6 +382,7 @@ impl Yuki {
             Ok::<_, YukiError>(Loaded {
                 allow: resolve::system_env_allowlist(&id, dir),
                 skip_certs: resolve::skip_cert_check(&id, dir),
+                client_cert: resolve::client_cert(&id, dir),
                 global: resolve::global_settings(dir),
                 folder: backend.ws_dir(&id),
                 ws,

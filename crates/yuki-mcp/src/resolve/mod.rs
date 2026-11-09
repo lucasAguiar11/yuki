@@ -25,9 +25,9 @@ pub use responses::{
     sources as response_sources,
 };
 pub use system_env::{
-    allowlist as system_env_allowlist, effective_skip_cert_check,
-    set_allowlist as set_system_env_allowlist, set_skip_cert_check, skip_cert_check,
-    snapshot as system_env_snapshot,
+    allowlist as system_env_allowlist, client_cert, effective_skip_cert_check,
+    set_allowlist as set_system_env_allowlist, set_client_cert, set_skip_cert_check,
+    skip_cert_check, snapshot as system_env_snapshot, ClientCert,
 };
 pub use text::path_params;
 pub use vars::{

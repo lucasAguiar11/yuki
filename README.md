@@ -60,6 +60,8 @@ Everything lives in `~/Library/Application Support/dev.yuki` (override with `YUK
 
 General also sets how workspaces open: **in this window** or **in a new window** (⌘O and the welcome list; ⌘⇧O and ⌘-click do the other one). Agents sending over MCP get the same rules.
 
+**Client certificate (mTLS).** Settings → workspace → **client certificate** picks the PEM certificate and its key (or one file holding both). HTTPS sends from that workspace present it when the server asks for one; the request's **log** tab names it. Machine-local, never committed. NTLM, WebSocket and gRPC don't use it yet.
+
 ## Variables and functions
 
 `{{ NAME }}` in the URL, params, headers, body or auth resolves from the active environment (and folder variables) at send time. Functions start with `$` and generate a fresh value per occurrence: `{{ $fake.fullName() }}`, `firstName`, `lastName`, `email`, `phone`, `cpf`, `cnpj`, `uuid`, `lorem`, `number`, `password`, `date`, `username`, `company`, `street`, `city`, `zipCode`, `jobTitle`, `url` (all `$fake.*`), plus `{{ $uuid.v4() }}` and `{{ $timestamp.iso() }}` / `unix` / `unixMs` / `date` / `time`. Type `$` to pick one (the list shows a sample of each); the response's **log** tab shows the values that were sent.

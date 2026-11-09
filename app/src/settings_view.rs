@@ -286,6 +286,7 @@ impl SettingsScreen {
                 Some(t!("expired, self-signed or for another host: accepting lets sends go through anyway. this machine only.").into_owned()),
                 cx,
             ))
+            .child(self.render_client_cert(cx))
             .into_any_element()
     }
 

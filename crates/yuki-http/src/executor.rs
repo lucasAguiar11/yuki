@@ -171,7 +171,7 @@ impl HttpExecutor {
             }
         }
 
-        let mut builder = self.client().request(method, &url);
+        let mut builder = self.client()?.request(method, &url);
         if let Some(ms) = settings.timeout_ms {
             // reqwest's per-request timeout: connect through the last body byte.
             builder = builder.timeout(std::time::Duration::from_millis(ms.into()));

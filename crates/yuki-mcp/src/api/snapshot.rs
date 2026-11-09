@@ -93,25 +93,31 @@ impl ApiBackend {
 
         // WorkspaceStore::get reads workspace.yaml from disk — offload it (rule 17).
         // The workspace's overrides first, then the general ones (first match wins).
+        // Certificate settings as a send's: replaying an mTLS API needs its cert.
         let workspaces = self.workspaces.clone();
         let ws_for_dns = ws_id.clone();
         let dir = self.app_data_dir.clone();
-        let dns_overrides = super::blocking(move || {
+        let tls = super::blocking(move || {
             let mut dns = workspaces
                 .get(&ws_for_dns)
                 .map(|w| w.dns_overrides)
                 .unwrap_or_default();
             dns.extend(crate::resolve::global_settings(&dir).dns_overrides);
-            Ok(dns)
+            let skip = crate::resolve::effective_skip_cert_check(&ws_for_dns, &dir);
+            let pem = crate::resolve::client_cert(&ws_for_dns, &dir)
+                .map(|c| c.pem().map(std::sync::Arc::new))
+                .transpose()
+                .map_err(yuki_core::YukiError::Http)?;
+            Ok((dns, skip, pem))
         })
-        .await
-        .unwrap_or_default();
+        .await;
+        let (dns_overrides, skip, pem) = match tls {
+            Ok(t) => t,
+            Err(e) => return ToolResult::error(e.to_string()),
+        };
         // Guarded like request.send: the target URL is data, not vetted by a human.
-        let response = match self
-            .executor
-            .send_guarded(&request, cookies, dns_overrides)
-            .await
-        {
+        let send = self.executor.send_guarded(&request, cookies, dns_overrides);
+        let response = match yuki_http::HttpExecutor::with_tls(skip, pem, send).await {
             Ok(r) => r,
             Err(e) => return ToolResult::error(redact::redact_error(&e.to_string())),
         };

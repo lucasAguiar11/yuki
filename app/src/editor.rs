@@ -103,6 +103,8 @@ pub struct RequestEditor {
     pub file_note: Option<SharedString>,
     /// The binary response decoded for display (image, PDF pages).
     pub media: Option<crate::binary::Media>,
+    /// The PDF an HTML response embeds (what `media` shows and `open` opens).
+    pub embedded: Option<Vec<u8>>,
     pub(crate) media_task: Option<Task<()>>,
     pub sending: bool,
     /// When the in-flight send started (drives the live elapsed counter).
@@ -290,6 +292,7 @@ impl RequestEditor {
             response_open: true,
             file_note: None,
             media: None,
+            embedded: None,
             media_task: None,
             sending: false,
             sent_at: None,

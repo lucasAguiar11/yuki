@@ -134,6 +134,9 @@ pub fn render(editor: &RequestEditor, cx: &mut Context<RequestEditor>) -> AnyEle
                     .into_any_element()
             }
             RespTab::Preview if is_csv(resp) => crate::csv::render(&resp.body, cx),
+            RespTab::Preview if editor.embedded.is_some() => {
+                crate::binary::render(editor, resp, cx)
+            }
             RespTab::Preview => TextView::html("resp-html", resp.body.clone())
                 .scrollable(true)
                 .selectable(true)

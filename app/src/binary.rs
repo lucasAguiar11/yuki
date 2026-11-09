@@ -1,5 +1,7 @@
 //! Binary response body: images and PDFs render inline, everything else gets
 //! a card; all of them can be saved or opened in the system's default app.
+//! An HTML page that only wraps a PDF (`<embed src="data:application/pdf;base64,…">`)
+//! previews that PDF.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -98,28 +100,56 @@ fn bytes(resp: &HttpResponse) -> Result<Vec<u8>, String> {
         .map_err(|e| e.to_string())
 }
 
+/// The PDF an HTML viewer page carries as a `data:application/pdf;base64,`
+/// URI, decoded.
+fn embedded_pdf(html: &str) -> Option<Vec<u8>> {
+    const MARK: &str = "data:application/pdf;base64,";
+    let data: String = html[html.find(MARK)? + MARK.len()..]
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || "+/=\r\n".contains(*c))
+        .filter(|c| !c.is_ascii_whitespace())
+        .collect();
+    base64::engine::general_purpose::STANDARD.decode(data).ok()
+}
+
+/// `response.html` → `response.pdf`.
+fn embedded_name(resp: &HttpResponse, url: &str) -> String {
+    let name = file_name(resp, url);
+    Path::new(&name)
+        .with_extension("pdf")
+        .to_string_lossy()
+        .into_owned()
+}
+
 impl RequestEditor {
-    /// Decodes the shown response's image/PDF; a newer response drops the task.
+    /// Decodes the shown response's image/PDF (or the PDF an HTML page
+    /// embeds); a newer response drops the task.
     pub(crate) fn load_media(&mut self, cx: &mut Context<Self>) {
         self.media = None;
         self.media_task = None;
+        self.embedded = None;
         let Some(Ok(resp)) = &self.response else {
             return;
         };
-        if resp.body_is_text {
+        let (ct, text) = (content_type(resp).to_string(), resp.body_is_text);
+        if text && ct != "text/html" {
             return;
         }
-        let (ct, body) = (content_type(resp).to_string(), resp.body.clone());
+        let body = resp.body.clone();
         let build = cx.background_spawn(async move {
+            if text {
+                let pdf = embedded_pdf(&body)?;
+                return Some((media("application/pdf", pdf.clone())?, Some(pdf)));
+            }
             let bytes = base64::engine::general_purpose::STANDARD
                 .decode(body)
                 .ok()?;
-            media(&ct, bytes)
+            Some((media(&ct, bytes)?, None))
         });
         self.media_task = Some(cx.spawn(async move |this, cx| {
-            let media = build.await;
+            let (media, embedded) = build.await.unzip();
             _ = this.update(cx, |this, cx| {
-                this.media = media;
+                (this.media, this.embedded) = (media, embedded.flatten());
                 cx.notify();
             });
         }));
@@ -168,7 +198,13 @@ impl RequestEditor {
 
     /// Into the temp dir under its own name, then the default app (Preview for a PDF).
     fn open_binary(&mut self, cx: &mut Context<Self>) {
-        let Some((name, data)) = self.binary() else {
+        let embedded = match (&self.embedded, &self.response) {
+            (Some(pdf), Some(Ok(resp))) => {
+                Some((embedded_name(resp, sent_url(self)), Ok(pdf.clone())))
+            }
+            _ => None,
+        };
+        let Some((name, data)) = embedded.or_else(|| self.binary()) else {
             return;
         };
         let path = std::env::temp_dir().join("yuki").join(name);
@@ -216,11 +252,22 @@ pub fn render(
         theme.border,
         theme.mono_font_family.clone(),
     );
-    let kind = match content_type(resp) {
-        "" => t!("binary").into_owned(),
-        ct => ct.to_string(),
+    let (kind, size, name) = match &editor.embedded {
+        Some(pdf) => (
+            "application/pdf".to_string(),
+            pdf.len() as u32,
+            embedded_name(resp, sent_url(editor)),
+        ),
+        None => (
+            match content_type(resp) {
+                "" => t!("binary").into_owned(),
+                ct => ct.to_string(),
+            },
+            resp.body_size,
+            file_name(resp, sent_url(editor)),
+        ),
     };
-    let facts = format!("{kind} · {}", ui::human_bytes(resp.body_size));
+    let facts = format!("{kind} · {}", ui::human_bytes(size));
     let Some(media) = &editor.media else {
         return v_flex()
             .size_full()
@@ -230,12 +277,7 @@ pub fn render(
             .text_sm()
             .font_family(mono)
             .child(div().text_color(fg).child(facts))
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(muted)
-                    .child(file_name(resp, sent_url(editor))),
-            )
+            .child(div().text_xs().text_color(muted).child(name))
             .child(open)
             .into_any_element();
     };
@@ -249,7 +291,7 @@ pub fn render(
         .border_b_1()
         .border_color(border)
         .child(div().text_color(fg).child(facts))
-        .child(file_name(resp, sent_url(editor)))
+        .child(name)
         .child(div().flex_1())
         .child(open);
     let content = match media {
@@ -291,7 +333,7 @@ pub fn render(
 
 #[cfg(test)]
 mod tests {
-    use super::{file_name, HttpResponse};
+    use super::{embedded_pdf, file_name, HttpResponse};
 
     fn resp(headers: &[(&str, &str)]) -> HttpResponse {
         let headers: Vec<_> = headers
@@ -316,5 +358,13 @@ mod tests {
         )]);
         assert_eq!(file_name(&given, "http://h/a.bin"), "pre-alerta.pdf");
         assert_eq!(file_name(&resp(&[]), "http://api.com"), "response.bin");
+    }
+
+    #[test]
+    fn finds_the_pdf_an_html_page_embeds() {
+        let html =
+            "<embed type=\"application/pdf\" src=\"data:application/pdf;base64,JVBE\nRi0x\" />";
+        assert_eq!(embedded_pdf(html).unwrap(), b"%PDF-1");
+        assert!(embedded_pdf("<p>no pdf</p>").is_none());
     }
 }

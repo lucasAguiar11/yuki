@@ -562,7 +562,7 @@ impl ApiBackend {
         };
         if let Some((_, name)) = client_cert.filter(|_| https) {
             let text = format!("client certificate {name} (sent if the server asks)");
-            resp.events.insert(0, event("info", text));
+            resp.events.insert(0, event("cert", text));
         }
         if skip_certs && https {
             let text = "certificate not verified (accept invalid certificates is on)";

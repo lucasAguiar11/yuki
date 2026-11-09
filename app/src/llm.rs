@@ -142,6 +142,16 @@ pub fn context(c: &LlmContext) -> String {
             if let Some(t) = timing(resp) {
                 out.push(format!("timing: {t}"));
             }
+            // Client certificate and unverified server certificate, as the log tab shows.
+            let tls: Vec<&str> = resp
+                .events
+                .iter()
+                .filter(|e| e.kind == "cert" || e.kind == "tls")
+                .map(|e| e.text.as_str())
+                .collect();
+            if !tls.is_empty() {
+                out.push(format!("tls: {}", tls.join(" · ")));
+            }
             out.push(fence("http", &headers(resp)));
             out.push(response_body(resp));
         }

@@ -39,7 +39,7 @@ pub fn body_for_editor(resp: &HttpResponse) -> (String, &'static str) {
             .any(|h| h.name.eq_ignore_ascii_case("content-type") && h.value.contains(s))
     };
     if ct("xml") || resp.body.trim_start().starts_with("<?xml") {
-        let pretty = crate::xml::pretty_xml(&resp.body).unwrap_or_else(|| resp.body.clone());
+        let pretty = crate::xml::pretty_xml(&resp.body, false).unwrap_or_else(|| resp.body.clone());
         return (pretty, "html");
     }
     (resp.body.clone(), if ct("html") { "html" } else { "text" })

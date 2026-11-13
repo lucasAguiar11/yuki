@@ -218,7 +218,7 @@ impl RequestEditor {
                 .child(label)
                 .on_click(cx.listener(|this, _, window, cx| this.pick_files(window, cx)))
         });
-        let format = (kind == BodyKind::Json).then(|| {
+        let format = matches!(kind, BodyKind::Json | BodyKind::Xml).then(|| {
             div()
                 .id("body-format")
                 .cursor_pointer()
@@ -247,12 +247,18 @@ impl RequestEditor {
             .into_any_element()
     }
 
-    /// Re-indents the JSON body as one undoable edit (⌘Z restores it); left
+    /// Re-indents the JSON/XML body as one undoable edit (⌘Z restores it); left
     /// as typed when it doesn't balance.
     fn format_body(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let xml = self.body.kind(cx) == BodyKind::Xml;
         self.body.text.update(cx, |s, cx| {
             let value = s.value();
-            let Some(pretty) = draft::pretty_json(&value).filter(|p| *p != value) else {
+            let pretty = if xml {
+                crate::xml::pretty_xml(&value, true)
+            } else {
+                draft::pretty_json(&value)
+            };
+            let Some(pretty) = pretty.filter(|p| *p != value) else {
                 return;
             };
             s.set_selected_range(0..value.len(), cx);

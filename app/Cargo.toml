@@ -33,6 +33,15 @@ base64 = "0.22"
 mime_guess = "2"
 # Already in the tree through gpui; the frame type of rendered PDF pages (pdf.rs).
 image = { version = "0.25", default-features = false }
+# Already in the tree (yuki-auth, url, yuki-mcp): toolbox hashes, URL coding, generators.
+md-5 = "0.10"
+sha1 = "0.10"
+sha2 = "0.10"
+percent-encoding = "2"
+rand = { workspace = true }
+uuid = { workspace = true, features = ["v1", "v3", "v5", "v6", "v7"] }
+# Toolbox QR codes (MIT/Apache-2.0); no default features = no image/svg deps.
+qrcode = { version = "0.14", default-features = false }
 
 # Already in the tree through gpui: dock icon (objc2*), PDF pages (core-graphics).
 [target.'cfg(target_os = "macos")'.dependencies]

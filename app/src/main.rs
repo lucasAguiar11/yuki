@@ -68,6 +68,8 @@ mod settings_view;
 mod sidebar;
 mod table;
 mod tabs;
+mod toolbox;
+mod toolbox_panel;
 mod transfer;
 mod transfer_ui;
 mod tree;
@@ -105,6 +107,7 @@ actions!(
         ToggleResponse,
         ToggleVars,
         ToggleGit,
+        ToggleToolbox,
         OpenEnvs,
         CloseEnvs,
         OpenSettings,
@@ -163,6 +166,7 @@ fn bind_keys(cx: &mut App) {
         KeyBinding::new("cmd-j", ToggleResponse, None),
         KeyBinding::new("cmd-shift-e", ToggleVars, None),
         KeyBinding::new("cmd-shift-g", ToggleGit, None),
+        KeyBinding::new("cmd-shift-t", ToggleToolbox, None),
         KeyBinding::new("cmd-alt-e", OpenEnvs, None),
         KeyBinding::new("cmd-alt-l", ToggleLayout, None),
         KeyBinding::new("escape", CloseEnvs, Some("EnvScreen")),

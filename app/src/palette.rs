@@ -254,6 +254,10 @@ impl Yuki {
                         Box::new(ToggleLayout),
                     ),
                     action("Git: commit, branches, pull/push…", Box::new(ToggleGit)),
+                    action(
+                        &t!("Toolbox: base64, jwt, hash, password, qr…"),
+                        Box::new(crate::ToggleToolbox),
+                    ),
                     action(&t!("Environments and variables…"), Box::new(OpenEnvs)),
                     action(&t!("Settings…"), Box::new(OpenSettings)),
                     action(&t!("Check for updates…"), Box::new(CheckUpdates)),

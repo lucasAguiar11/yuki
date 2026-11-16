@@ -38,6 +38,7 @@ cargo build --release -p yuki
 | ⌘⇧E | variables panel |
 | ⌘⌥E | environments and variables |
 | ⌘⇧G | git panel |
+| ⌘⇧T | toolbox: base64, JWT, URL, hashes, timestamps, QR code, password, UUID |
 | ⌘, | settings: general (every workspace), workspace, appearance |
 | ⌘B | toggle sidebar |
 | ⌘W / ⌃⇥ / ⌃⇧⇥ | close / next / previous tab |

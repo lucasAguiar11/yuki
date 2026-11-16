@@ -49,6 +49,8 @@ pub struct Yuki {
     pub(crate) sidebar: bool,
     pub(crate) vars_panel: bool,
     pub(crate) git_panel: bool,
+    /// The toolbox panel, while open (`toolbox_panel.rs`).
+    pub(crate) toolbox: Option<crate::toolbox_panel::Toolbox>,
     pub git: Git,
     /// Show secret values in the variables panel.
     pub reveal: bool,
@@ -108,6 +110,7 @@ impl Yuki {
             sidebar,
             vars_panel,
             git_panel,
+            toolbox: None,
             git: Git::default(),
             reveal: false,
             env: None,
@@ -423,8 +426,10 @@ impl Yuki {
         let s = cx.global::<Session>();
         let (sidebar_w, panel_w) = (px(s.sidebar_width), px(s.panel_width));
         let side = self.sidebar;
-        let right_on = self.vars_panel || self.git_panel;
-        let right = if self.git_panel {
+        let right_on = self.vars_panel || self.git_panel || self.toolbox.is_some();
+        let right = if self.toolbox.is_some() {
+            3
+        } else if self.git_panel {
             2
         } else {
             self.vars_panel as u8
@@ -467,7 +472,9 @@ impl Yuki {
                 .child(center),
         );
         if right_on {
-            let panel = if self.git_panel {
+            let panel = if self.toolbox.is_some() {
+                crate::toolbox_panel::render(self, cx).into_any_element()
+            } else if self.git_panel {
                 git_panel::render(self, cx).into_any_element()
             } else {
                 vars_panel::render(self, cx).into_any_element()
@@ -509,6 +516,7 @@ impl Render for Yuki {
             .map(|el| crate::update::on_actions(el, cx))
             .map(|el| crate::mcp_view::on_actions(el, cx))
             .map(|el| crate::transfer_ui::on_actions(el, cx))
+            .map(|el| crate::toolbox_panel::on_actions(el, cx))
             .on_action(cx.listener(|this, _: &OpenWorkspaceInWindow, window, cx| {
                 this.open_palette(Kind::NewWindow, window, cx)
             }))
@@ -525,11 +533,13 @@ impl Render for Yuki {
             .on_action(cx.listener(|this, _: &ToggleVars, _, cx| {
                 this.vars_panel = !this.vars_panel;
                 this.git_panel = false;
+                this.toolbox = None;
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &ToggleGit, _, cx| {
                 this.git_panel = !this.git_panel;
                 this.vars_panel = false;
+                this.toolbox = None;
                 this.refresh_git(cx);
                 cx.notify();
             }))

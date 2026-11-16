@@ -38,6 +38,7 @@ cargo build --release -p yuki
 | ⌘⇧E | painel de variáveis |
 | ⌘⌥E | ambientes e variáveis |
 | ⌘⇧G | painel do git |
+| ⌘⇧T | ferramentas: base64, JWT, URL, hashes, timestamps, QR code, senha, UUID |
 | ⌘, | configurações: geral (todos os workspaces), workspace, aparência |
 | ⌘B | mostrar/ocultar a barra lateral |
 | ⌘W / ⌃⇥ / ⌃⇧⇥ | fechar / próxima / aba anterior |

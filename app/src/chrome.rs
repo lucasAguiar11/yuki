@@ -16,7 +16,7 @@ use crate::{
     workspace::Yuki,
     ImportCollection, ImportVoleeo, InstallUpdate, NewRequest, OpenCommands, OpenEnvs, OpenMcp,
     OpenRequests, OpenSettings, OpenWorkspaces, ToggleEditor, ToggleGit, ToggleLayout,
-    ToggleSidebar, ToggleVars,
+    ToggleSidebar, ToggleToolbox, ToggleVars,
 };
 
 /// `demo / JSONPlaceholder / photos                         env [Local ▾]`
@@ -163,7 +163,7 @@ pub fn status_line(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
                 )
         });
     let theme = cx.theme();
-    let commands: [(&str, &str, Box<dyn Action>); 8] = [
+    let commands: [(&str, &str, Box<dyn Action>); 9] = [
         (":requests", "⌘P", Box::new(OpenRequests)),
         (":workspace", "⌘O", Box::new(OpenWorkspaces)),
         (":commands", "⌘⇧P", Box::new(OpenCommands)),
@@ -172,6 +172,7 @@ pub fn status_line(yuki: &Yuki, cx: &mut Context<Yuki>) -> impl IntoElement {
         (":vars", "⌘⇧E", Box::new(ToggleVars)),
         (":envs", "⌘⌥E", Box::new(OpenEnvs)),
         (":git", "⌘⇧G", Box::new(ToggleGit)),
+        (":tools", "⌘⇧T", Box::new(ToggleToolbox)),
     ];
     // `⎇ main · 3 ↑1` — branch, uncommitted changes, unpushed commits.
     let git = yuki.git.view.as_ref().filter(|v| v.info.is_repo).map(|v| {

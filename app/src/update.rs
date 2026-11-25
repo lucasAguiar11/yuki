@@ -17,8 +17,8 @@ use crate::{
     backend::Backend, settings::Section, workspace::Yuki, CheckUpdates, InstallUpdate, OpenAbout,
 };
 
-const LATEST: &str = "https://api.github.com/repos/lucasAguiar11/yuki/releases/latest";
-/// Re-check while the app stays open; GitHub allows 60 unauthenticated calls/h.
+const RELEASES: &str = "https://github.com/lucasAguiar11/yuki/releases";
+/// Re-check while the app stays open.
 const RECHECK: Duration = Duration::from_secs(6 * 60 * 60);
 /// What `.github/workflows/release.yml` uploads for this arch: `Yuki.app`,
 /// zipped by `ditto`.
@@ -69,47 +69,28 @@ fn newer(tag: &str, current: &str) -> bool {
     matches!((v(tag), v(current)), (Some(a), Some(b)) if a > b)
 }
 
-fn get(url: &str) -> reqwest::RequestBuilder {
-    // GitHub's API rejects requests without a User-Agent.
-    reqwest::Client::new()
-        .get(url)
-        .header("User-Agent", concat!("Yuki/", env!("CARGO_PKG_VERSION")))
-}
-
-/// `/releases/latest` skips drafts and pre-releases: `release.yml` publishes
-/// only once both arches are uploaded.
+/// `/releases/latest` redirects to `/releases/tag/{tag}` and skips drafts and
+/// pre-releases: `release.yml` publishes only once both arches are uploaded.
+/// Not the API: it allows 60 unauthenticated calls/h per IP, which a shared
+/// (CGNAT) IP exhausts.
 async fn latest() -> Result<Option<Release>, String> {
-    let res = get(LATEST).send().await.map_err(|e| e.to_string())?;
-    // 404 = nothing published yet.
-    if res.status() == reqwest::StatusCode::NOT_FOUND {
-        return Ok(None);
-    }
-    let rel: serde_json::Value = res
-        .error_for_status()
-        .map_err(|e| e.to_string())?
-        .json()
+    let res = reqwest::Client::new()
+        .head(format!("{RELEASES}/latest"))
+        .send()
         .await
+        .and_then(|r| r.error_for_status())
         .map_err(|e| e.to_string())?;
-    let tag = rel["tag_name"].as_str().unwrap_or_default();
-    if !newer(tag, env!("CARGO_PKG_VERSION")) {
-        return Ok(None);
-    }
-    let asset = asset();
-    let url = rel["assets"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .find(|a| a["name"] == asset)
-        .and_then(|a| a["browser_download_url"].as_str());
-    Ok(url.map(|url| Release {
+    // Nothing published yet lands elsewhere: no semver tag, no update.
+    let tag = res.url().path_segments().and_then(|mut s| s.next_back());
+    let tag = tag.unwrap_or_default();
+    Ok(newer(tag, env!("CARGO_PKG_VERSION")).then(|| Release {
         version: tag.to_owned(),
-        url: url.to_owned(),
+        url: format!("{RELEASES}/download/{tag}/{}", asset()),
     }))
 }
 
 async fn download(url: String) -> Result<Vec<u8>, String> {
-    let res = get(&url)
-        .send()
+    let res = reqwest::get(&url)
         .await
         .and_then(|r| r.error_for_status())
         .map_err(|e| e.to_string())?;
